@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}Voice Studio - {{ book.title }}{% endblock %}
+{% block content %}
+<div class="studio-page">
+  <div class="studio-header">
+    <a href="/reader/{{ book.id }}" class="btn btn-sm btn-ghost">&#8592; Reader</a>
+    <h1>Voice Studio &mdash; <em>{{ book.title }}</em></h1>
+  </div>
+
+  <div class="studio-narrator">
+    <div class="studio-section-title">Narrator</div>
+    <div class="char-list">
+      <div class="character-card narrator-card">
+        <div class="char-avatar narrator-avatar">N</div>
+        <div class="char-details">
+          <span class="char-name">Narrator</span>
+          <div class="voice-controls">
+            <select id="narrator-gender" class="vc-select">
+              <option value="female">Female</option>
+              <option value="male" selected>Male</option>
+            </select>
+            <select id="narrator-age" class="vc-select">
+              <option value="child">Child</option>
+              <option value="teenager">Teenager</option>
+              <option value="young adult">Young adult</option>
+              <option value="middle-aged">Middle-aged</option>
+              <option value="elderly" selected>Elderly</option>
+            </select>
+            <select id="narrator-pitch" class="vc-select">
+              <option value="very low pitch">Very low pitch</option>
+              <option value="low pitch" selected>Low pitch</option>
+              <option value="moderate pitch">Moderate pitch</option>
+              <option value="high pitch">High pitch</option>
+              <option value="very high pitch">Very high pitch</option>
+            </select>
+            <select id="narrator-accent" class="vc-select">
+              <option value="american accent">American</option>
+              <option value="british accent" selected>British</option>
+              <option value="australian accent">Australian</option>
+              <option value="canadian accent">Canadian</option>
+              <option value="indian accent">Indian</option>
+              <option value="chinese accent">Chinese</option>
+              <option value="korean accent">Korean</option>
+              <option value="japanese accent">Japanese</option>
+            </select>
+          </div>
+          <label class="narrator-mode-row">
+            <input type="checkbox" id="single-narrator-mode">
+            <span>Use this narrator for the whole book</span>
+          </label>
+          <div class="studio-note">
+            When enabled, playback and export use the narrator voice for every line.
+          </div>
+          <div class="char-card-footer">
+            <span class="instruct-preview" id="narrator-instruct-preview"></span>
+            <button class="btn btn-sm btn-ghost preview-btn" data-char-id="narrator">&#9654; Preview</button>
+            <button class="btn btn-sm btn-primary" onclick="saveNarrator()">Save</button>
+          </div>
+          <div id="narrator-ref-status" class="reference-status{% if not book.narrator_ref_audio_path %} hidden{% endif %}">
+            <span class="reference-status-label">Active reference:</span>
+            <span id="narrator-ref-name">{{ book.narrator_ref_audio_name or 'Previously uploaded WAV' }}</span>
+          </div>
+          <div class="clone-section">
+            <label for="narrator-ref-text">Reference audio transcript</label>
+            <textarea id="narrator-ref-text" class="reference-text" rows="3" placeholder="Type exactly what is spoken in the reference audio.">{{ book.narrator_ref_text or '' }}</textarea>
+            <div class="reference-actions">
+              <label class="btn btn-sm btn-ghost file-picker">
+                <span>Load transcript TXT</span>
+                <input id="narrator-ref-text-file" type="file" accept=".txt,text/plain" onchange="loadNarratorRefText(event)">
+              </label>
+            </div>
+            <div class="studio-note">A matching transcript gives OmniVoice the best cloning quality. The TXT content is loaded into this field; save it or upload the audio to persist it. If left empty, OmniVoice can auto-transcribe with Whisper.</div>
+            <div class="reference-actions">
+              <label class="btn btn-sm btn-ghost file-picker">
+                <span>Choose reference WAV</span>
+                <input id="narrator-ref-file" type="file" accept=".wav,audio/wav" onchange="uploadNarratorRef(event)">
+              </label>
+              <button
+                id="remove-narrator-ref-btn"
+                class="btn btn-sm btn-ghost"
+                type="button"
+                onclick="removeNarratorRef()"
+              >Remove reference</button>
+            </div>
+            <div class="studio-note">Best results: a clean, single-speaker, 3–10 second clip in the target language.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="studio-characters">
+    <div class="studio-section-title">
+      Characters <span id="char-count" class="muted"></span>
+    </div>
+    <div id="character-voice-note" class="studio-note hidden"></div>
+    <div id="char-list" class="char-list">
+      <div class="loading-spinner">Detecting characters...</div>
+    </div>
+  </div>
+</div>
+
+<audio id="preview-audio" style="display:none"></audio>
+{% endblock %}
+{% block scripts %}
+<script>window.BOOK_ID = {{ book.id }};</script>
+<script>window.NARRATOR_INSTRUCT = {{ book.narrator_instruct|tojson }};</script>
+<script>window.SINGLE_NARRATOR_MODE = {{ 1 if book.single_narrator_mode else 0 }};</script>
+<script>window.NARRATOR_HAS_REF_AUDIO = {{ 1 if book.narrator_ref_audio_path else 0 }};</script>
+<script>window.NARRATOR_REF_AUDIO_NAME = {{ (book.narrator_ref_audio_name or '')|tojson }};</script>
+<script src="/static/js/voice_studio.js"></script>
+{% endblock %}

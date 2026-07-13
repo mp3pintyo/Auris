@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Auris{% endblock %}</title>
+<link rel="stylesheet" href="/static/css/style.css">
+{% block head %}{% endblock %}
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="/">Auris<span class="brand-sub">Reader</span></a>
+  <span class="nav-links">
+    <a href="/" id="nav-library">Library</a>
+    <a href="/settings" id="nav-settings">Settings</a>
+    <span id="model-badge" class="badge badge-loading">Loading</span>
+  </span>
+</nav>
+{% block content %}{% endblock %}
+<script>
+(function applyTheme() {
+  const t = localStorage.getItem('theme') || 'night';
+  if (t !== 'night') document.body.classList.add('theme-' + t);
+})();
+
+async function pollModelStatus() {
+  const badge = document.getElementById('model-badge');
+  if (!badge) return;
+  try {
+    const r = await fetch('/api/tts/status');
+    const s = await r.json();
+    badge.className = 'badge';
+    if (s.state === 'ready') {
+      badge.textContent = 'TTS Ready';
+      badge.classList.add('badge-ready');
+      return;
+    } else if (s.state === 'loading') {
+      badge.textContent = 'TTS Loading';
+      badge.classList.add('badge-loading');
+    } else if (s.state === 'error') {
+      badge.textContent = 'TTS Error';
+      badge.classList.add('badge-error');
+      badge.title = s.message || '';
+      return;
+    } else {
+      badge.textContent = s.model_exists ? 'TTS Idle' : 'Model Missing';
+      badge.classList.add(s.model_exists ? 'badge-idle' : 'badge-error');
+    }
+  } catch(e) { /* ignore */ }
+  setTimeout(pollModelStatus, 3000);
+}
+pollModelStatus();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

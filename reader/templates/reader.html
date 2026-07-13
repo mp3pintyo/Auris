@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}{{ book.title }} — Auris{% endblock %}
+{% block content %}
+<div class="reader-layout">
+
+  <!-- Left: Table of Contents -->
+  <aside class="toc-sidebar" id="toc-sidebar">
+    <div class="toc-header">
+      <span class="book-title-short" title="{{ book.title }}">{{ book.title }}</span>
+      <a href="/voice-studio/{{ book.id }}" class="btn btn-sm btn-ghost" title="Voice Studio">Voices</a>
+    </div>
+    <div id="toc-list" class="toc-list">
+      <div class="loading-spinner">Loading…</div>
+    </div>
+  </aside>
+
+  <!-- Centre: Reading area -->
+  <main class="reader-main" id="reader-main">
+    <div class="reader-toolbar">
+      <button id="toc-toggle" class="btn btn-sm btn-ghost" title="Toggle contents (C)">&#8801;</button>
+      <span id="chapter-title" class="chapter-title-bar"></span>
+      <span id="reading-estimate" class="reading-estimate"></span>
+
+      <div class="font-controls">
+        <button class="btn btn-sm btn-ghost" onclick="changeFontSize(-1)" title="Smaller text">A&#8722;</button>
+        <button class="btn btn-sm btn-ghost" onclick="changeFontSize(1)" title="Larger text">A+</button>
+        <button class="btn btn-sm btn-ghost" id="theme-cycle-btn" onclick="cycleTheme()" title="Cycle theme (T)">&#9675;</button>
+        <button class="btn btn-sm btn-ghost" id="bookmark-btn" onclick="addBookmark()" title="Add bookmark (B)">&#9734;</button>
+        <button class="btn btn-sm btn-ghost" id="bm-panel-toggle" onclick="toggleBookmarkPanel()" title="Bookmarks">&#9776;</button>
+        <button class="btn btn-sm btn-ghost" id="shortcuts-btn" onclick="showShortcuts()" title="Keyboard shortcuts (?)">?</button>
+      </div>
+    </div>
+
+    <div class="chapter-progress-bar" id="chapter-progress-bar">
+      <div class="chapter-progress-fill" id="chapter-progress-fill" style="width:0%"></div>
+    </div>
+
+    <div id="chapter-content" class="chapter-content">
+      <div class="placeholder-text">Select a chapter from the sidebar to begin reading.</div>
+    </div>
+  </main>
+
+  <!-- Right: Bookmarks panel -->
+  <aside class="bookmarks-panel collapsed" id="bookmarks-panel">
+    <div class="bookmarks-header">
+      <span>Bookmarks</span>
+      <button class="btn btn-sm btn-ghost" onclick="toggleBookmarkPanel()">&#215;</button>
+    </div>
+    <div id="bookmark-list" class="bookmark-list"></div>
+  </aside>
+
+</div>
+
+<!-- Playback bar -->
+<div class="playback-bar" id="playback-bar">
+  <div class="playback-left">
+    <button id="btn-prev-seg" class="pb-btn" title="Previous segment (&#8592;)">&#10094;</button>
+    <button id="btn-play"     class="pb-btn pb-play paused" title="Play / Pause (Space)">&#9654;</button>
+    <button id="btn-next-seg" class="pb-btn" title="Next segment (&#8594;)">&#10095;</button>
+    <button id="btn-stop"     class="pb-btn" title="Stop">&#9632;</button>
+  </div>
+  <div class="playback-center">
+    <span id="pb-character" class="pb-character">&#8212;</span>
+    <span id="pb-progress"  class="pb-progress">0 / 0</span>
+  </div>
+  <div class="playback-right">
+    <span class="pb-label">Speed</span>
+    <input id="speed-slider" type="range" min="0.5" max="2.0" step="0.1" value="1.0" class="pb-slider">
+    <span id="speed-val" style="font-size:.75rem;color:var(--text2);font-family:'Courier New',monospace">1.0&#215;</span>
+    <div class="export-menu-wrap">
+      <button class="btn btn-sm btn-ghost" id="export-btn">&#8595; Export</button>
+      <div class="export-dropdown hidden" id="export-dropdown">
+        <div class="export-dropdown-title">Export Audio</div>
+        <div class="export-section">
+          <b>Scope</b>
+          <label><input type="radio" name="exp-mode" value="chapter" checked> This chapter</label>
+          <label><input type="radio" name="exp-mode" value="chapterwise"> Chapter-wise ZIP</label>
+          <label><input type="radio" name="exp-mode" value="full"> Full book</label>
+        </div>
+        <div class="export-section">
+          <b>Audio</b>
+          <label><input type="radio" name="exp-audio" value="wav" checked> WAV (lossless)</label>
+          <label><input type="radio" name="exp-audio" value="mp3"> MP3 (requires ffmpeg)</label>
+        </div>
+        <div class="export-section">
+          <b>Subtitles</b>
+          {% if not book.single_narrator_mode %}
+          <label><input type="radio" name="exp-sub" value="ass" checked> ASS (styled, per-character)</label>
+          {% endif %}
+          <label><input type="radio" name="exp-sub" value="srt"{% if book.single_narrator_mode %} checked{% endif %}> SRT (plain)</label>
+        </div>
+        <button class="btn btn-primary btn-full" id="do-export-btn">Generate &amp; Download</button>
+        <div class="export-progress-wrap" id="export-progress-wrap">
+          <div class="export-progress-fill" id="export-progress-fill"></div>
+        </div>
+        <div id="export-status" class="export-status"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Keyboard shortcuts overlay -->
+<div class="shortcuts-overlay hidden" id="shortcuts-overlay" onclick="hideShortcuts()">
+  <div class="shortcuts-panel" onclick="event.stopPropagation()">
+    <div class="shortcuts-title">Keyboard Shortcuts</div>
+    <div class="shortcut-row"><span class="shortcut-key">Space</span><span class="shortcut-desc">Play / Pause</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">&#8592;</span><span class="shortcut-desc">Previous segment</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">&#8594;</span><span class="shortcut-desc">Next segment</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">B</span><span class="shortcut-desc">Add bookmark</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">T</span><span class="shortcut-desc">Cycle theme</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">C</span><span class="shortcut-desc">Toggle contents</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">M</span><span class="shortcut-desc">Toggle bookmarks</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">?</span><span class="shortcut-desc">Show this panel</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">Esc</span><span class="shortcut-desc">Close overlay</span></div>
+    <div style="margin-top:16px">
+      <button class="btn btn-ghost btn-sm" onclick="hideShortcuts()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<audio id="tts-audio" style="display:none"></audio>
+{% endblock %}
+{% block scripts %}
+<script>window.BOOK_ID = {{ book.id }};</script>
+<script>window.SINGLE_NARRATOR_MODE = {{ 1 if book.single_narrator_mode else 0 }};</script>
+<script src="/static/js/reader.js"></script>
+{% endblock %}

@@ -1,0 +1,49 @@
+# ── Model weights (never commit large binaries) ────────────────────────────────
+model_backup/
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+
+# ── Offline wheels (too large for git) ────────────────────────────────────────
+wheels/
+
+# ── OmniVoice library source (nested git repo — install via setup.py) ─────────
+OmniVoice/
+source/
+
+# ── Runtime-generated directories ─────────────────────────────────────────────
+reader/audio_cache/
+reader/exports/
+reader/uploads/
+
+# ── Database & user settings (machine-specific) ───────────────────────────────
+reader/data/reader.db
+reader/data/settings.json
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+venv/
+.venv/
+env/
+.env/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo

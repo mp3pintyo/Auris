@@ -1,0 +1,44 @@
+# OmniReader — complete dependency list (OmniVoice TTS engine + reader app)
+#
+# Online install:
+#   pip install -r requirements.txt
+#
+# Offline install (all wheels are pre-bundled in ../wheels/):
+#   pip install --no-index --find-links=../wheels -r requirements.txt
+#
+# NOTE — PyTorch / CUDA:
+#   The lines below pull standard CPU builds from PyPI.
+#   For GPU (CUDA 12.8) inference, install torch/torchaudio first:
+#     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+#   then re-run this file (torch/torchaudio will already be satisfied).
+
+# Tell pip to also search the bundled wheels when doing an offline install.
+--find-links=../wheels
+
+# ── OmniVoice TTS engine ──────────────────────────────────────────────────────
+# omnivoice is NOT on PyPI; install from the bundled wheel (offline) or source:
+#   Offline:  pip install --no-index --find-links=../wheels omnivoice
+#   Source:   pip install ../OmniVoice
+omnivoice>=0.1.5
+
+torch>=2.4
+torchaudio>=2.4
+transformers==5.3.0
+accelerate>=1.13.0
+gradio>=6.0
+tensorboardX>=2.6
+webdataset>=1.0
+numpy>=2.0
+soundfile>=0.12
+librosa>=0.11
+pydub>=0.25              # MP3 export (also needs ffmpeg on PATH)
+
+# ── OmniReader app ────────────────────────────────────────────────────────────
+flask>=3.0
+ebooklib>=0.18
+pymupdf>=1.24            # PyMuPDF — imported as: import fitz
+spacy>=3.7               # NLP / character detection
+
+# After installing, download the English spaCy model (requires internet once):
+#   python -m spacy download en_core_web_sm
+# OR use the Settings page in the app to install it with one click.

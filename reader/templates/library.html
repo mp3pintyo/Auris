@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Library — Auris{% endblock %}
+{% block content %}
+<div class="library-page">
+  <div class="library-header">
+    <h1>Library</h1>
+    <span id="library-count" class="library-count"></span>
+    <label class="btn btn-primary" for="file-input">Import Book</label>
+    <input id="file-input" type="file" accept=".epub,.pdf,.txt" style="display:none">
+  </div>
+  <div id="import-status" class="import-status hidden"></div>
+  <div id="book-grid" class="book-grid">
+    <div class="loading-spinner">Loading library…</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/library.js"></script>
+{% endblock %}

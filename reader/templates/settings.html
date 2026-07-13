@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Settings — Auris{% endblock %}
+{% block content %}
+<div class="settings-page">
+  <h1 class="settings-page-title">Settings</h1>
+
+  <!-- OmniVoice Model -->
+  <section class="settings-section">
+    <div class="settings-section-title">OmniVoice Model</div>
+
+    <div class="setting-row">
+      <label>Model Source</label>
+      <div class="radio-group">
+        <label><input type="radio" name="model_source" value="local" id="src-local"> Local path</label>
+        <label><input type="radio" name="model_source" value="download" id="src-download"> Download from HuggingFace</label>
+      </div>
+    </div>
+
+    <div id="panel-local" class="sub-panel">
+      <div class="setting-row">
+        <label>Model directory path</label>
+        <div class="input-group">
+          <input type="text" id="model-path" class="text-input" placeholder="/path/to/OmniVoice">
+          <button class="btn btn-ghost btn-sm" onclick="checkPath()">Check</button>
+        </div>
+        <span id="path-status" class="status-hint"></span>
+      </div>
+    </div>
+
+    <div id="panel-download" class="sub-panel hidden">
+      <div class="setting-row">
+        <label>HuggingFace repository</label>
+        <input type="text" id="model-repo" class="text-input" value="k2-fsa/OmniVoice">
+      </div>
+      <div class="setting-row">
+        <label>Download destination</label>
+        <input type="text" id="dl-dest" class="text-input" placeholder="Absolute path to save model files">
+      </div>
+      <div class="setting-row">
+        <label>HF mirror endpoint <span class="muted">(optional)</span></label>
+        <input type="text" id="hf-endpoint" class="text-input" placeholder="e.g. https://hf-mirror.com">
+      </div>
+      <div class="setting-row">
+        <button class="btn btn-primary" id="dl-btn" onclick="startDownload()">Start Download</button>
+      </div>
+      <div id="dl-progress-wrap" class="progress-wrap hidden">
+        <div class="progress-bar-outer"><div class="progress-bar-inner" id="dl-bar"></div></div>
+        <div id="dl-msg" class="progress-msg"></div>
+      </div>
+    </div>
+
+    <div class="setting-row" style="margin-top:12px">
+      <button class="btn btn-ghost btn-sm" onclick="reloadTTS()">Reload TTS engine</button>
+      <span id="tts-reload-hint" class="status-hint"></span>
+    </div>
+  </section>
+
+  <!-- spaCy -->
+  <section class="settings-section">
+    <div class="settings-section-title">spaCy — Character Detection</div>
+    <p class="section-desc">
+      spaCy and the <code>en_core_web_sm</code> model are required for accurate character
+      detection and automatic voice assignment.
+    </p>
+    <div id="spacy-status-block" class="status-block">Checking…</div>
+    <div id="spacy-install-section" class="hidden">
+      <div class="setting-row">
+        <button class="btn btn-primary" id="spacy-install-btn" onclick="installSpacy()">Install en_core_web_sm</button>
+        <span id="spacy-install-hint" class="status-hint"></span>
+      </div>
+      <p class="muted" style="margin-top:6px;font-size:.8rem">
+        Runs <code>python -m spacy download en_core_web_sm</code> — requires an internet connection once.
+      </p>
+    </div>
+  </section>
+
+  <!-- Narrator Voice -->
+  <section class="settings-section">
+    <div class="settings-section-title">Default Narrator Voice</div>
+    <div class="setting-row">
+      <label>Voice instruct string</label>
+      <input type="text" id="narrator-instruct" class="text-input"
+             placeholder="female, middle-aged, moderate pitch, american accent">
+      <span class="muted" style="font-size:.78rem">Comma-separated OmniVoice voice design attributes.</span>
+    </div>
+    <div class="setting-row">
+      <label class="narrator-mode-row">
+        <input type="checkbox" id="default-single-narrator-mode">
+        <span>Use narrator only for newly imported books</span>
+      </label>
+      <span class="muted" style="font-size:.78rem">Existing books can still be changed per book in Voice Studio.</span>
+    </div>
+  </section>
+
+  <!-- Export Defaults -->
+  <section class="settings-section">
+    <div class="settings-section-title">Export Defaults</div>
+    <div class="setting-row">
+      <label>Audio format</label>
+      <select id="audio-format" class="select-input">
+        <option value="wav">WAV — lossless, always available</option>
+        <option value="mp3">MP3 — requires ffmpeg on PATH</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <label>Subtitle format</label>
+      <select id="subtitle-format" class="select-input">
+        <option value="ass">ASS — styled, per-character colours</option>
+        <option value="srt">SRT — plain, universally supported</option>
+      </select>
+    </div>
+  </section>
+
+  <!-- Reading Interface -->
+  <section class="settings-section">
+    <div class="settings-section-title">Reading Interface</div>
+
+    <div class="setting-row">
+      <label>Theme</label>
+      <div class="theme-swatches">
+        <div class="theme-swatch theme-swatch-night" data-theme="night" title="Night" onclick="selectTheme('night')"></div>
+        <div class="theme-swatch theme-swatch-sepia" data-theme="sepia" title="Sepia" onclick="selectTheme('sepia')"></div>
+        <div class="theme-swatch theme-swatch-paper" data-theme="paper" title="Paper" onclick="selectTheme('paper')"></div>
+        <div class="theme-swatch theme-swatch-amoled" data-theme="amoled" title="AMOLED" onclick="selectTheme('amoled')"></div>
+      </div>
+      <input type="hidden" id="theme-select" value="night">
+    </div>
+
+    <div class="setting-row">
+      <label>Font family</label>
+      <div class="font-family-options">
+        <div class="font-option serif" data-ff="serif" onclick="selectFontFamily('serif')">Serif</div>
+        <div class="font-option sans"  data-ff="sans"  onclick="selectFontFamily('sans')">Sans-serif</div>
+        <div class="font-option mono"  data-ff="mono"  onclick="selectFontFamily('mono')">Monospace</div>
+      </div>
+      <input type="hidden" id="font-family" value="serif">
+    </div>
+
+    <div class="setting-row">
+      <label>Font size</label>
+      <div class="range-row">
+        <input type="range" id="font-size" min="13" max="30" step="1" value="18"
+               oninput="document.getElementById('font-size-val').textContent=this.value+'px'">
+        <span id="font-size-val" class="range-val">18px</span>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <label>Line height</label>
+      <div class="range-row">
+        <input type="range" id="line-height" min="1.4" max="2.2" step="0.1" value="1.9"
+               oninput="document.getElementById('line-height-val').textContent=parseFloat(this.value).toFixed(1)">
+        <span id="line-height-val" class="range-val">1.9</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="settings-footer">
+    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+    <span id="save-hint" class="status-hint"></span>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/settings.js"></script>
+{% endblock %}

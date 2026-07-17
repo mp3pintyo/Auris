@@ -1,50 +1,67 @@
 import re
 
 from core.parser.language import detect_language
-
-_SECTION_RE = re.compile(
-    r'^(?:'
-    r'(?:chapter|ch\.?)\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten'
-    r'|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty'
-    r'|twenty.one|twenty.two|twenty.three|thirty|forty|fifty|sixty|seventy|eighty|ninety'
-    r'|hundred)'
-    r'|part\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five)'
-    r'|prologue|epilogue|foreword|preface|introduction|afterword|appendix|interlude'
-    r'|chapter\s+\w+'
-    r')\b.*$',
-    re.IGNORECASE
+from core.parser.sections import (
+    EXPLICIT_MARKER_THRESHOLD as _EXPLICIT_MARKER_THRESHOLD,
+    NUMBER_WORDS as _NUMBER_WORDS,
+    is_explicit_section as _is_explicit_section,
 )
 _SKIP_SECTION_RE = re.compile(
-    r'^(?:table\s+of\s+contents|contents|copyright\b|other\s+books\s+by\b)$',
-    re.IGNORECASE
+    r'^(?:table\s+of\s+contents|contents|copyright\b|other\s+books\s+by\b|'
+    r'tartalom(?:jegyzék)?\b)$',
+    re.IGNORECASE,
 )
 _BACKMATTER_RE = re.compile(
-    r'^(?:you\s+have\s+just\s+finished\s+reading\b|about\s+the\s+author\b|acknowledgements?\b)',
-    re.IGNORECASE
+    r'^(?:you\s+have\s+just\s+finished\s+reading\b|about\s+the\s+author\b|'
+    r'acknowledgements?\b|a\s+szerzőről\b)',
+    re.IGNORECASE,
 )
 _COPYRIGHT_RE = re.compile(
     r'\bcopyright\b|all rights reserved|licensed for your enjoyment only|'
-    r'please buy an additional copy',
-    re.IGNORECASE
+    r'please buy an additional copy|'
+    r'minden\s+jog\s+fenntartva',
+    re.IGNORECASE,
 )
 _TOC_CHAPTER_RE = re.compile(
-    r'\bchapter\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten'
-    r'|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen'
-    r'|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)\b',
-    re.IGNORECASE
+    rf'\b(?:chapter|fejezet)\s+(?:\d+|[ivxlcdm]+|{_NUMBER_WORDS})\b|'
+    rf'\b(?:\d+|[ivxlcdm]+)\.?\s*fejezet\b',
+    re.IGNORECASE,
 )
+# Pure roman-numeral sub-section markers: I, II, III., XIV
+_ROMAN_ONLY_RE = re.compile(r'^[IVXLCDM]+\.?$', re.IGNORECASE)
+# Initials like "B. L." / "A. B. C."
+_INITIALS_RE = re.compile(r'^(?:[A-Z]\.\s*)+[A-Z]\.?$')
+# Dialogue / script speaker labels: "VERDIER:", "BALUKHIN :"
+_SPEAKER_LABEL_RE = re.compile(r'^[A-Z][A-Z0-9 .\'-]{0,40}:\s*$')
 
-
-def _looks_like_heading(line):
-    line = line.strip()
+def _is_all_caps_heading(line: str) -> bool:
+    """Conservative all-caps heading heuristic for books without Chapter N labels."""
+    line = (line or '').strip()
     if not line:
         return False
-    if len(line) > 150:
+    if not (3 < len(line) < 80):
         return False
-    if _SECTION_RE.match(line):
+    if not line.isupper():
+        return False
+    # Speaker labels and short roman-numeral scene markers are not chapters.
+    if line.endswith(':'):
+        return False
+    if _SPEAKER_LABEL_RE.match(line):
+        return False
+    if _ROMAN_ONLY_RE.match(line):
+        return False
+    if _INITIALS_RE.match(line):
+        return False
+    # Need at least one real word (2+ letters), not just punctuation/digits.
+    if not re.search(r'[A-ZÁÉÍÓÖŐÚÜŰ]{2,}', line):
+        return False
+    return True
+
+
+def _looks_like_heading(line: str, allow_all_caps: bool = True) -> bool:
+    if _is_explicit_section(line):
         return True
-    # All-caps short line
-    if line.isupper() and 2 < len(line) < 80:
+    if allow_all_caps and _is_all_caps_heading(line):
         return True
     return False
 
@@ -64,7 +81,9 @@ def _should_skip_section(title, content, started_story):
         return True
     if 'table of contents' in lowered and len(_TOC_CHAPTER_RE.findall(content)) >= 3:
         return True
-    if not started_story and len(content.split()) < 120 and not _looks_like_heading(title):
+    if 'tartalom' in lowered and len(_TOC_CHAPTER_RE.findall(content)) >= 3:
+        return True
+    if not started_story and len(content.split()) < 120 and not _is_explicit_section(title):
         return True
     return False
 
@@ -73,6 +92,8 @@ def parse(file_path):
     with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
         raw = f.read()
 
+    # Form-feed page breaks are common in plain-text book dumps.
+    raw = raw.replace('\x0c', '\n')
     lines = raw.splitlines()
 
     # Try to extract title from first non-empty lines
@@ -89,6 +110,11 @@ def parse(file_path):
     if by_match:
         author = by_match.group(1)
 
+    # If the document already has several explicit Chapter/Fejezet markers,
+    # ignore all-caps scene titles so they don't pollute the TOC.
+    explicit_count = sum(1 for line in lines if _is_explicit_section(line))
+    allow_all_caps = explicit_count < _EXPLICIT_MARKER_THRESHOLD
+
     chapters = []
     current_title = title
     current_lines = []
@@ -99,7 +125,7 @@ def parse(file_path):
         stripped = line.strip()
         if _BACKMATTER_RE.match(stripped):
             break
-        if _looks_like_heading(stripped):
+        if _looks_like_heading(stripped, allow_all_caps=allow_all_caps):
             content = '\n'.join(current_lines).strip()
             if len(content) > 100 and not _should_skip_section(current_title, content, started_story):
                 chapters.append({

@@ -1,5 +1,12 @@
 import re
 
+_NUMBER_WORDS = (
+    r'one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|'
+    r'thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|'
+    r'twenty(?:\s*-?\s*\w+)?|thirty|forty|fifty|sixty|seventy|eighty|'
+    r'ninety|hundred'
+)
+
 SECTION_PATTERNS = [
     ('prologue',     re.compile(r'^\s*prologue\b', re.IGNORECASE)),
     ('epilogue',     re.compile(r'^\s*epilogue\b', re.IGNORECASE)),
@@ -9,13 +16,17 @@ SECTION_PATTERNS = [
     ('afterword',    re.compile(r'^\s*afterword\b', re.IGNORECASE)),
     ('appendix',     re.compile(r'^\s*appendix\b', re.IGNORECASE)),
     ('interlude',    re.compile(r'^\s*interlude\b', re.IGNORECASE)),
-    ('part',         re.compile(r'^\s*part\s+(?:\d+|[ivxlcdm]+)\b', re.IGNORECASE)),
+    ('part',         re.compile(
+        rf'^\s*(?:part\s+(?:\d+|[ivxlcdm]+|{_NUMBER_WORDS})\b|'
+        r'(?:\d+|[ivxlcdm]+)\.?\s*r[eé]sz\b|r[eé]sz\s+(?:\d+|[ivxlcdm]+)\b)',
+        re.IGNORECASE,
+    )),
     ('chapter',      re.compile(
-        r'^\s*(?:chapter|ch\.?)\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|'
-        r'eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|'
-        r'eighteen|nineteen|twenty(?:\s*-?\s*\w+)?|thirty|forty|fifty|sixty|'
-        r'seventy|eighty|ninety|hundred)\b',
-        re.IGNORECASE
+        rf'^\s*(?:'
+        rf'(?:chapter|ch\.?)\s+(?:\d+|[ivxlcdm]+|{_NUMBER_WORDS})\b|'
+        r'(?:\d+|[ivxlcdm]+)\.?\s*fejezet\b|fejezet\s+(?:\d+|[ivxlcdm]+)\b'
+        r')',
+        re.IGNORECASE,
     )),
 ]
 

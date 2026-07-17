@@ -20,9 +20,50 @@ async function loadSettings() {
   document.getElementById('narrator-instruct').value = _settings.narrator_instruct || '';
   document.getElementById('default-single-narrator-mode').checked = Boolean(_settings.single_narrator_mode);
 
-  // Export
+  // TTS text processing (default true when unset)
+  document.getElementById('normalize-text').checked = _settings.normalize_text !== false;
+
+  // Export / TTS quality
+  const steps = String(_settings.tts_num_step ?? 16);
+  const stepSelect = document.getElementById('tts-num-step');
+  if (stepSelect) {
+    if (![...stepSelect.options].some(o => o.value === steps)) {
+      stepSelect.value = '16';
+    } else {
+      stepSelect.value = steps;
+    }
+  }
+  const batch = String(_settings.tts_batch_size ?? 0);
+  const batchSelect = document.getElementById('tts-batch-size');
+  if (batchSelect) {
+    if (![...batchSelect.options].some(o => o.value === batch)) {
+      batchSelect.value = '0';
+    } else {
+      batchSelect.value = batch;
+    }
+  }
+  const coal = String(_settings.tts_coalesce_chars ?? 720);
+  const coalSelect = document.getElementById('tts-coalesce-chars');
+  if (coalSelect) {
+    if (![...coalSelect.options].some(o => o.value === coal)) {
+      coalSelect.value = '720';
+    } else {
+      coalSelect.value = coal;
+    }
+  }
+  const accel = String(_settings.tts_accel ?? 'auto');
+  const accelSelect = document.getElementById('tts-accel');
+  if (accelSelect) {
+    if (![...accelSelect.options].some(o => o.value === accel)) {
+      accelSelect.value = 'auto';
+    } else {
+      accelSelect.value = accel;
+    }
+  }
   document.getElementById('audio-format').value    = _settings.audio_format    || 'wav';
   document.getElementById('subtitle-format').value = _settings.subtitle_format || 'ass';
+
+  refreshAccelStatus();
 
   // UI — theme
   selectTheme(_settings.theme || 'night', false);
@@ -162,6 +203,44 @@ async function reloadTTS() {
   await fetch('/api/settings/tts-reload', { method: 'POST' });
   hint.textContent  = 'Reloading in background…';
   hint.className    = 'status-hint status-ok';
+  // Poll until ready so accel status updates.
+  let n = 0;
+  const t = setInterval(async () => {
+    n += 1;
+    try {
+      const st = await fetch('/api/tts/status').then(r => r.json());
+      if (st.state === 'ready') {
+        clearInterval(t);
+        hint.textContent = 'Model ready.';
+        refreshAccelStatus(st);
+      } else if (st.state === 'error') {
+        clearInterval(t);
+        hint.textContent = 'Load failed: ' + (st.message || 'error');
+        hint.className = 'status-hint status-error';
+      }
+    } catch (_) {}
+    if (n > 60) clearInterval(t);
+  }, 1000);
+}
+
+async function refreshAccelStatus(st) {
+  const el = document.getElementById('tts-accel-status');
+  if (!el) return;
+  try {
+    if (!st) st = await fetch('/api/tts/status').then(r => r.json());
+    const a = st.accel || {};
+    const probe = a.probe || {};
+    const parts = [
+      `Active: ${a.effective || 'off'}`,
+      a.message || '',
+      probe.triton ? 'triton:yes' : 'triton:no',
+      probe.omnivoice_triton ? 'omnivoice-triton:yes' : 'omnivoice-triton:no',
+      `os:${probe.platform || '?'}`,
+    ].filter(Boolean);
+    el.textContent = parts.join(' · ');
+  } catch (_) {
+    el.textContent = '';
+  }
 }
 
 // ── spaCy ─────────────────────────────────────────────────────────────────────
@@ -217,6 +296,11 @@ async function saveSettings() {
     hf_endpoint:       document.getElementById('hf-endpoint').value.trim(),
     narrator_instruct: document.getElementById('narrator-instruct').value.trim(),
     single_narrator_mode: document.getElementById('default-single-narrator-mode').checked,
+    normalize_text:    document.getElementById('normalize-text').checked,
+    tts_num_step:      parseInt(document.getElementById('tts-num-step').value, 10) || 16,
+    tts_batch_size:    parseInt(document.getElementById('tts-batch-size').value, 10) || 0,
+    tts_coalesce_chars: parseInt(document.getElementById('tts-coalesce-chars').value, 10) || 0,
+    tts_accel:         document.getElementById('tts-accel')?.value || 'auto',
     audio_format:      document.getElementById('audio-format').value,
     subtitle_format:   document.getElementById('subtitle-format').value,
     theme:             document.getElementById('theme-select').value,

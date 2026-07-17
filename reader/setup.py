@@ -24,7 +24,12 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parent
 REPO_DIR = APP_DIR.parent
 
-OMNIVOICE_SRC = REPO_DIR / "OmniVoice"
+# Prefer vendored source under source/omnivoice_repo; fall back to legacy ./OmniVoice.
+_OMNIVOICE_CANDIDATES = (
+    REPO_DIR / "source" / "omnivoice_repo",
+    REPO_DIR / "OmniVoice",
+)
+OMNIVOICE_SRC = next((p for p in _OMNIVOICE_CANDIDATES if p.exists()), _OMNIVOICE_CANDIDATES[0])
 _WHEELS_OVERRIDE = os.environ.get("AURIS_WHEELS_DIR", "").strip()
 WHEELS_DIR = Path(_WHEELS_OVERRIDE) if _WHEELS_OVERRIDE else (REPO_DIR / "wheels")
 STRICT_OFFLINE = os.environ.get("AURIS_OFFLINE", "").strip().lower() in {
@@ -168,7 +173,26 @@ def running_in_virtualenv():
     return sys.prefix != getattr(sys, "base_prefix", sys.prefix)
 
 
-def pip_install(*args, no_index=False, index_url=None):
+def ensure_pip():
+    """Upgrade pip/setuptools/wheel so dependency resolution is reliable."""
+    step("Upgrading pip")
+    # Use ensurepip-safe invocation (not PIP, which already includes --upgrade).
+    run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "pip",
+            "setuptools",
+            "wheel",
+        ]
+    )
+    ok("pip upgraded")
+
+
+def pip_install(*args, no_index=False, index_url=None, extra_index_url=None):
     cmd = [*PIP]
     wheels_ready = offline_wheels_available()
 
@@ -183,6 +207,8 @@ def pip_install(*args, no_index=False, index_url=None):
 
     if index_url:
         cmd.extend(["--index-url", index_url])
+    if extra_index_url:
+        cmd.extend(["--extra-index-url", extra_index_url])
 
     cmd.extend(str(arg) for arg in args)
     run(cmd)
@@ -209,7 +235,38 @@ def install_torch(hw_tag):
                 ok("PyTorch installed")
                 return
 
-        pip_install("torch", "torchaudio", index_url=index_url)
+        # PyTorch's own index ships broken typing-extensions metadata (name
+        # typing_extensions vs typing-extensions). With --index-url alone, pip
+        # cannot fall back to PyPI and ResolutionImpossible follows. Seed the
+        # dependency from PyPI first, then install CUDA wheels from PyTorch.
+        #
+        # Important: do NOT leave only --extra-index-url without a CUDA pin —
+        # PyPI may supply a newer CPU torch and break torchaudio matching.
+        if not STRICT_OFFLINE:
+            info("Pre-installing typing-extensions from PyPI (torch dep)")
+            pip_install("typing-extensions>=4.10.0")
+
+        # Prefer a known-good CUDA pair. Uninstall first so a prior CPU wheel
+        # from requirements.txt / PyPI cannot remain "already satisfied".
+        run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "uninstall",
+                "-y",
+                "torch",
+                "torchaudio",
+            ],
+            check=False,
+        )
+        pip_install(
+            "torch",
+            "torchaudio",
+            index_url=index_url,
+            # Keep PyPI available for any remaining pure-Python deps.
+            extra_index_url="https://pypi.org/simple",
+        )
 
     ok("PyTorch installed")
 
@@ -227,6 +284,7 @@ def install_omnivoice_deps():
         "numpy",
         "soundfile",
         "librosa",
+        "num2words",  # number → words fallback for text normalization
     ]
     pip_install(*deps)
     ok("OmniVoice dependencies installed")
@@ -256,6 +314,8 @@ def install_omnivoice():
 
 def install_reader_deps():
     step("Installing remaining dependencies from requirements.txt")
+    # requirements.txt intentionally omits torch/torchaudio so this step cannot
+    # replace a CUDA build with a CPU wheel from PyPI.
     pip_install("-r", str(APP_DIR / "requirements.txt"))
     ok("Dependencies installed")
 
@@ -338,6 +398,9 @@ def main():
         raise RuntimeError(
             f"AURIS_OFFLINE=1 was set, but no wheel cache was found in: {WHEELS_DIR}"
         )
+
+    if not STRICT_OFFLINE:
+        ensure_pip()
 
     hw_tag = detect_hardware()
     install_torch(hw_tag)

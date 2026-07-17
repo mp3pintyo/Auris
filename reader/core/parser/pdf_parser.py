@@ -3,12 +3,22 @@ import base64
 import unicodedata
 
 from core.parser.language import detect_language
+from core.parser.sections import EXPLICIT_MARKER_THRESHOLD, is_explicit_section
 
 try:
     import fitz  # PyMuPDF
     FITZ_OK = True
 except ImportError:
     FITZ_OK = False
+
+
+# Fallback keyword search when the document has no explicit Chapter/Fejezet lines
+# (used together with font-size heuristics).
+_HEADING_KEYWORD_RE = re.compile(
+    r'\b(chapter|prologue|epilogue|part|section|preface|'
+    r'foreword|introduction|afterword|appendix|fejezet|r[eé]sz)\b',
+    re.IGNORECASE,
+)
 
 
 def _span_needs_leading_space(previous, current):
@@ -54,6 +64,95 @@ def _join_line_spans(spans):
     return unicodedata.normalize('NFC', ''.join(parts)).strip()
 
 
+def _collect_blocks(doc):
+    """Flatten PDF text into ordered line dicts with font size and page."""
+    all_blocks = []
+    for page_num, page in enumerate(doc):
+        blocks = page.get_text('dict')['blocks']
+        for block in blocks:
+            if block.get('type') != 0:
+                continue
+            for line in block.get('lines', []):
+                spans = line.get('spans', [])
+                text = _join_line_spans(spans)
+                if text:
+                    size = max((span.get('size', 12) for span in spans), default=12)
+                    all_blocks.append({'text': text, 'size': size, 'page': page_num})
+    return all_blocks
+
+
+def _body_font_size(all_blocks):
+    """Estimate body font size as the most common line size."""
+    if not all_blocks:
+        return 12.0
+    from collections import Counter
+    counts = Counter(round(b['size'], 2) for b in all_blocks)
+    return counts.most_common(1)[0][0]
+
+
+def _is_size_keyword_heading(block, body_size):
+    """Fallback: larger-than-body font + section keyword (no explicit markers)."""
+    text = block['text']
+    if len(text) >= 120:
+        return False
+    if block['size'] <= body_size + 0.5:
+        return False
+    return bool(_HEADING_KEYWORD_RE.search(text))
+
+
+def _split_chapters(all_blocks, default_title):
+    """Split line blocks into chapters using explicit markers first."""
+    explicit_count = sum(1 for b in all_blocks if is_explicit_section(b['text']))
+    use_explicit_only = explicit_count >= EXPLICIT_MARKER_THRESHOLD
+
+    body_size = _body_font_size(all_blocks)
+
+    chapters = []
+    current_title = default_title
+    current_lines = []
+    order = 0
+
+    for block in all_blocks:
+        text = block['text']
+        if use_explicit_only:
+            is_heading = is_explicit_section(text)
+        else:
+            is_heading = is_explicit_section(text) or _is_size_keyword_heading(
+                block, body_size
+            )
+
+        if is_heading and current_lines:
+            content = ' '.join(current_lines).strip()
+            if len(content) > 100:
+                chapters.append({
+                    'title': current_title,
+                    'order_num': order,
+                    'content': content,
+                    'word_count': len(content.split()),
+                })
+                order += 1
+            current_title = text.strip()
+            current_lines = []
+        elif is_heading and not current_lines:
+            # Heading at the very start (or right after a discarded frontmatter).
+            current_title = text.strip()
+            current_lines = []
+        else:
+            current_lines.append(text)
+
+    if current_lines:
+        content = ' '.join(current_lines).strip()
+        if len(content) > 100:
+            chapters.append({
+                'title': current_title,
+                'order_num': order,
+                'content': content,
+                'word_count': len(content.split()),
+            })
+
+    return chapters
+
+
 def parse(file_path):
     if not FITZ_OK:
         raise ImportError("PyMuPDF is not installed. Run: pip install pymupdf")
@@ -72,70 +171,15 @@ def parse(file_path):
     except Exception:
         pass
 
-    # Collect all text blocks with font sizes for heading detection
-    all_blocks = []
-    for page_num, page in enumerate(doc):
-        blocks = page.get_text('dict')['blocks']
-        for block in blocks:
-            if block.get('type') != 0:
-                continue
-            for line in block.get('lines', []):
-                spans = line.get('spans', [])
-                text = _join_line_spans(spans)
-                if text:
-                    size = max((span.get('size', 12) for span in spans), default=12)
-                    all_blocks.append({'text': text, 'size': size, 'page': page_num})
+    all_blocks = _collect_blocks(doc)
 
     if not all_blocks:
+        doc.close()
         return {'title': title, 'author': author, 'language': 'en',
                 'cover_b64': cover_b64, 'chapters': []}
 
     language = detect_language(' '.join(block['text'] for block in all_blocks))
-
-    # Determine heading font size threshold (top 10% of font sizes)
-    sizes = sorted(set(b['size'] for b in all_blocks), reverse=True)
-    heading_threshold = sizes[max(0, len(sizes) // 10)] if len(sizes) > 1 else sizes[0]
-
-    # Split into chapters by heading detection
-    chapters = []
-    current_title = title
-    current_lines = []
-    order = 0
-
-    for block in all_blocks:
-        is_heading = (
-            block['size'] >= heading_threshold
-            and len(block['text']) < 120
-            and re.search(
-                r'\b(chapter|prologue|epilogue|part|section|preface|'
-                r'foreword|introduction|afterword|appendix)\b',
-                block['text'], re.IGNORECASE
-            )
-        )
-        if is_heading and current_lines:
-            content = ' '.join(current_lines).strip()
-            if len(content) > 100:
-                chapters.append({
-                    'title': current_title,
-                    'order_num': order,
-                    'content': content,
-                    'word_count': len(content.split()),
-                })
-                order += 1
-            current_title = block['text'].strip()
-            current_lines = []
-        else:
-            current_lines.append(block['text'])
-
-    if current_lines:
-        content = ' '.join(current_lines).strip()
-        if len(content) > 100:
-            chapters.append({
-                'title': current_title,
-                'order_num': order,
-                'content': content,
-                'word_count': len(content.split()),
-            })
+    chapters = _split_chapters(all_blocks, default_title=title)
 
     if not chapters:
         full_text = '\n'.join(b['text'] for b in all_blocks)

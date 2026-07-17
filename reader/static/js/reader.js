@@ -304,6 +304,12 @@ async function _startBackgroundBuffer(fromIdx) {
   for (let i = fromIdx; i < segments.length; i++) {
     if (_bufferGenId !== myId || currentChapterId !== myChapterId) return;
 
+    // Export owns the TTS engine — do not interleave single-segment synth.
+    while (_exportBusy) {
+      await new Promise(r => setTimeout(r, 800));
+      if (_bufferGenId !== myId || currentChapterId !== myChapterId) return;
+    }
+
     // Wait out any active playback before sending a new TTS request
     while (isPlaying) {
       await new Promise(r => setTimeout(r, 600));
@@ -337,8 +343,13 @@ function fetchSegmentData(idx) {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ book_id: BOOK_ID, chapter_id: currentChapterId, segment_index: idx }),
-    }).then(r => {
-      if (!r.ok) return r.json().then(e => { throw new Error(e.error || `HTTP ${r.status}`); });
+    }).then(async r => {
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        // During export the API returns 503 export_busy — drop cache entry so we retry later.
+        if (e.export_busy) _segCache.delete(idx);
+        throw new Error(e.error || `HTTP ${r.status}`);
+      }
       return r.json();
     });
     // Evict on failure so the next call retries rather than re-throwing the cached rejection.
@@ -684,6 +695,45 @@ function gotoBookmark(chapterId, segIdx) {
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
+// Pause reader TTS prewarm/buffer while an export owns the GPU.
+let _exportBusy = false;
+
+function formatDurationShort(sec) {
+  if (sec == null || !Number.isFinite(sec) || sec < 0) return '';
+  const s = Math.round(sec);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  if (m < 60) return `${m}m ${String(r).padStart(2, '0')}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${String(m % 60).padStart(2, '0')}m`;
+}
+
+function formatExportStatus(sr) {
+  if (!sr) return 'Working…';
+  const done = typeof sr.done === 'number' ? sr.done : null;
+  const total = typeof sr.total === 'number' ? sr.total : null;
+  let msg = sr.message || 'Working…';
+
+  // Always rebuild a clear progress line so a stale server message cannot hide ETA.
+  if (sr.state === 'running' && total != null && total > 0 && done != null) {
+    msg = `Generating audio (${done}/${total})`;
+    if (sr.eta_sec != null && Number.isFinite(sr.eta_sec) && done < total) {
+      msg += ` · ~${formatDurationShort(sr.eta_sec)} left`;
+    } else if (done < total) {
+      msg += ' · working…';
+    }
+  } else if (
+    sr.state === 'running' &&
+    sr.eta_sec != null &&
+    Number.isFinite(sr.eta_sec) &&
+    !/left/i.test(msg)
+  ) {
+    msg += ` · ~${formatDurationShort(sr.eta_sec)} left`;
+  }
+  return msg;
+}
+
 document.getElementById('export-btn').onclick = () => {
   document.getElementById('export-dropdown').classList.toggle('hidden');
 };
@@ -705,6 +755,12 @@ document.getElementById('do-export-btn').onclick = async () => {
   progWrap.classList.add('active');
   progFill.style.width = '0%';
   status.textContent = 'Starting export…';
+  // Stop background single-segment prewarm so export can batch on the GPU.
+  _exportBusy = true;
+  _bufferGenId++;
+  if (isPlaying) {
+    try { stopPlayback(); } catch (_) {}
+  }
 
   let url;
   if (mode === 'chapter')          url = `/api/books/${BOOK_ID}/export/chapter/${currentChapterId}`;
@@ -712,6 +768,7 @@ document.getElementById('do-export-btn').onclick = async () => {
   else                             url = `/api/books/${BOOK_ID}/export/full`;
 
   const finish = (msg) => {
+    _exportBusy = false;
     status.textContent = msg;
     setTimeout(() => {
       progWrap.classList.remove('active');
@@ -731,8 +788,12 @@ document.getElementById('do-export-btn').onclick = async () => {
 
     const jobId = d.job_id;
 
+    // Client-side ETA fallback if server has not reported one yet.
+    let clientT0 = Date.now();
+    let clientDone0 = null;
+
     while (true) {
-      await new Promise(res => setTimeout(res, 800));
+      await new Promise(res => setTimeout(res, 500));
       let sr;
       try { sr = await fetch(`/api/export/status/${jobId}`).then(r => r.json()); }
       catch(_) { continue; }
@@ -741,7 +802,28 @@ document.getElementById('do-export-btn').onclick = async () => {
         const pct = Math.min(Math.round((sr.done / sr.total) * 95), 95);
         progFill.style.width = pct + '%';
       }
-      status.textContent = sr.message || 'Working…';
+
+      // Local ETA when server still estimating (e.g. first synth batch in flight).
+      if (
+        sr.state === 'running' &&
+        sr.total > 0 &&
+        typeof sr.done === 'number' &&
+        (sr.eta_sec == null || !Number.isFinite(sr.eta_sec)) &&
+        sr.done < sr.total
+      ) {
+        if (clientDone0 == null && sr.done > 0) {
+          clientDone0 = sr.done;
+          clientT0 = Date.now();
+        } else if (clientDone0 != null && sr.done > clientDone0) {
+          const elapsed = (Date.now() - clientT0) / 1000;
+          const advanced = sr.done - clientDone0;
+          if (elapsed >= 2 && advanced > 0) {
+            sr.eta_sec = (sr.total - sr.done) / (advanced / elapsed);
+          }
+        }
+      }
+
+      status.textContent = formatExportStatus(sr);
 
       if (sr.state === 'complete') {
         progFill.style.width = '100%';

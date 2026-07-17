@@ -92,9 +92,90 @@
     </div>
   </section>
 
+  <!-- TTS text processing -->
+  <section class="settings-section">
+    <div class="settings-section-title">Speech Text Processing</div>
+    <div class="setting-row">
+      <label class="narrator-mode-row">
+        <input type="checkbox" id="normalize-text">
+        <span>Normalize numbers before speech</span>
+      </label>
+      <span class="muted" style="font-size:.78rem">
+        Converts digits, dates, and currency into spoken form (e.g. “2345” → “two thousand three hundred forty-five”).
+        English/Chinese/Japanese: install <code>wetext</code> on Windows (or WeTextProcessing on Linux/macOS).
+        Other languages (including Hungarian) use num2words for integers.
+        Changing this creates new audio cache entries for affected segments.
+      </span>
+    </div>
+  </section>
+
   <!-- Export Defaults -->
   <section class="settings-section">
     <div class="settings-section-title">Export Defaults</div>
+    <div class="setting-row">
+      <label>Speech quality (diffusion steps)</label>
+      <select id="tts-num-step" class="select-input">
+        <option value="8">8 — fastest, lower quality</option>
+        <option value="16">16 — recommended (good quality)</option>
+        <option value="24">24 — higher quality</option>
+        <option value="32">32 — max quality, slowest</option>
+      </select>
+      <span class="muted" style="font-size:.78rem">
+        Used for playback and export. Lower steps are much faster; 16 is usually enough.
+        Changing this creates new audio cache entries (existing files are kept).
+      </span>
+    </div>
+    <div class="setting-row">
+      <label>GPU batch size</label>
+      <select id="tts-batch-size" class="select-input">
+        <option value="0">Auto — by GPU class (recommended)</option>
+        <option value="8">8 — low VRAM</option>
+        <option value="12">12</option>
+        <option value="16">16 — 12 GB class</option>
+        <option value="24">24 — 24 GB + voice clone</option>
+        <option value="32">32 — max throughput</option>
+        <option value="40">40 — very high VRAM</option>
+      </select>
+      <span class="muted" style="font-size:.78rem">
+        How many <em>coalesced utterances</em> go into one OmniVoice.generate() call.
+        OmniVoice is only ~0.6B params — even batch 24 often uses just a few GB and
+        Task Manager “3D” load stays low. Check the terminal for
+        <code>GPU generate done: batch=… peak_alloc=…</code> (that is the truth).
+        Prefer nvidia-smi / Task Manager “CUDA” engine, not “3D”.
+      </span>
+    </div>
+    <div class="setting-row">
+      <label>Merge short lines (chars)</label>
+      <select id="tts-coalesce-chars" class="select-input">
+        <option value="0">0 — off (one GPU call per sentence)</option>
+        <option value="400">400 — light merge</option>
+        <option value="720">720 — recommended</option>
+        <option value="1000">1000 — aggressive (faster export)</option>
+      </select>
+      <span class="muted" style="font-size:.78rem">
+        Joins consecutive same-voice sentences into one longer synth, then splits the
+        audio back for subtitles/timeline. This usually speeds full-book export more
+        than raising batch size alone (paper: batch 1→8 only ~30% faster).
+      </span>
+    </div>
+    <div class="setting-row">
+      <label>GPU acceleration</label>
+      <select id="tts-accel" class="select-input">
+        <option value="auto">Auto — best available</option>
+        <option value="cuda_graph">CUDA Graph — recommended on Windows (~2–3×)</option>
+        <option value="hybrid">Hybrid — Triton + CUDA Graph (WSL/Linux best)</option>
+        <option value="triton">Triton kernels only</option>
+        <option value="off">Off — plain PyTorch</option>
+      </select>
+      <span class="muted" style="font-size:.78rem" id="tts-accel-hint">
+        CUDA Graph is pure PyTorch and works on native Windows (main speedup).
+        Full Triton/hybrid needs <code>omnivoice-triton</code> (officially WSL2/Linux;
+        on native Windows try <code>pip install triton-windows</code> then
+        <code>pip install omnivoice-triton</code>). After changing this, click
+        <strong>Reload TTS model</strong> below.
+      </span>
+      <div id="tts-accel-status" class="muted" style="font-size:.78rem;margin-top:.35rem"></div>
+    </div>
     <div class="setting-row">
       <label>Audio format</label>
       <select id="audio-format" class="select-input">

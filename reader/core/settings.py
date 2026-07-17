@@ -36,6 +36,30 @@ DEFAULTS: dict = {
     # Playback defaults
     'default_speed': 1.0,
 
+    # TTS text processing
+    # Expand numbers/dates/currency into spoken form before synthesis.
+    # EN/ZH prefer WeTextProcessing (optional); other languages use num2words.
+    'normalize_text': True,
+
+    # How many segments to synthesize in one OmniVoice.generate() call.
+    # 0 = auto from free VRAM (recommended). Larger values keep the GPU busier.
+    # On OOM the engine automatically halves the batch and retries.
+    'tts_batch_size': 0,
+
+    # Merge consecutive same-voice short lines up to this many characters before
+    # synthesis (export/playback batch path). Reduces diffusion-call overhead.
+    # 0 = disabled. ~720 is a strong speed win on audiobooks.
+    'tts_coalesce_chars': 720,
+
+    # OmniVoice iterative decoding steps for playback and export.
+    # Higher = better quality but slower. 16 is a good default; 32 is max quality.
+    'tts_num_step': 16,
+
+    # Inference acceleration: off | auto | cuda_graph | triton | hybrid
+    # cuda_graph = pure PyTorch, works on native Windows (~2–3x).
+    # triton/hybrid need omnivoice-triton (+ triton or triton-windows).
+    'tts_accel': 'auto',
+
     # Export defaults
     'audio_format': 'wav',
     'subtitle_format': 'ass',

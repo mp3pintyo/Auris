@@ -35,6 +35,12 @@ DEFAULT_NARRATOR_INSTRUCT = app_settings.DEFAULT_NARRATOR_INSTRUCT
 
 _export_jobs: dict = {}
 
+# When > 0, an export job owns the TTS engine. Interactive /api/tts/generate
+# must not start new synth work (cache hits still OK) so full-book batching
+# is not interleaved with single-segment reader prewarm requests.
+_export_tts_exclusive = 0
+_export_tts_exclusive_lock = threading.Lock()
+
 # Per-chapter locks prevent concurrent segment building from racing on the
 # DELETE + INSERT in _store_segments when multiple requests hit the same
 # chapter before segments are built (e.g. parallel prewarm requests).
@@ -42,6 +48,25 @@ _chapter_build_locks: dict = {}
 _chapter_build_locks_meta = threading.Lock()
 _startup_lock = threading.Lock()
 _startup_complete = False
+
+
+def _export_exclusive_begin() -> None:
+    global _export_tts_exclusive
+    with _export_tts_exclusive_lock:
+        _export_tts_exclusive += 1
+        log.info("TTS export-exclusive mode ON (depth=%d)", _export_tts_exclusive)
+
+
+def _export_exclusive_end() -> None:
+    global _export_tts_exclusive
+    with _export_tts_exclusive_lock:
+        _export_tts_exclusive = max(0, _export_tts_exclusive - 1)
+        log.info("TTS export-exclusive mode depth=%d", _export_tts_exclusive)
+
+
+def _export_exclusive_active() -> bool:
+    with _export_tts_exclusive_lock:
+        return _export_tts_exclusive > 0
 
 
 def _get_chapter_build_lock(book_id: int, chapter_id: int) -> threading.Lock:
@@ -451,10 +476,17 @@ def update_character(book_id, char_id):
         return jsonify({'error': 'Nothing to update'}), 400
     set_clause = ', '.join(f'{k}=?' for k in updates)
     with get_conn() as conn:
+        prev = conn.execute(
+            'SELECT ref_audio_path, ref_text FROM characters WHERE id=? AND book_id=?',
+            (char_id, book_id),
+        ).fetchone()
         conn.execute(
             f'UPDATE characters SET {set_clause} WHERE id=? AND book_id=?',
             (*updates.values(), char_id, book_id)
         )
+    if prev and prev['ref_audio_path'] and 'ref_text' in updates:
+        tts.invalidate_voice_prompt(prev['ref_audio_path'], prev['ref_text'])
+        tts.invalidate_voice_prompt(prev['ref_audio_path'], updates.get('ref_text'))
     _clear_book_tts_segments(book_id)
     return jsonify({'ok': True, 'segments_cleared': True})
 
@@ -536,6 +568,15 @@ def update_narrator(book_id):
     ref_text_changed = ref_text != (book_data.get('narrator_ref_text') or '')
 
     with get_conn() as conn:
+        if ref_text_changed and book_data.get('narrator_ref_audio_path'):
+            tts.invalidate_voice_prompt(
+                book_data['narrator_ref_audio_path'],
+                book_data.get('narrator_ref_text'),
+            )
+            tts.invalidate_voice_prompt(
+                book_data['narrator_ref_audio_path'],
+                ref_text or None,
+            )
         conn.execute(
             'UPDATE books SET narrator_instruct=?, single_narrator_mode=?, '
             'narrator_ref_text=? WHERE id=?',
@@ -590,12 +631,18 @@ def upload_ref_audio(char_id):
         return jsonify({'error': 'Reference audio must be a WAV file'}), 400
     ref_text = (request.form.get('ref_text') or '').strip()
     path = os.path.join(UPLOAD_DIR, f'ref_{char_id}.wav')
+    with get_conn() as conn:
+        row = conn.execute(
+            'SELECT book_id, ref_audio_path, ref_text FROM characters WHERE id=?',
+            (char_id,),
+        ).fetchone()
+        if not row:
+            return jsonify({'error': 'Not found'}), 404
+        # Invalidate before overwrite so the cache key still matches the old file.
+        if row['ref_audio_path']:
+            tts.invalidate_voice_prompt(row['ref_audio_path'], row['ref_text'])
     f.save(path)
     with get_conn() as conn:
-        row = conn.execute('SELECT book_id FROM characters WHERE id=?', (char_id,)).fetchone()
-        if not row:
-            _delete_file_if_exists(path)
-            return jsonify({'error': 'Not found'}), 404
         conn.execute(
             'UPDATE characters SET ref_audio_path=?, ref_audio_name=?, ref_text=? WHERE id=?',
             (path, os.path.basename(f.filename), ref_text, char_id),
@@ -612,7 +659,8 @@ def upload_ref_audio(char_id):
 def delete_ref_audio(char_id):
     with get_conn() as conn:
         row = conn.execute(
-            'SELECT book_id, ref_audio_path FROM characters WHERE id=?', (char_id,)
+            'SELECT book_id, ref_audio_path, ref_text FROM characters WHERE id=?',
+            (char_id,),
         ).fetchone()
         if not row:
             return jsonify({'error': 'Not found'}), 404
@@ -620,6 +668,8 @@ def delete_ref_audio(char_id):
             'UPDATE characters SET ref_audio_path=NULL, ref_audio_name=NULL, ref_text=NULL '
             'WHERE id=?', (char_id,)
         )
+    if row['ref_audio_path']:
+        tts.invalidate_voice_prompt(row['ref_audio_path'], row['ref_text'])
     _delete_file_if_exists(row['ref_audio_path'])
     _clear_book_tts_segments(row['book_id'])
     return jsonify({'ok': True, 'segments_cleared': True})
@@ -634,17 +684,25 @@ def upload_narrator_ref_audio(book_id):
         return jsonify({'error': 'Reference audio must be a WAV file'}), 400
     ref_text = (request.form.get('ref_text') or '').strip()
     path = os.path.join(UPLOAD_DIR, f'narrator_ref_{book_id}.wav')
+    with get_conn() as conn:
+        prev = conn.execute(
+            'SELECT narrator_ref_audio_path, narrator_ref_text FROM books WHERE id=?',
+            (book_id,),
+        ).fetchone()
+        if not prev:
+            return jsonify({'error': 'Not found'}), 404
+        if prev['narrator_ref_audio_path']:
+            tts.invalidate_voice_prompt(
+                prev['narrator_ref_audio_path'], prev['narrator_ref_text']
+            )
     f.save(path)
     with get_conn() as conn:
-        exists = conn.execute('SELECT id FROM books WHERE id=?', (book_id,)).fetchone()
-        if not exists:
-            _delete_file_if_exists(path)
-            return jsonify({'error': 'Not found'}), 404
         conn.execute(
             'UPDATE books SET narrator_ref_audio_path=?, narrator_ref_audio_name=?, '
             'narrator_ref_text=? WHERE id=?',
             (path, os.path.basename(f.filename), ref_text, book_id),
         )
+    tts.invalidate_voice_prompt(path, ref_text or None)
     _clear_book_tts_segments(book_id)
     return jsonify({
         'ok': True,
@@ -657,16 +715,20 @@ def upload_narrator_ref_audio(book_id):
 def delete_narrator_ref_audio(book_id):
     with get_conn() as conn:
         row = conn.execute(
-            'SELECT narrator_ref_audio_path FROM books WHERE id=?', (book_id,)
+            'SELECT narrator_ref_audio_path, narrator_ref_text FROM books WHERE id=?',
+            (book_id,),
         ).fetchone()
         if not row:
             return jsonify({'error': 'Not found'}), 404
         path = row['narrator_ref_audio_path']
+        ref_text = row['narrator_ref_text']
         conn.execute(
             'UPDATE books SET narrator_ref_audio_path=NULL, narrator_ref_audio_name=NULL, '
             'narrator_ref_text=NULL WHERE id=?', (book_id,)
         )
 
+    if path:
+        tts.invalidate_voice_prompt(path, ref_text)
     _delete_file_if_exists(path)
     _clear_book_tts_segments(book_id)
     return jsonify({'ok': True, 'segments_cleared': True})
@@ -739,6 +801,14 @@ def tts_generate():
             'segment_index': segment_index,
             'cached': True,
         })
+
+    # Do not steal the GPU from a running full-book/chapter export with
+    # single-segment synth (reader prewarm / playback buffer).
+    if _export_exclusive_active():
+        return jsonify({
+            'error': 'Export in progress — interactive TTS is paused until export finishes.',
+            'export_busy': True,
+        }), 503
 
     if seg['character_name']:
         with get_conn() as conn:
@@ -832,8 +902,92 @@ def serve_audio(cache_key):
 # Export API
 # ════════════════════════════════════════════════════════════════════════════
 
+def _fmt_eta(seconds: float | None) -> str:
+    if seconds is None or seconds < 0 or seconds != seconds:  # NaN
+        return ''
+    s = int(round(seconds))
+    if s < 60:
+        return f'{s}s'
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f'{m}m {s:02d}s'
+    h, m = divmod(m, 60)
+    return f'{h}h {m:02d}m'
+
+
+def _refresh_export_job_fields(job: dict | None) -> None:
+    """Recompute elapsed/ETA/message from current counters (safe to call on poll)."""
+    if not job or job.get('state') not in ('running', 'pending'):
+        return
+    import time
+
+    now = time.time()
+    done = int(job.get('done') or 0)
+    total = int(job.get('total') or 0)
+    t0 = job.get('t0')
+    elapsed = (now - float(t0)) if t0 else 0.0
+    job['elapsed_sec'] = elapsed if t0 else None
+
+    # Prefer synthesis-only rate so early cache hits do not make ETA absurdly low.
+    synth_done = int(job.get('synth_done') or 0)
+    synth_t0 = job.get('synth_t0')
+    eta_sec = None
+    if total > done:
+        if synth_t0 and synth_done >= 1:
+            synth_elapsed = now - float(synth_t0)
+            if synth_elapsed >= 2.0 and synth_done >= 2:
+                rate = synth_done / synth_elapsed
+                if rate > 0:
+                    eta_sec = (total - done) / rate
+            elif synth_elapsed >= 1.0 and synth_done >= 1:
+                rate = synth_done / synth_elapsed
+                if rate > 0:
+                    eta_sec = (total - done) / rate
+        elif t0 and done > 0 and elapsed >= 3.0:
+            # Fallback before any real synth samples exist (all cache so far).
+            rate = done / elapsed
+            if rate > 0:
+                eta_sec = (total - done) / rate
+
+    job['eta_sec'] = eta_sec
+
+    if total > 0:
+        msg = f'Generating audio ({done}/{total})'
+        if eta_sec is not None and done < total:
+            msg += f' · ~{_fmt_eta(eta_sec)} left'
+        elif done < total and synth_done == 0 and done > 0:
+            msg += ' · estimating…'
+        elif done < total and synth_done > 0 and eta_sec is None:
+            msg += ' · working…'
+        job['message'] = msg
+    else:
+        job['message'] = job.get('message') or 'Generating audio…'
+
+
+def _bump_export_progress(job: dict | None, n: int = 1, *, synthesized: bool = False) -> None:
+    """Increment export job progress and refresh message + ETA estimate."""
+    if job is None or n <= 0:
+        return
+    import time
+
+    now = time.time()
+    if not job.get('t0'):
+        job['t0'] = now
+    job['done'] = int(job.get('done') or 0) + n
+    if synthesized:
+        if not job.get('synth_t0'):
+            job['synth_t0'] = now
+        job['synth_done'] = int(job.get('synth_done') or 0) + n
+    _refresh_export_job_fields(job)
+
+
 def _ensure_audio_for_chapter(book_id: int, chapter_id: int, segs: list[dict], job: dict | None = None):
-    """Generate TTS for any segment in segs that has no audio yet, updating DB and segs in-place."""
+    """Generate TTS for any segment in segs that has no audio yet, updating DB and segs in-place.
+
+    Pending segments are batched through OmniVoice so full-book export uses the GPU
+    efficiently. Quality is controlled by settings ``tts_num_step``.
+    Progress is updated after every finished segment (including mid-batch).
+    """
     with get_conn() as conn:
         book = conn.execute('SELECT language FROM books WHERE id=?', (book_id,)).fetchone()
         language = book['language'] if book and book['language'] else None
@@ -844,11 +998,15 @@ def _ensure_audio_for_chapter(book_id: int, chapter_id: int, segs: list[dict], j
             ).fetchall()
         }
     narrator_ref, narrator_ref_text = _book_narrator_reference(book_id)
-    for seg in segs:
+
+    pending_idx: list[int] = []
+    pending_items: list[dict] = []
+
+    for i, seg in enumerate(segs):
         if seg.get('audio_path') and os.path.exists(seg['audio_path']):
-            if job is not None:
-                job['done'] = job.get('done', 0) + 1
+            _bump_export_progress(job, 1, synthesized=False)
             continue
+
         char = chars.get(seg['character_name']) if seg['character_name'] else None
         if char:
             ref_audio = char['ref_audio_path'] if char.get('ref_audio_path') else None
@@ -856,27 +1014,118 @@ def _ensure_audio_for_chapter(book_id: int, chapter_id: int, segs: list[dict], j
         else:
             ref_audio = narrator_ref
             ref_text = narrator_ref_text
-        try:
-            result = tts.generate(
-                text=seg['enriched_text'],
-                instruct=seg['instruct'],
-                ref_audio=ref_audio,
-                ref_text=ref_text,
-                speed=seg['speed'],
-                language=language,
+
+        pending_idx.append(i)
+        pending_items.append({
+            'text': seg['enriched_text'],
+            'instruct': seg['instruct'],
+            'ref_audio': ref_audio,
+            'ref_text': ref_text,
+            'speed': seg['speed'],
+            'language': language,
+        })
+
+    if not pending_items:
+        return
+
+    try:
+        from core.tts_engine import _tts_num_step_from_settings, _tts_batch_size_from_settings
+        from core.settings import get as _settings_get
+        num_step = _tts_num_step_from_settings()
+        log.info(
+            "Export synth settings: num_step=%s tts_batch_size=%s coalesce_chars=%s "
+            "pending_segments=%d",
+            num_step,
+            _settings_get("tts_batch_size", 0),
+            _settings_get("tts_coalesce_chars", 720),
+            len(pending_items),
+        )
+    except Exception:
+        num_step = 16
+
+    db_buffer: list[tuple] = []
+
+    def _flush_db(force: bool = False) -> None:
+        nonlocal db_buffer
+        if not db_buffer:
+            return
+        if not force and len(db_buffer) < 24:
+            return
+        with get_conn() as conn:
+            conn.executemany(
+                'UPDATE tts_segments SET audio_path=?, duration_sec=?, cache_key=? WHERE id=?',
+                db_buffer,
             )
-            with get_conn() as conn:
-                conn.execute(
-                    'UPDATE tts_segments SET audio_path=?, duration_sec=?, cache_key=? WHERE id=?',
-                    (result['audio_path'], result['duration_sec'], result['cache_key'], seg['id'])
-                )
-            seg['audio_path'] = result['audio_path']
-            seg['duration_sec'] = result['duration_sec']
-            seg['cache_key'] = result['cache_key']
-        except Exception as e:
-            log.warning('Audio generation failed for segment %s: %s', seg.get('id'), e)
+        db_buffer = []
+
+    def _apply_result(local_i: int, result: dict | None) -> None:
+        if result is None:
+            _bump_export_progress(job, 1, synthesized=False)
+            return
+        seg = segs[pending_idx[local_i]]
+        seg['audio_path'] = result['audio_path']
+        seg['duration_sec'] = result['duration_sec']
+        seg['cache_key'] = result['cache_key']
+        db_buffer.append((
+            result['audio_path'],
+            result['duration_sec'],
+            result['cache_key'],
+            seg['id'],
+        ))
+        _bump_export_progress(
+            job,
+            1,
+            synthesized=not bool(result.get('cache_hit')),
+        )
+        _flush_db(force=False)
+
+    try:
+        def on_item(local_i: int, result: dict) -> None:
+            _apply_result(local_i, result)
+
+        def on_status(msg: str) -> None:
+            if job is None:
+                return
+            done = job.get('done', 0)
+            total = job.get('total', 0)
+            job['message'] = f'Generating audio ({done}/{total}) · {msg}'
+
         if job is not None:
-            job['done'] = job.get('done', 0) + 1
+            on_status(f'preparing {len(pending_items)} pending segments…')
+        tts.generate_many(
+            pending_items,
+            num_step=num_step,
+            on_item=on_item,
+            on_status=on_status,
+        )
+    except Exception as e:
+        log.warning(
+            'Batch audio generation failed for chapter %s (%d items): %s; '
+            'falling back to per-segment',
+            chapter_id, len(pending_items), e,
+        )
+        for local_i, item in enumerate(pending_items):
+            # Skip items already filled by a partial batch before the exception.
+            if segs[pending_idx[local_i]].get('audio_path') and os.path.exists(
+                segs[pending_idx[local_i]]['audio_path']
+            ):
+                continue
+            try:
+                result = tts.generate(
+                    text=item['text'],
+                    instruct=item['instruct'],
+                    ref_audio=item['ref_audio'],
+                    ref_text=item['ref_text'],
+                    speed=item['speed'],
+                    language=item['language'],
+                    num_step=num_step,
+                )
+            except Exception as seg_exc:
+                log.warning('Audio generation failed for segment: %s', seg_exc)
+                result = None
+            _apply_result(local_i, result)
+
+    _flush_db(force=True)
 
 
 def _get_char_colors(book_id):
@@ -905,13 +1154,26 @@ def _get_chapter_segments(chapter_id, book_id):
 
 def _make_export_job() -> tuple[str, dict]:
     job_id = str(uuid.uuid4())
-    job: dict = {'state': 'pending', 'message': 'Starting...', 'done': 0, 'total': 0, 'result': None, 'error': None}
+    job: dict = {
+        'state': 'pending',
+        'message': 'Starting...',
+        'done': 0,
+        'total': 0,
+        'eta_sec': None,
+        'elapsed_sec': None,
+        't0': None,
+        'synth_t0': None,
+        'synth_done': 0,
+        'result': None,
+        'error': None,
+    }
     _export_jobs[job_id] = job
     return job_id, job
 
 
 def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: str, sub_fmt: str):
     job = _export_jobs[job_id]
+    _export_exclusive_begin()
     try:
         job['state'] = 'running'
         job['message'] = 'Loading segments...'
@@ -926,7 +1188,7 @@ def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: s
         segs = _get_chapter_segments(chapter_id, book_id)
         job['total'] = len(segs)
         job['done'] = 0
-        job['message'] = f'Generating audio ({len(segs)} segments)...'
+        job['message'] = f'Generating audio (0/{len(segs)})'
         _ensure_audio_for_chapter(book_id, chapter_id, segs, job)
         job['message'] = 'Merging audio...'
         colors = _get_char_colors(book_id)
@@ -941,10 +1203,13 @@ def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: s
         log.exception('Export job %s failed', job_id)
         job['state'] = 'failed'
         job['error'] = str(e)
+    finally:
+        _export_exclusive_end()
 
 
 def _run_full_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: str):
     job = _export_jobs[job_id]
+    _export_exclusive_begin()
     try:
         job['state'] = 'running'
         job['message'] = 'Loading chapters...'
@@ -960,7 +1225,8 @@ def _run_full_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: str):
         total = sum(len(s) for _, s in chapters_segs)
         job['total'] = total
         job['done'] = 0
-        job['message'] = f'Generating audio ({total} segments)...'
+        job['message'] = f'Generating audio (0/{total})'
+        log.info('Full export %s: %d chapters, %d segments', job_id, len(chapters_segs), total)
         for ch_id, segs in chapters_segs:
             _ensure_audio_for_chapter(book_id, ch_id, segs, job)
         job['message'] = 'Merging audio...'
@@ -977,10 +1243,13 @@ def _run_full_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: str):
         log.exception('Export job %s failed', job_id)
         job['state'] = 'failed'
         job['error'] = str(e)
+    finally:
+        _export_exclusive_end()
 
 
 def _run_chapterwise_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: str):
     job = _export_jobs[job_id]
+    _export_exclusive_begin()
     try:
         job['state'] = 'running'
         job['message'] = 'Loading chapters...'
@@ -996,7 +1265,7 @@ def _run_chapterwise_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: 
         total = sum(len(c['segments']) for c in chapters_data)
         job['total'] = total
         job['done'] = 0
-        job['message'] = f'Generating audio ({total} segments)...'
+        job['message'] = f'Generating audio (0/{total})'
         for ch_data in chapters_data:
             _ensure_audio_for_chapter(book_id, ch_data['ch_id'], ch_data['segments'], job)
         job['message'] = 'Packaging ZIP...'
@@ -1013,6 +1282,8 @@ def _run_chapterwise_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: 
         log.exception('Export job %s failed', job_id)
         job['state'] = 'failed'
         job['error'] = str(e)
+    finally:
+        _export_exclusive_end()
 
 
 def _resolve_sub_fmt(book_id: int, requested: str) -> str:
@@ -1081,6 +1352,8 @@ def export_job_status(job_id):
     job = _export_jobs.get(job_id)
     if not job:
         return jsonify({'error': 'Unknown job'}), 404
+    # Recompute ETA on every poll so the UI keeps moving while a GPU batch runs.
+    _refresh_export_job_fields(job)
     return jsonify(job)
 
 
@@ -1159,9 +1432,42 @@ def save_settings():
         'model_source', 'model_path', 'model_repo', 'hf_endpoint',
         'narrator_instruct', 'single_narrator_mode', 'default_speed', 'audio_format',
         'subtitle_format', 'theme', 'font_size', 'font_family', 'line_height',
+        'normalize_text', 'tts_num_step', 'tts_batch_size', 'tts_coalesce_chars',
+        'tts_accel',
     }
     updates = {k: v for k, v in body.items() if k in allowed}
+    if 'normalize_text' in updates:
+        updates['normalize_text'] = bool(updates['normalize_text'])
+    if 'tts_num_step' in updates:
+        try:
+            step = int(updates['tts_num_step'])
+        except (TypeError, ValueError):
+            step = 16
+        from core.tts_engine import ALLOWED_TTS_NUM_STEPS
+        if step not in ALLOWED_TTS_NUM_STEPS:
+            step = min(ALLOWED_TTS_NUM_STEPS, key=lambda s: abs(s - step))
+        updates['tts_num_step'] = step
+    if 'tts_batch_size' in updates:
+        try:
+            # 0 = auto (VRAM-based). Positive = fixed batch size.
+            updates['tts_batch_size'] = max(0, min(int(updates['tts_batch_size']), 48))
+        except (TypeError, ValueError):
+            updates['tts_batch_size'] = 0
+    if 'tts_coalesce_chars' in updates:
+        try:
+            updates['tts_coalesce_chars'] = max(0, min(int(updates['tts_coalesce_chars']), 4000))
+        except (TypeError, ValueError):
+            updates['tts_coalesce_chars'] = 720
+    if 'tts_accel' in updates:
+        mode = str(updates['tts_accel'] or 'auto').strip().lower()
+        if mode not in ('off', 'auto', 'cuda_graph', 'triton', 'hybrid'):
+            mode = 'auto'
+        updates['tts_accel'] = mode
     result = app_settings.save(updates)
+
+    # Accel mode change requires model reload to re-wrap forward().
+    if 'tts_accel' in updates and updates['tts_accel'] != previous.get('tts_accel'):
+        pass  # user can hit Reload TTS; do not force mid-request
 
     # If model path changed, reset TTS so it reloads from new path
     if 'model_path' in updates:
@@ -1169,6 +1475,7 @@ def save_settings():
         tts._ready = False
         tts._error = None
         tts.model = None
+        tts._prompt_mem.clear()
 
     if 'narrator_instruct' in updates and updates['narrator_instruct'] != previous.get('narrator_instruct'):
         with get_conn() as conn:

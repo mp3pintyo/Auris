@@ -29,3 +29,9 @@ class TtsLanguageTest(unittest.TestCase):
         hungarian = TTSEngine.cache_key('A test.', None, None, 1.0, language='hu')
 
         self.assertNotEqual(english, hungarian)
+
+    def test_normalize_text_is_part_of_cache_key(self):
+        off = TTSEngine.cache_key('A test.', None, None, 1.0, normalize_text=False)
+        on = TTSEngine.cache_key('A test.', None, None, 1.0, normalize_text=True)
+
+        self.assertNotEqual(off, on)

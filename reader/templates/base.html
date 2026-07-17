@@ -11,8 +11,9 @@
 <nav class="topnav">
   <a class="brand" href="/">Auris<span class="brand-sub">Reader</span></a>
   <span class="nav-links">
-    <a href="/" id="nav-library">Library</a>
-    <a href="/settings" id="nav-settings">Settings</a>
+    <a href="/" id="nav-library"{% if request.path == '/' %} class="active"{% endif %}>Library</a>
+    <a href="/settings" id="nav-settings"{% if request.path == '/settings' %} class="active"{% endif %}>Settings</a>
+    <a href="/docs" id="nav-docs"{% if request.path == '/docs' %} class="active"{% endif %}>Docs</a>
     <span id="model-badge" class="badge badge-loading">Loading</span>
   </span>
 </nav>

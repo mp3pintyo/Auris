@@ -162,13 +162,14 @@
       <label>GPU acceleration</label>
       <select id="tts-accel" class="select-input">
         <option value="auto">Auto — best available</option>
-        <option value="cuda_graph">CUDA Graph — recommended on Windows (~2–3×)</option>
+        <option value="cuda_graph">CUDA Graph — experimental on Windows</option>
         <option value="hybrid">Hybrid — Triton + CUDA Graph (WSL/Linux best)</option>
         <option value="triton">Triton kernels only</option>
         <option value="off">Off — plain PyTorch</option>
       </select>
       <span class="muted" style="font-size:.78rem" id="tts-accel-hint">
-        CUDA Graph is pure PyTorch and works on native Windows (main speedup).
+        On the tested RTX 3090 + Windows 11 setup, plain PyTorch was slightly
+        faster, so use <strong>Off</strong> unless your own benchmark proves otherwise.
         Full Triton/hybrid needs <code>omnivoice-triton</code> (officially WSL2/Linux;
         on native Windows try <code>pip install triton-windows</code> then
         <code>pip install omnivoice-triton</code>). After changing this, click

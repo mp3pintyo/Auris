@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}Performance Guide — Auris{% endblock %}
+{% block content %}
+<div class="docs-shell">
+  <aside class="docs-sidebar" aria-label="Dokumentáció tartalomjegyzéke">
+    <div class="docs-sidebar-inner">
+      <div class="docs-toc-label">Tartalom</div>
+      <nav class="docs-toc">
+        <a href="#overview" class="active">Áttekintés</a>
+        <a href="#settings">RTX 3090 beállítások</a>
+        <a href="#parallel">Párhuzamos export</a>
+        <a href="#measurement">GPU-mérés</a>
+        <a href="#logs">Log értelmezése</a>
+        <a href="#benchmarks">Mérési eredmények</a>
+        <a href="#troubleshooting">Hibaelhárítás</a>
+      </nav>
+      <div class="docs-side-note">
+        <span class="docs-side-note-mark">i</span>
+        <div><strong>RTX 3090 · Windows 11</strong><span>Mért, helyi ajánlások az Auris jelenlegi exportmotorjához.</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="docs-main">
+    <header class="docs-hero" id="overview">
+      <div>
+        <h1>Auris Performance Guide</h1>
+        <p>Gyors, stabil könyvexport NVIDIA RTX 3090-en — mért értékekkel, érthető logokkal és kipróbált beállításokkal.</p>
+      </div>
+      <a class="docs-settings-link" href="/settings">Beállítások megnyitása <span aria-hidden="true">→</span></a>
+    </header>
+
+    <section class="benchmark-lead" aria-labelledby="benchmark-title">
+      <div class="benchmark-lead-intro">
+        <span class="docs-kicker">Saját A/B mérés</span>
+        <h2 id="benchmark-title">Két GPU-sávval <em>1,64×</em> gyorsabb</h2>
+        <p>Ugyanaz a 32 szegmenses, 4477 karakteres teszt RTX 3090-en, 8 diffusion steppel.</p>
+      </div>
+      <div class="benchmark-numbers">
+        <div class="benchmark-number"><span class="benchmark-value">147,65 <small>s</small></span><span class="benchmark-label">1 modell</span></div>
+        <span class="benchmark-arrow" aria-hidden="true">→</span>
+        <div class="benchmark-number is-highlight"><span class="benchmark-value">90,23 <small>s</small></span><span class="benchmark-label">2 modell · 2 CUDA stream</span></div>
+        <div class="benchmark-vram"><span>≈ 7,73 GB</span><small>mért peak allocated VRAM</small></div>
+      </div>
+      <div class="benchmark-scale" aria-label="Exportidő összehasonlítás">
+        <div class="benchmark-bar"><span>1 modell</span><i style="--bar:100%"></i><b>147,65 s</b></div>
+        <div class="benchmark-bar is-fast"><span>2 modell</span><i style="--bar:61.1%"></i><b>90,23 s</b></div>
+      </div>
+      <p class="benchmark-estimate"><strong>Gyakorlati becslés:</strong> a korábbi 2 órás export ugyanilyen arány mellett körülbelül 73–75 percre csökkenhet. A tényleges idő a mondathosszaktól, hangoktól és a már elkészült cache-től függ.</p>
+    </section>
+
+    <section class="docs-section" id="settings">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">01</span>
+        <div><h2>Ajánlott RTX 3090 beállítások</h2><p>A Balanced profil a jó kiindulópont. A Fast akkor hasznos, ha az exportidő fontosabb a finom minőségi különbségeknél.</p></div>
+      </div>
+      <div class="settings-guide-wrap">
+        <table class="settings-guide">
+          <thead><tr><th>Settings mező</th><th><span class="profile-dot"></span>Balanced</th><th><span class="profile-dot fast"></span>Fast</th><th>Miért?</th></tr></thead>
+          <tbody>
+            <tr><td>Speech quality</td><td><strong>16 step</strong></td><td><strong>8 step</strong></td><td>16 általában már jó minőség; 8 érezhetően gyorsabb.</td></tr>
+            <tr><td>GPU batch size</td><td><strong>8</strong></td><td><strong>8</strong></td><td>A hossz szerinti 8-as csomagolás adta a jobb mért eredményt.</td></tr>
+            <tr><td>Merge short lines</td><td><strong>400 char</strong></td><td><strong>400 char</strong></td><td>Csökkenti a sok rövid GPU-hívás költségét, túl hosszú blokkok nélkül.</td></tr>
+            <tr><td>GPU acceleration</td><td><strong>Off</strong></td><td><strong>Off</strong></td><td>A CUDA Graph ezen a Windows + 3090 mérésen nem gyorsított.</td></tr>
+            <tr><td>Parallel export workers</td><td><strong>2</strong></td><td><strong>2</strong></td><td>Két modell és két CUDA stream adta az 1,64× gyorsulást.</td></tr>
+            <tr><td>Normalize numbers</td><td><strong>On</strong></td><td><strong>On</strong></td><td>Természetesebb szám-, dátum- és pénzfelolvasás.</td></tr>
+            <tr><td>Audio format</td><td><strong>WAV</strong></td><td><strong>WAV</strong></td><td>Veszteségmentes, és nem igényel külön ffmpeg kódolást.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">↻</span>
+        <div><strong>Mentés után indítsd újra a TTS motort.</strong><p>Az acceleration és a modellszám változásaihoz használd a <em>Reload TTS engine</em> gombot, vagy indítsd újra a <code>reader\run.bat</code> fájlt.</p></div>
+      </div>
+    </section>
+
+    <section class="docs-section" id="parallel">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">02</span>
+        <div><h2>Hogyan működik a párhuzamos export?</h2><p>A második modell csak export közben töltődik be, majd a munka végén felszabadul. A rendszer költség alapján osztja ketté a mondatokat, hogy a két sáv közel egyszerre végezzen.</p></div>
+      </div>
+      <div class="pipeline" aria-label="A párhuzamos export feldolgozási folyamata">
+        <div class="pipeline-node"><span class="pipeline-icon">¶</span><strong>Szegmensek</strong><small>szöveg + hang</small></div>
+        <span class="pipeline-connector" aria-hidden="true">→</span>
+        <div class="pipeline-node pipeline-split"><span class="pipeline-icon">⌁</span><strong>Költségelosztó</strong><small>hossz alapján</small></div>
+        <span class="pipeline-connector" aria-hidden="true">→</span>
+        <div class="pipeline-lanes">
+          <div class="pipeline-lane"><span>01</span><div><strong>GPU lane 1</strong><small>modell + CUDA stream</small></div></div>
+          <div class="pipeline-lane"><span>02</span><div><strong>GPU lane 2</strong><small>modell + CUDA stream</small></div></div>
+        </div>
+        <span class="pipeline-connector" aria-hidden="true">→</span>
+        <div class="pipeline-node"><span class="pipeline-icon">⌁</span><strong>Audio cache</strong><small>atomikus WAV-írás</small></div>
+        <span class="pipeline-connector" aria-hidden="true">→</span>
+        <div class="pipeline-node pipeline-output"><span class="pipeline-icon">♪</span><strong>Export</strong><small>összefűzés</small></div>
+      </div>
+      <div class="docs-two-column">
+        <div><h3>Mikor kapcsol be?</h3><ul class="docs-check-list">
+          <li>A <strong>Parallel export workers</strong> értéke 2 vagy Auto.</li>
+          <li>Legalább <strong>16 még elkészítendő</strong> szegmens van.</li>
+          <li>Minden tétel referenciahangos <strong>voice clone</strong> módban fut.</li>
+          <li>Van elegendő szabad VRAM a második modellhez.</li>
+        </ul></div>
+        <div><h3>Beépített védelem</h3><ul class="docs-check-list">
+          <li>Kevés VRAM vagy workerhiba esetén automatikus visszaállás 1 modellre.</li>
+          <li>A cache-fájlok atomikusan készülnek, így nem írják felül egymást.</li>
+          <li>A DB- és progresszfrissítések zároltak.</li>
+          <li>Voice design esetén biztonsági okból egyetlen sáv marad.</li>
+        </ul></div>
+      </div>
+    </section>
+
+    <section class="docs-section docs-section-tinted" id="measurement">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">03</span>
+        <div><h2>GPU-mérés Windows 11 alatt</h2><p>A Feladatkezelő alapértelmezett <strong>3D</strong> grafikonja nem a CUDA számítási terhelést mutatja. Az alacsony 3D százalék ezért nem jelenti azt, hogy az Auris nem használja a GPU-t.</p></div>
+      </div>
+      <div class="measurement-grid">
+        <div>
+          <h3>A megbízható ellenőrzés</h3><p>Nyiss egy külön PowerShell ablakot export közben, és futtasd:</p>
+          <div class="code-block">
+            <div class="code-block-head"><span>PowerShell</span><button type="button" class="copy-code" data-copy="nvidia-smi dmon -s pucm -d 1" aria-label="Parancs másolása">Másolás</button></div>
+            <pre><code>nvidia-smi dmon -s pucm -d 1</code></pre>
+          </div>
+          <p class="docs-footnote">Az <code>sm</code> a számítási terhelés, a <code>pwr</code> a fogyasztás, a <code>mem</code> a memória-vezérlő aktivitása.</p>
+        </div>
+        <div class="utilization-note">
+          <span class="utilization-pulse" aria-hidden="true"></span><h3>Amit a mérésben láttunk</h3>
+          <dl><div><dt>GPU burst</dt><dd>akár 100% SM</dd></div><div><dt>Fogyasztás</dt><dd>346–347 W csúcs</dd></div><div><dt>Köztes szakasz</dt><dd>12–27% terhelés</dd></div><div><dt>Használt VRAM</dt><dd>kb. 3,4–6,8 GB</dd></div></dl>
+          <p>A hullámzó kihasználtság normális: a GPU-generálást CPU-s előkészítés, dekódolás, fájlírás és új csomag összeállítása követi.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="docs-section" id="logs">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">04</span>
+        <div><h2>Mit keress az exportlogban?</h2><p>A két sáv sikeres indulása és az egyes GPU-hívások valódi ideje közvetlenül látható a terminálban.</p></div>
+      </div>
+      <div class="log-viewer" aria-label="Példa exportlog">
+        <div class="log-viewer-head"><span></span><span></span><span></span><b>Auris export</b></div>
+        <div class="log-line"><i>01</i><code><em class="log-ok">INFO</em> Parallel TTS export ready: <strong>2 model replicas / 2 CUDA streams</strong></code></div>
+        <div class="log-line"><i>02</i><code><em class="log-ok">INFO</em> Parallel export split: lane-1=16 lane-2=16</code></div>
+        <div class="log-line"><i>03</i><code><em>GPU</em> generate done: worker=<strong>lane-1</strong> batch=8 elapsed=4.10s peak_alloc=3.82GB</code></div>
+        <div class="log-line"><i>04</i><code><em>GPU</em> generate done: worker=<strong>lane-2</strong> batch=8 elapsed=4.18s peak_alloc=3.91GB</code></div>
+      </div>
+      <dl class="log-glossary">
+        <div><dt>elapsed</dt><dd>Az adott generate hívás teljes ideje.</dd></div>
+        <div><dt>peak_alloc</dt><dd>A PyTorch által ténylegesen lefoglalt VRAM csúcsa.</dd></div>
+        <div><dt>reserved</dt><dd>A gyors újrahasználathoz fenntartott CUDA memóriapool.</dd></div>
+        <div><dt>batch</dt><dd>Egy generate hívásban együtt feldolgozott blokkok száma.</dd></div>
+        <div><dt>clone</dt><dd>Jelzi, hogy referenciahangos voice clone fut-e.</dd></div>
+      </dl>
+    </section>
+
+    <section class="docs-section" id="benchmarks">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">05</span>
+        <div><h2>Mit tanultunk a mérésekből?</h2><p>A gyorsulás két külön optimalizálásból jön: hossz szerinti csomagolásból és párhuzamos modellfuttatásból.</p></div>
+      </div>
+      <div class="results-comparison">
+        <article>
+          <span class="result-label">Hossz szerinti batch</span><h3>5,76 s <span>→</span> 4,10 s</h3>
+          <p>24 vegyes hosszúságú tételnél a 3 × 8 hossz szerinti bucket kb. <strong>29%-kal gyorsabb</strong> lett, miközben ugyanazt a 199,8 s hanganyagot készítette el.</p>
+          <div class="result-detail"><span>Peak VRAM</span><strong>7,65 GB → 3,82 GB</strong></div>
+        </article>
+        <article>
+          <span class="result-label">CUDA Graph</span><h3>2,27 s <span>→</span> 2,31 s</h3>
+          <p>A rövid natív tesztben a graph nem gyorsított. A cache már közös poolt használ és legfeljebb 4 shape-et tart, de ezen a gépen a <strong>plain PyTorch</strong> maradt a mért nyertes.</p>
+          <div class="result-detail"><span>Ajánlás</span><strong>Acceleration: Off</strong></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="docs-section" id="troubleshooting">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">06</span>
+        <div><h2>Hibaelhárítás</h2><p>A leggyakoribb jelenségek és a legrövidebb út a megoldásig.</p></div>
+      </div>
+      <div class="faq-list">
+        <details><summary>Csak egy worker jelenik meg a logban</summary><div><p>Ellenőrizd, hogy a Settingsben 2 worker van beállítva, majd töltsd újra a TTS motort. Két sáv csak legalább 16 függő, referenciahangos voice clone szegmensnél indul. Voice design feladatnál szándékosan egy sáv marad.</p></div></details>
+        <details><summary>CUDA out of memory vagy túl magas VRAM-használat</summary><div><p>A rendszer először automatikusan megpróbál visszaállni egy modellre. Ha az export még így is elfogyasztja a memóriát, állítsd a workert 1-re és a GPU batch size értékét 8-ra, majd indítsd újra az exportot.</p></div></details>
+        <details><summary>Az export elején pontatlan vagy nagyon hosszú az ETA</summary><div><p>Ez normális. Az első néhány csomagból még kevés minta áll rendelkezésre; a becslés több elkészült batch után stabilizálódik.</p></div></details>
+        <details><summary>Megszakadt vagy elakadt az export</summary><div><p>Nézd meg a terminál utolsó <code>GPU generate done</code> és worker sorait. Újraindításkor a már elkészült audio cache újrahasznosul, ezért ne töröld az <code>audio_cache</code> könyvtárat.</p></div></details>
+        <details><summary>A GPU még mindig alig látszik a Feladatkezelőben</summary><div><p>A 3D és Video Encode grafikon nem mérvadó. Használd a fenti <code>nvidia-smi dmon</code> parancsot; a rövid, magas SM- és fogyasztási csúcsok bizonyítják a CUDA-terhelést.</p></div></details>
+      </div>
+    </section>
+    <footer class="docs-footer"><span>Auris · helyi audiobook workflow</span><a href="#overview">Vissza az elejére ↑</a></footer>
+  </main>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/docs.js"></script>{% endblock %}

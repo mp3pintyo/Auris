@@ -1475,6 +1475,11 @@ def settings_page():
     return render_template('settings.html')
 
 
+@app.route('/docs')
+def docs_page():
+    return render_template('docs.html')
+
+
 @app.route('/api/settings', methods=['GET'])
 def get_settings():
     return jsonify(app_settings.load())

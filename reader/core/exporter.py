@@ -31,6 +31,10 @@ SAMPLE_RATE = 24_000
 EXPORTS_DIR = str(Path(__file__).resolve().parent.parent / 'exports')
 os.makedirs(EXPORTS_DIR, exist_ok=True)
 
+DEFAULT_SEGMENT_PAUSE_SEC = 0.35
+DIALOGUE_TURN_PAUSE_SEC = 0.55
+ELLIPSIS_PAUSE_SEC = 1.5
+
 
 # ── ffmpeg / pydub detection ──────────────────────────────────────────────────
 
@@ -145,15 +149,43 @@ def build_srt(segments: list[dict]) -> str:
 
 # ── Audio merge ───────────────────────────────────────────────────────────────
 
-def _merge_wavs(audio_paths: list[str]) -> np.ndarray:
+def pause_after_segment(segment: dict, next_segment: dict | None = None) -> float:
+    """Return the spoken-program pause after a segment.
+
+    Ellipses represent an intentional trailing-off pause. Consecutive dialogue
+    segments get a slightly longer beat so a new voice does not cut in
+    unnaturally fast.
+    """
+    text = str(segment.get('text') or '').rstrip()
+    text = text.rstrip('"\'”’»').rstrip()
+    if text.endswith(('...', '…')):
+        return ELLIPSIS_PAUSE_SEC
+    if (
+        next_segment
+        and segment.get('is_dialogue')
+        and next_segment.get('is_dialogue')
+    ):
+        return DIALOGUE_TURN_PAUSE_SEC
+    return DEFAULT_SEGMENT_PAUSE_SEC
+
+
+def _merge_wavs(segments: list[dict]) -> np.ndarray:
     arrays = []
-    for p in audio_paths:
+    playable = [
+        seg
+        for seg in segments
+        if seg.get('audio_path') and os.path.exists(seg['audio_path'])
+    ]
+    for idx, seg in enumerate(playable):
+        p = seg['audio_path']
         if p and os.path.exists(p):
             data, _ = sf.read(p)
             if data.ndim > 1:
                 data = data.mean(axis=1)
             arrays.append(data)
-            arrays.append(np.zeros(int(SAMPLE_RATE * 0.25)))  # 250ms gap
+            if idx + 1 < len(playable):
+                pause = pause_after_segment(seg, playable[idx + 1])
+                arrays.append(np.zeros(int(SAMPLE_RATE * pause)))
     return np.concatenate(arrays) if arrays else np.zeros(SAMPLE_RATE)
 
 
@@ -166,10 +198,13 @@ def build_timeline(segments_db: list[dict]) -> list[dict]:
     """
     timeline = []
     cursor = 0.0
-    for seg in segments_db:
+    for idx, seg in enumerate(segments_db):
         dur = seg.get('duration_sec') or 0.0
         timeline.append({**seg, 't_start': cursor, 't_end': cursor + dur})
-        cursor += dur + 0.25  # 250ms gap
+        next_seg = segments_db[idx + 1] if idx + 1 < len(segments_db) else None
+        cursor += dur
+        if next_seg is not None:
+            cursor += pause_after_segment(seg, next_seg)
     return timeline
 
 
@@ -186,8 +221,7 @@ def export_single_chapter(
     """Returns {'audio_path': ..., 'subtitle_path': ..., 'audio_fmt': ..., 'sub_fmt': ...}"""
     safe_title = _safe_name(chapter_title)
     timeline = build_timeline(segments)
-    audio_paths = [s['audio_path'] for s in timeline if s.get('audio_path')]
-    merged = _merge_wavs(audio_paths)
+    merged = _merge_wavs(timeline)
 
     wav_path = os.path.join(EXPORTS_DIR, f'{safe_title}.wav')
     sf.write(wav_path, merged, SAMPLE_RATE)

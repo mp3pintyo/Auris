@@ -27,6 +27,12 @@ let _segCache = new Map();
 // Which segment index is pre-buffered in the standby element, and its data
 let _preloadIdx = -1;
 let _preloadData = null;
+let _interSegmentTimer = null;
+let _pendingSegmentIdx = -1;
+
+const DEFAULT_SEGMENT_PAUSE_MS = 350;
+const DIALOGUE_TURN_PAUSE_MS = 550;
+const ELLIPSIS_PAUSE_MS = 1500;
 
 // Monotonic counter — incremented on every new playSegment and on stopPlayback.
 // Each playSegment captures its generation at entry; stale async continuations
@@ -38,6 +44,16 @@ let _playGen = 0;
 let _bufferGenId = 0;
 
 function _standby() { return audio === _audioA ? _audioB : _audioA; }
+
+function pauseAfterSegmentMs(segment, nextSegment = null) {
+  const text = String(segment?.text || '')
+    .trimEnd()
+    .replace(/["'”’»]+\s*$/, '')
+    .trimEnd();
+  if (text.endsWith('...') || text.endsWith('…')) return ELLIPSIS_PAUSE_MS;
+  if (segment?.is_dialogue && nextSegment?.is_dialogue) return DIALOGUE_TURN_PAUSE_MS;
+  return DEFAULT_SEGMENT_PAUSE_MS;
+}
 function _swapAudio() { audio = (audio === _audioA ? _audioB : _audioA); }
 
 function clampSegmentIndex(idx, segList = segments) {
@@ -390,6 +406,11 @@ async function _schedulePreload(playingIdx) {
 async function playSegment(idx) {
   if (idx >= segments.length) { stopPlayback(); return; }
 
+  if (_interSegmentTimer) {
+    clearTimeout(_interSegmentTimer);
+    _interSegmentTimer = null;
+  }
+  _pendingSegmentIdx = -1;
   const gen = ++_playGen;
 
   isPlaying = true;
@@ -436,7 +457,16 @@ function _onAudioEnded() {
   stopWordHighlight();
   if (!isPlaying) return;
   const next = currentSegIdx + 1;
-  if (next < segments.length) playSegment(next);
+  if (next < segments.length) {
+    const pauseMs = pauseAfterSegmentMs(segments[currentSegIdx], segments[next]);
+    _pendingSegmentIdx = next;
+    _interSegmentTimer = setTimeout(() => {
+      _interSegmentTimer = null;
+      const pendingIdx = _pendingSegmentIdx;
+      _pendingSegmentIdx = -1;
+      if (isPlaying) playSegment(pendingIdx);
+    }, pauseMs);
+  }
   else {
     queueProgressSave(currentChapterId, currentSegIdx);
     stopPlayback();
@@ -462,6 +492,11 @@ _audioB.addEventListener('error', _onAudioError);
 function stopPlayback() {
   isPlaying = false;
   _playGen++;            // invalidate any in-flight playSegment coroutine
+  if (_interSegmentTimer) {
+    clearTimeout(_interSegmentTimer);
+    _interSegmentTimer = null;
+  }
+  _pendingSegmentIdx = -1;
   stopWordHighlight();
   _audioA.pause();
   _audioB.pause();
@@ -549,12 +584,16 @@ function updatePlaybackUI() {
 document.getElementById('btn-play').onclick = () => {
   if (isPlaying) {
     isPlaying = false;
+    if (_interSegmentTimer) {
+      clearTimeout(_interSegmentTimer);
+      _interSegmentTimer = null;
+    }
     stopWordHighlight();
     audio.pause();
     updatePlaybackUI();
     queueProgressSave(currentChapterId, currentSegIdx);
   } else {
-    playSegment(currentSegIdx);
+    playSegment(_pendingSegmentIdx >= 0 ? _pendingSegmentIdx : currentSegIdx);
   }
 };
 

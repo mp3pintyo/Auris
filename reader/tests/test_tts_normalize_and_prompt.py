@@ -251,6 +251,13 @@ class PackBatchTest(unittest.TestCase):
         packs = _pack_items_for_batch(items, max_items=4, max_chars=50000)
         self.assertEqual([len(p) for p in packs], [4, 4, 2])
 
+    def test_voice_clone_batch_is_capped_for_cfg_and_reference_padding(self):
+        engine = TTSEngine.__new__(TTSEngine)
+        engine._batch_size_cap = None
+
+        self.assertEqual(engine._effective_batch_size(24, voice_clone=True), 8)
+        self.assertEqual(engine._effective_batch_size(24, voice_clone=False), 24)
+
 
 class AccelResolveTest(unittest.TestCase):
     def test_resolve_off(self):
@@ -265,6 +272,42 @@ class AccelResolveTest(unittest.TestCase):
         self.assertIn("cuda", p)
         self.assertIn("triton", p)
         self.assertIn("recommended", p)
+
+    def test_fast_greedy_cfg_scoring_matches_upstream_math(self):
+        import torch
+        import torch.nn.functional as F
+        from types import SimpleNamespace
+
+        from core.tts_accel import _fast_predict_tokens_with_scoring
+
+        torch.manual_seed(7)
+        c_logits = torch.randn(2, 3, 5, 17, dtype=torch.float32)
+        u_logits = torch.randn_like(c_logits)
+        config = SimpleNamespace(guidance_scale=2.0, class_temperature=0.0)
+        model = SimpleNamespace(config=SimpleNamespace(audio_mask_id=16))
+
+        c_log_probs = F.log_softmax(c_logits, dim=-1)
+        u_log_probs = F.log_softmax(u_logits, dim=-1)
+        expected = F.log_softmax(
+            c_log_probs
+            + config.guidance_scale * (c_log_probs - u_log_probs),
+            dim=-1,
+        )
+        expected[..., model.config.audio_mask_id] = -float("inf")
+
+        actual_tokens, actual_scores = _fast_predict_tokens_with_scoring(
+            model, c_logits, u_logits, config
+        )
+
+        self.assertTrue(torch.equal(actual_tokens, expected.argmax(dim=-1)))
+        self.assertTrue(
+            torch.allclose(
+                actual_scores,
+                expected.max(dim=-1).values,
+                atol=2e-6,
+                rtol=1e-6,
+            )
+        )
 
 
 class CoalesceTest(unittest.TestCase):

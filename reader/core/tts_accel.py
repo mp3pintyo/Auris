@@ -27,12 +27,16 @@ Install (optional)::
 from __future__ import annotations
 
 import logging
+from types import MethodType
 from typing import Any
 
 log = logging.getLogger(__name__)
 
 ACCEL_MODES = ("off", "auto", "cuda_graph", "triton", "hybrid")
-MAX_CACHED_GRAPHS = 16
+# Long-form generation produces several shapes as OmniVoice chunks long text.
+# Keeping every graph alive is counterproductive: each graph retains a large
+# logits buffer and its CUDA-private allocations.
+MAX_CACHED_GRAPHS = 4
 
 
 class CUDAGraphForward:
@@ -46,6 +50,9 @@ class CUDAGraphForward:
         self._model = model
         self._original_forward = model.forward
         self._graphs: dict[tuple[int, ...], dict] = {}
+        # Captures are replayed serially under TTSEngine._lock, so their
+        # private allocations can safely share one CUDA graph pool.
+        self._pool = None
 
     @staticmethod
     def _shape_key(input_ids) -> tuple[int, ...]:
@@ -91,7 +98,9 @@ class CUDAGraphForward:
         torch.cuda.synchronize()
 
         graph = torch.cuda.CUDAGraph()
-        with torch.cuda.graph(graph):
+        if self._pool is None:
+            self._pool = torch.cuda.graph_pool_handle()
+        with torch.cuda.graph(graph, pool=self._pool):
             static_output = self._original_forward(
                 static_input_ids,
                 static_audio_mask,
@@ -114,7 +123,18 @@ class CUDAGraphForward:
             log.info("CUDA Graph cache full; evicted shape %s", old_key)
 
         self._graphs[key] = entry
-        log.info("CUDA Graph captured for shape %s (cache=%d)", key, len(self._graphs))
+        try:
+            allocated = torch.cuda.memory_allocated() / (1024**3)
+            reserved = torch.cuda.memory_reserved() / (1024**3)
+            memory = f", allocated={allocated:.2f}GB reserved={reserved:.2f}GB"
+        except Exception:
+            memory = ""
+        log.info(
+            "CUDA Graph captured for shape %s (cache=%d%s)",
+            key,
+            len(self._graphs),
+            memory,
+        )
         return entry
 
     def __call__(
@@ -163,6 +183,52 @@ class CUDAGraphForward:
 
     def clear(self) -> None:
         self._graphs.clear()
+        self._pool = None
+
+
+def _fast_predict_tokens_with_scoring(
+    model,
+    c_logits,
+    u_logits,
+    gen_config,
+):
+    """Equivalent greedy CFG scoring with one log-softmax instead of three."""
+    if getattr(gen_config, "class_temperature", 0.0) > 0.0:
+        return model._auris_original_predict_tokens(
+            c_logits, u_logits, gen_config
+        )
+
+    import torch
+    import torch.nn.functional as F
+
+    guidance = float(getattr(gen_config, "guidance_scale", 0.0))
+    if guidance:
+        # Normalization constants in the two input log-softmax operations are
+        # per-position scalars and cancel in the final log-softmax.
+        guided_logits = c_logits + guidance * (c_logits - u_logits)
+    else:
+        guided_logits = c_logits
+    log_probs = F.log_softmax(guided_logits, dim=-1)
+    log_probs[..., model.config.audio_mask_id] = -float("inf")
+    pred_tokens = torch.argmax(log_probs, dim=-1)
+    confidence_scores = torch.max(log_probs, dim=-1).values
+    return pred_tokens, confidence_scores
+
+
+def apply_scoring_optimization(model) -> bool:
+    """Install the exact greedy CFG fast path used by audiobook export."""
+    if hasattr(model, "_auris_original_predict_tokens"):
+        return True
+    original = getattr(model, "_predict_tokens_with_scoring", None)
+    if original is None:
+        log.warning("OmniVoice scoring optimization unavailable")
+        return False
+    model._auris_original_predict_tokens = original
+    model._predict_tokens_with_scoring = MethodType(
+        _fast_predict_tokens_with_scoring, model
+    )
+    log.info("OmniVoice greedy CFG scoring optimization installed")
+    return True
 
 
 def triton_available() -> bool:
@@ -282,6 +348,7 @@ def apply_acceleration(model, mode: str | None = "auto") -> dict:
         "effective": effective,
         "triton": False,
         "cuda_graph": False,
+        "scoring_opt": False,
         "message": "",
         "probe": probe_accel(),
     }
@@ -289,6 +356,8 @@ def apply_acceleration(model, mode: str | None = "auto") -> dict:
     if effective == "off":
         status["message"] = "Acceleration off"
         return status
+
+    status["scoring_opt"] = apply_scoring_optimization(model)
 
     if effective in ("triton", "hybrid"):
         status["triton"] = apply_triton_to_omnivoice(model)

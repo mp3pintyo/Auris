@@ -91,17 +91,21 @@ def _auto_batch_size_from_vram(voice_clone: bool = False) -> int:
         free_gb = free_bytes / (1024**3)
         total_gb = total_bytes / (1024**3)
 
-        # Card-class targets (fill the GPU; 8GB-of-24GB means we were too shy).
+        # OmniVoice doubles the effective batch for classifier-free guidance,
+        # then pads every item to the longest sequence. Voice cloning also adds
+        # the reference tokens to every item. On a 24GB RTX 3090, measured
+        # length-bucketed batches of 8 are both faster and about half the peak
+        # VRAM of a batch of 24.
         if total_gb >= 20:  # 24GB class
-            size = 24 if voice_clone else 32
+            size = 8 if voice_clone else 16
         elif total_gb >= 14:  # 16GB
-            size = 16 if voice_clone else 22
+            size = 6 if voice_clone else 12
         elif total_gb >= 10:  # 12GB
-            size = 12 if voice_clone else 16
+            size = 4 if voice_clone else 8
         elif total_gb >= 7:  # 8GB
-            size = 8 if voice_clone else 12
+            size = 3 if voice_clone else 6
         else:
-            size = 4 if voice_clone else 6
+            size = 2 if voice_clone else 4
 
         # Only shrink if the card is actually nearly full already.
         if free_gb < 2.0:
@@ -630,9 +634,13 @@ class TTSEngine:
         return self._batch_size_cap or new_cap
 
     def _effective_batch_size(self, requested: int, voice_clone: bool = False) -> int:
-        """Apply session OOM cap only — do not silently shrink manual/auto sizes."""
-        del voice_clone  # reserved for future heuristics; size already clone-aware
+        """Apply architecture and session safety caps to a requested batch."""
         size = max(1, min(int(requested), MAX_TTS_BATCH_SIZE))
+        # A clone batch is doubled for CFG and carries repeated reference
+        # context. Above 8, padding and scoring overhead outweigh parallelism
+        # on the currently supported consumer-GPU path.
+        if voice_clone:
+            size = min(size, 8)
         if self._batch_size_cap is not None:
             size = min(size, self._batch_size_cap)
         return max(1, size)

@@ -14,7 +14,7 @@ from flask import (
 )
 
 from core.database import init_db, get_conn
-from core.tts_engine import TTSEngine
+from core.tts_engine import TTSEngine, TTSExportPool
 from core import characters as char_module
 from core import enrichment, exporter, structure, settings as app_settings
 from core.parser import epub_parser, pdf_parser, txt_parser
@@ -981,7 +981,13 @@ def _bump_export_progress(job: dict | None, n: int = 1, *, synthesized: bool = F
     _refresh_export_job_fields(job)
 
 
-def _ensure_audio_for_chapter(book_id: int, chapter_id: int, segs: list[dict], job: dict | None = None):
+def _ensure_audio_for_chapter(
+    book_id: int,
+    chapter_id: int,
+    segs: list[dict],
+    job: dict | None = None,
+    export_pool: TTSExportPool | None = None,
+):
     """Generate TTS for any segment in segs that has no audio yet, updating DB and segs in-place.
 
     Pending segments are batched through OmniVoice so full-book export uses the GPU
@@ -1044,6 +1050,7 @@ def _ensure_audio_for_chapter(book_id: int, chapter_id: int, segs: list[dict], j
         num_step = 16
 
     db_buffer: list[tuple] = []
+    result_lock = threading.RLock()
 
     def _flush_db(force: bool = False) -> None:
         nonlocal db_buffer
@@ -1059,25 +1066,26 @@ def _ensure_audio_for_chapter(book_id: int, chapter_id: int, segs: list[dict], j
         db_buffer = []
 
     def _apply_result(local_i: int, result: dict | None) -> None:
-        if result is None:
-            _bump_export_progress(job, 1, synthesized=False)
-            return
-        seg = segs[pending_idx[local_i]]
-        seg['audio_path'] = result['audio_path']
-        seg['duration_sec'] = result['duration_sec']
-        seg['cache_key'] = result['cache_key']
-        db_buffer.append((
-            result['audio_path'],
-            result['duration_sec'],
-            result['cache_key'],
-            seg['id'],
-        ))
-        _bump_export_progress(
-            job,
-            1,
-            synthesized=not bool(result.get('cache_hit')),
-        )
-        _flush_db(force=False)
+        with result_lock:
+            if result is None:
+                _bump_export_progress(job, 1, synthesized=False)
+                return
+            seg = segs[pending_idx[local_i]]
+            seg['audio_path'] = result['audio_path']
+            seg['duration_sec'] = result['duration_sec']
+            seg['cache_key'] = result['cache_key']
+            db_buffer.append((
+                result['audio_path'],
+                result['duration_sec'],
+                result['cache_key'],
+                seg['id'],
+            ))
+            _bump_export_progress(
+                job,
+                1,
+                synthesized=not bool(result.get('cache_hit')),
+            )
+            _flush_db(force=False)
 
     try:
         def on_item(local_i: int, result: dict) -> None:
@@ -1086,19 +1094,30 @@ def _ensure_audio_for_chapter(book_id: int, chapter_id: int, segs: list[dict], j
         def on_status(msg: str) -> None:
             if job is None:
                 return
-            done = job.get('done', 0)
-            total = job.get('total', 0)
-            job['message'] = f'Generating audio ({done}/{total}) · {msg}'
+            with result_lock:
+                done = job.get('done', 0)
+                total = job.get('total', 0)
+                job['message'] = f'Generating audio ({done}/{total}) · {msg}'
 
         if job is not None:
             on_status(f'preparing {len(pending_items)} pending segments…')
-        tts.generate_many(
-            pending_items,
-            num_step=num_step,
-            on_item=on_item,
-            on_status=on_status,
-        )
+        if export_pool is not None:
+            export_pool.generate_many(
+                pending_items,
+                num_step=num_step,
+                on_item=on_item,
+                on_status=on_status,
+            )
+        else:
+            tts.generate_many(
+                pending_items,
+                num_step=num_step,
+                on_item=on_item,
+                on_status=on_status,
+            )
     except Exception as e:
+        if export_pool is not None and export_pool.worker_count > 1:
+            export_pool.close()
         log.warning(
             'Batch audio generation failed for chapter %s (%d items): %s; '
             'falling back to per-segment',
@@ -1125,7 +1144,22 @@ def _ensure_audio_for_chapter(book_id: int, chapter_id: int, segs: list[dict], j
                 result = None
             _apply_result(local_i, result)
 
-    _flush_db(force=True)
+    with result_lock:
+        _flush_db(force=True)
+
+
+def _start_export_pool(job: dict) -> TTSExportPool:
+    try:
+        requested = int(app_settings.get('tts_export_workers', 0) or 0)
+    except (TypeError, ValueError):
+        requested = 0
+    pool = TTSExportPool(tts, requested_workers=requested)
+    if requested != 1:
+        job['message'] = 'Loading second GPU worker…'
+    workers = pool.start()
+    job['workers'] = workers
+    log.info('Export TTS worker count=%d (requested=%d)', workers, requested)
+    return pool
 
 
 def _get_char_colors(book_id):
@@ -1173,6 +1207,7 @@ def _make_export_job() -> tuple[str, dict]:
 
 def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: str, sub_fmt: str):
     job = _export_jobs[job_id]
+    export_pool: TTSExportPool | None = None
     _export_exclusive_begin()
     try:
         job['state'] = 'running'
@@ -1189,7 +1224,10 @@ def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: s
         job['total'] = len(segs)
         job['done'] = 0
         job['message'] = f'Generating audio (0/{len(segs)})'
-        _ensure_audio_for_chapter(book_id, chapter_id, segs, job)
+        export_pool = _start_export_pool(job)
+        _ensure_audio_for_chapter(
+            book_id, chapter_id, segs, job, export_pool=export_pool
+        )
         job['message'] = 'Merging audio...'
         colors = _get_char_colors(book_id)
         result = exporter.export_single_chapter(ch['title'], book['title'], segs, colors, audio_fmt, sub_fmt)
@@ -1204,11 +1242,14 @@ def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: s
         job['state'] = 'failed'
         job['error'] = str(e)
     finally:
+        if export_pool is not None:
+            export_pool.close()
         _export_exclusive_end()
 
 
 def _run_full_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: str):
     job = _export_jobs[job_id]
+    export_pool: TTSExportPool | None = None
     _export_exclusive_begin()
     try:
         job['state'] = 'running'
@@ -1227,8 +1268,11 @@ def _run_full_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: str):
         job['done'] = 0
         job['message'] = f'Generating audio (0/{total})'
         log.info('Full export %s: %d chapters, %d segments', job_id, len(chapters_segs), total)
+        export_pool = _start_export_pool(job)
         for ch_id, segs in chapters_segs:
-            _ensure_audio_for_chapter(book_id, ch_id, segs, job)
+            _ensure_audio_for_chapter(
+                book_id, ch_id, segs, job, export_pool=export_pool
+            )
         job['message'] = 'Merging audio...'
         all_segs = [s for _, segs in chapters_segs for s in segs]
         colors = _get_char_colors(book_id)
@@ -1244,11 +1288,14 @@ def _run_full_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: str):
         job['state'] = 'failed'
         job['error'] = str(e)
     finally:
+        if export_pool is not None:
+            export_pool.close()
         _export_exclusive_end()
 
 
 def _run_chapterwise_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: str):
     job = _export_jobs[job_id]
+    export_pool: TTSExportPool | None = None
     _export_exclusive_begin()
     try:
         job['state'] = 'running'
@@ -1266,8 +1313,15 @@ def _run_chapterwise_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: 
         job['total'] = total
         job['done'] = 0
         job['message'] = f'Generating audio (0/{total})'
+        export_pool = _start_export_pool(job)
         for ch_data in chapters_data:
-            _ensure_audio_for_chapter(book_id, ch_data['ch_id'], ch_data['segments'], job)
+            _ensure_audio_for_chapter(
+                book_id,
+                ch_data['ch_id'],
+                ch_data['segments'],
+                job,
+                export_pool=export_pool,
+            )
         job['message'] = 'Packaging ZIP...'
         colors = _get_char_colors(book_id)
         zip_path = exporter.export_chapter_zip(
@@ -1283,6 +1337,8 @@ def _run_chapterwise_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: 
         job['state'] = 'failed'
         job['error'] = str(e)
     finally:
+        if export_pool is not None:
+            export_pool.close()
         _export_exclusive_end()
 
 
@@ -1433,7 +1489,7 @@ def save_settings():
         'narrator_instruct', 'single_narrator_mode', 'default_speed', 'audio_format',
         'subtitle_format', 'theme', 'font_size', 'font_family', 'line_height',
         'normalize_text', 'tts_num_step', 'tts_batch_size', 'tts_coalesce_chars',
-        'tts_accel',
+        'tts_accel', 'tts_export_workers',
     }
     updates = {k: v for k, v in body.items() if k in allowed}
     if 'normalize_text' in updates:
@@ -1463,6 +1519,13 @@ def save_settings():
         if mode not in ('off', 'auto', 'cuda_graph', 'triton', 'hybrid'):
             mode = 'auto'
         updates['tts_accel'] = mode
+    if 'tts_export_workers' in updates:
+        try:
+            updates['tts_export_workers'] = max(
+                0, min(int(updates['tts_export_workers']), 2)
+            )
+        except (TypeError, ValueError):
+            updates['tts_export_workers'] = 0
     result = app_settings.save(updates)
 
     # Accel mode change requires model reload to re-wrap forward().

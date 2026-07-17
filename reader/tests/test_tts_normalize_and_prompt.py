@@ -374,6 +374,9 @@ class GenerateManyBatchTest(unittest.TestCase):
                 "core.tts_engine.VOICE_PROMPT_DIR", prompts_dir
             ), patch(
                 "core.tts_engine._normalize_text_enabled", return_value=False
+            ), patch(
+                "core.tts_engine._tts_coalesce_chars_from_settings",
+                return_value=0,
             ):
                 results = engine.generate_many(items, num_step=16, batch_size=4)
 

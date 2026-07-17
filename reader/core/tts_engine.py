@@ -9,10 +9,13 @@ Caches VoiceClonePrompt tokens for character / narrator reference audio.
 """
 
 import hashlib
+import gc
 import logging
 import os
 import re
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -54,6 +57,20 @@ DEFAULT_TTS_BATCH_MAX_CHARS = 12000
 # real work. OmniVoice is ~0.6B params — tiny per-line batches never fill a 24GB card.
 # 0 disables coalescing. ~600–900 chars ≈ several sentences / ~15–25s speech.
 DEFAULT_TTS_COALESCE_CHARS = 720
+
+
+def _write_audio_atomic(path: str, audio: np.ndarray, sample_rate: int) -> None:
+    """Write a cache WAV without exposing a partial file to another worker."""
+    tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.{time.time_ns()}.tmp.wav"
+    try:
+        sf.write(tmp, audio, sample_rate)
+        os.replace(tmp, path)
+    finally:
+        try:
+            if os.path.exists(tmp):
+                os.remove(tmp)
+        except OSError:
+            pass
 
 
 def _model_path_from_settings() -> str:
@@ -565,9 +582,10 @@ def _prompt_cache_key(ref_audio: str, ref_text: str | None) -> str:
 
 
 class TTSEngine:
-    def __init__(self, model_path: str = ""):
+    def __init__(self, model_path: str = "", worker_label: str = "primary"):
         self.model_path = model_path
         self.model = None
+        self.worker_label = worker_label
         self._lock = threading.Lock()
         self._loading = False
         self._ready = False
@@ -577,6 +595,7 @@ class TTSEngine:
         # 100% spike → OOM → half VRAM forever-churn on every subsequent batch).
         self._batch_size_cap: int | None = None
         self._accel_status: dict = {"effective": "off", "message": ""}
+        self._generation_stream = None
         os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
         os.makedirs(VOICE_REF_DIR, exist_ok=True)
         os.makedirs(VOICE_PROMPT_DIR, exist_ok=True)
@@ -602,6 +621,45 @@ class TTSEngine:
         if self._ready or self._loading:
             return
         threading.Thread(target=self._load, daemon=True).start()
+
+    def load_sync(self) -> None:
+        """Load the model in the current thread or raise its load error."""
+        self._load()
+        if not self._ready:
+            raise RuntimeError(self._error or "TTS model failed to load")
+
+    def set_dedicated_cuda_stream(self, enabled: bool) -> None:
+        """Route this engine's generation through its own CUDA stream."""
+        if not enabled:
+            self._generation_stream = None
+            return
+        import torch
+
+        if torch.cuda.is_available():
+            self._generation_stream = torch.cuda.Stream()
+
+    def unload(self) -> None:
+        """Release a replica model and its graph/cache allocations."""
+        if self.model is not None:
+            wrapper = getattr(self.model, "_auris_cuda_graph", None)
+            if wrapper is not None:
+                try:
+                    wrapper.clear()
+                except Exception:
+                    pass
+        self._generation_stream = None
+        self._prompt_mem.clear()
+        self.model = None
+        self._ready = False
+        self._loading = False
+        gc.collect()
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
     def reload(self):
         if self.model is not None:
@@ -968,16 +1026,24 @@ class TTSEngine:
                 pass
             t0 = __import__("time").perf_counter()
             with self._lock:
-                audio_arrays = self.model.generate(**kwargs)
+                if self._generation_stream is not None:
+                    import torch
+
+                    with torch.cuda.stream(self._generation_stream):
+                        audio_arrays = self.model.generate(**kwargs)
+                    self._generation_stream.synchronize()
+                else:
+                    audio_arrays = self.model.generate(**kwargs)
             elapsed = __import__("time").perf_counter() - t0
             peak = _cuda_peak_gb()
             alloc, reserved = _cuda_mem_gb()
             # Force visibility even if a parent logger filters: export debugging.
             msg = (
-                "GPU generate done: batch=%d num_step=%d elapsed=%.2fs "
+                "GPU generate done: worker=%s batch=%d num_step=%d elapsed=%.2fs "
                 "peak_alloc=%.2fGB now_alloc=%.2fGB reserved=%.2fGB "
                 "text_type=%s clone=%s"
                 % (
+                    self.worker_label,
                     b_eff,
                     num_step,
                     elapsed,
@@ -1159,7 +1225,7 @@ class TTSEngine:
             language=language,
             normalize_text=normalize_text,
         )
-        sf.write(path, audio, SAMPLE_RATE)
+        _write_audio_atomic(path, audio, SAMPLE_RATE)
 
         return {
             "audio_path": path,
@@ -1388,7 +1454,9 @@ class TTSEngine:
                             np.zeros(1, dtype=audio.dtype) for _ in members[1:]
                         ]
                     for member, part in zip(members, parts):
-                        sf.write(member["cache_path"], part, SAMPLE_RATE)
+                        _write_audio_atomic(
+                            member["cache_path"], part, SAMPLE_RATE
+                        )
                         _emit(
                             member["idx"],
                             {
@@ -1423,3 +1491,181 @@ class TTSEngine:
             language=language,
             normalize_text=normalize_text,
         )
+
+
+def _partition_export_items(items: list[dict], lane_count: int) -> list[list[tuple[int, dict]]]:
+    """Split items into contiguous, roughly equal sequence-cost lanes."""
+    indexed = list(enumerate(items))
+    if lane_count <= 1 or len(indexed) <= 1:
+        return [indexed]
+    if lane_count != 2:
+        raise ValueError("Only one or two export lanes are supported")
+
+    # Attention cost grows superlinearly with sequence length. Reference tokens
+    # are common to both lanes, so text length squared is a useful cheap proxy.
+    weights = [max(32, len(str(item.get("text") or ""))) ** 2 for item in items]
+    target = sum(weights) / 2
+    running = 0
+    best_split = 1
+    best_delta = float("inf")
+    for split in range(1, len(items)):
+        running += weights[split - 1]
+        delta = abs(target - running)
+        if delta < best_delta:
+            best_delta = delta
+            best_split = split
+    return [indexed[:best_split], indexed[best_split:]]
+
+
+class TTSExportPool:
+    """One or two model replicas used only during a full export."""
+
+    def __init__(self, primary: TTSEngine, requested_workers: int = 0):
+        self.primary = primary
+        self.requested_workers = max(0, min(int(requested_workers), 2))
+        self.engines: list[TTSEngine] = [primary]
+        self._replicas: list[TTSEngine] = []
+
+    @property
+    def worker_count(self) -> int:
+        return len(self.engines)
+
+    def start(self) -> int:
+        """Load an optional second model. Auto mode uses two on 20GB+ CUDA."""
+        try:
+            import torch
+
+            if not torch.cuda.is_available():
+                return 1
+            free_b, total_b = torch.cuda.mem_get_info()
+            total_gb = total_b / (1024**3)
+            free_gb = free_b / (1024**3)
+        except Exception:
+            return 1
+
+        wanted = self.requested_workers
+        if wanted == 0:
+            wanted = 2 if total_gb >= 20 and free_gb >= 10 else 1
+        if wanted < 2:
+            return 1
+        if total_gb < 16 or free_gb < 8:
+            log.warning(
+                "Second export worker skipped (VRAM free %.1f / total %.1f GB)",
+                free_gb,
+                total_gb,
+            )
+            return 1
+
+        replica = TTSEngine(
+            model_path=self.primary.model_path or _model_path_from_settings(),
+            worker_label="lane-2",
+        )
+        try:
+            log.info(
+                "Loading second OmniVoice export worker "
+                "(VRAM free %.1f / total %.1f GB)",
+                free_gb,
+                total_gb,
+            )
+            replica.load_sync()
+            self.primary.worker_label = "lane-1"
+            self.primary.set_dedicated_cuda_stream(True)
+            replica.set_dedicated_cuda_stream(True)
+            self._replicas.append(replica)
+            self.engines.append(replica)
+            log.info("Parallel TTS export ready: 2 model replicas / 2 CUDA streams")
+        except Exception as exc:
+            log.warning("Second export worker unavailable; using one: %s", exc)
+            replica.unload()
+        return self.worker_count
+
+    def can_parallelize(self, items: list[dict]) -> bool:
+        # Voice-design stabilization can create shared reference files. Keep
+        # that path single-worker; the measured audiobook path is voice clone.
+        return (
+            self.worker_count >= 2
+            and len(items) >= 16
+            and all(bool(item.get("ref_audio")) for item in items)
+        )
+
+    def generate_many(
+        self,
+        items: list[dict],
+        *,
+        num_step: int,
+        on_item=None,
+        on_status=None,
+    ) -> list[dict]:
+        if not self.can_parallelize(items):
+            return self.primary.generate_many(
+                items,
+                num_step=num_step,
+                on_item=on_item,
+                on_status=on_status,
+            )
+
+        unique_prompts = {
+            (str(item["ref_audio"]), item.get("ref_text"))
+            for item in items
+            if item.get("ref_audio")
+        }
+        if on_status is not None:
+            on_status("preparing 2 GPU workers…")
+        # Populate/persist prompts before threads start so replicas never race
+        # while writing the same .pt prompt cache file.
+        for engine in self.engines:
+            for ref_audio, ref_text in unique_prompts:
+                engine._get_voice_clone_prompt(ref_audio, ref_text)
+
+        lanes = _partition_export_items(items, 2)
+        outputs: list[dict | None] = [None] * len(items)
+
+        def run_lane(lane_no: int) -> None:
+            engine = self.engines[lane_no]
+            lane = lanes[lane_no]
+            lane_items = [item for _, item in lane]
+
+            def lane_item(local_i: int, result: dict) -> None:
+                original_i = lane[local_i][0]
+                outputs[original_i] = result
+                if on_item is not None:
+                    on_item(original_i, result)
+
+            def lane_status(message: str) -> None:
+                if on_status is not None:
+                    on_status(f"worker {lane_no + 1}/2 · {message}")
+
+            engine.generate_many(
+                lane_items,
+                num_step=num_step,
+                on_item=lane_item,
+                on_status=lane_status,
+            )
+
+        log.info(
+            "Parallel export split: lane sizes=%s chars=%s",
+            [len(lane) for lane in lanes],
+            [
+                sum(len(str(item.get("text") or "")) for _, item in lane)
+                for lane in lanes
+            ],
+        )
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="tts-export") as executor:
+            futures = [executor.submit(run_lane, lane_no) for lane_no in range(2)]
+            for future in futures:
+                future.result()
+
+        missing = [i for i, result in enumerate(outputs) if result is None]
+        if missing:
+            raise RuntimeError(
+                f"Parallel export left {len(missing)} items unresolved"
+            )
+        return outputs  # type: ignore[return-value]
+
+    def close(self) -> None:
+        self.primary.set_dedicated_cuda_stream(False)
+        self.primary.worker_label = "primary"
+        for replica in self._replicas:
+            replica.unload()
+        self._replicas.clear()
+        self.engines = [self.primary]

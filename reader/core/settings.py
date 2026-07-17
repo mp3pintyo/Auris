@@ -60,6 +60,10 @@ DEFAULTS: dict = {
     # triton/hybrid need omnivoice-triton (+ triton or triton-windows).
     'tts_accel': 'auto',
 
+    # Parallel model replicas for export: 0 = auto, 1 = off, 2 = dual worker.
+    # Auto enables two replicas on CUDA cards with at least 20GB VRAM.
+    'tts_export_workers': 0,
+
     # Export defaults
     'audio_format': 'wav',
     'subtitle_format': 'ass',

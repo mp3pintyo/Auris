@@ -60,6 +60,12 @@ async function loadSettings() {
       accelSelect.value = accel;
     }
   }
+  const workers = String(_settings.tts_export_workers ?? 0);
+  const workerSelect = document.getElementById('tts-export-workers');
+  if (workerSelect) {
+    workerSelect.value = [...workerSelect.options].some(o => o.value === workers)
+      ? workers : '0';
+  }
   document.getElementById('audio-format').value    = _settings.audio_format    || 'wav';
   document.getElementById('subtitle-format').value = _settings.subtitle_format || 'ass';
 
@@ -301,6 +307,9 @@ async function saveSettings() {
     tts_batch_size:    parseInt(document.getElementById('tts-batch-size').value, 10) || 0,
     tts_coalesce_chars: parseInt(document.getElementById('tts-coalesce-chars').value, 10) || 0,
     tts_accel:         document.getElementById('tts-accel')?.value || 'auto',
+    tts_export_workers: parseInt(
+      document.getElementById('tts-export-workers')?.value || '0', 10
+    ) || 0,
     audio_format:      document.getElementById('audio-format').value,
     subtitle_format:   document.getElementById('subtitle-format').value,
     theme:             document.getElementById('theme-select').value,

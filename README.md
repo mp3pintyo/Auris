@@ -82,6 +82,11 @@ The model directory must contain the files OmniVoice expects, such as `config.js
 4. Adjust character voices or the narrator voice, preview them, then save.
 5. Export audio or subtitles if needed.
 
+On RTX 3090-class GPUs, leave **Settings → Parallel export workers** on
+**Auto** or select **2**. Full-book export then loads a second OmniVoice model
+temporarily and runs two CUDA streams. If VRAM is insufficient or either
+worker fails, Auris automatically continues on the primary model.
+
 ## Voice design caveats
 
 OmniVoice does not produce clean output for every voice-design combination. The upstream docs note that some attribute mixes are unreliable, especially without reference audio.

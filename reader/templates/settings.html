@@ -177,6 +177,20 @@
       <div id="tts-accel-status" class="muted" style="font-size:.78rem;margin-top:.35rem"></div>
     </div>
     <div class="setting-row">
+      <label>Parallel export workers</label>
+      <select id="tts-export-workers" class="select-input">
+        <option value="0">Auto — 2 workers on 20 GB+ GPU</option>
+        <option value="1">1 — single model</option>
+        <option value="2">2 — dual model / dual CUDA stream</option>
+      </select>
+      <span class="muted" style="font-size:.78rem">
+        Loads a second OmniVoice model only while exporting. On an RTX 3090,
+        two workers can overlap GPU-heavy generation with lower-load decoding.
+        Automatically falls back to one worker when VRAM is insufficient or a
+        worker fails.
+      </span>
+    </div>
+    <div class="setting-row">
       <label>Audio format</label>
       <select id="audio-format" class="select-input">
         <option value="wav">WAV — lossless, always available</option>

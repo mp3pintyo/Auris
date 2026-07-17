@@ -2,9 +2,9 @@
 Audio + subtitle exporter.
 
 Modes:
-  - full_book   : single merged audio + subtitle for entire book
-  - chapter_zip : zip of per-chapter audio + subtitle files
-  - single      : one chapter audio + subtitle
+  - chapter_folder : numbered, per-chapter files in a book folder
+  - chapter_zip    : zip of per-chapter audio + subtitle files
+  - single         : one chapter audio + subtitle
 
 Audio formats:
   - mp3  (via pydub + ffmpeg if available)
@@ -17,6 +17,7 @@ Subtitle formats:
 
 import io
 import os
+import re
 import zipfile
 import logging
 import shutil
@@ -217,13 +218,17 @@ def export_single_chapter(
     character_colors: dict,
     audio_fmt: str = 'wav',
     sub_fmt: str = 'ass',
+    output_dir: str | None = None,
+    file_stem: str | None = None,
 ) -> dict:
     """Returns {'audio_path': ..., 'subtitle_path': ..., 'audio_fmt': ..., 'sub_fmt': ...}"""
-    safe_title = _safe_name(chapter_title)
+    output_dir = output_dir or EXPORTS_DIR
+    os.makedirs(output_dir, exist_ok=True)
+    safe_title = _safe_name(file_stem or chapter_title)
     timeline = build_timeline(segments)
     merged = _merge_wavs(timeline)
 
-    wav_path = os.path.join(EXPORTS_DIR, f'{safe_title}.wav')
+    wav_path = os.path.join(output_dir, f'{safe_title}.wav')
     sf.write(wav_path, merged, SAMPLE_RATE)
 
     out_audio = wav_path
@@ -235,6 +240,7 @@ def export_single_chapter(
             with open(out_audio, 'wb') as f:
                 f.write(mp3)
             actual_fmt = 'mp3'
+            os.remove(wav_path)
 
     sub_content = (
         build_ass(timeline, character_colors, f'{book_title} — {chapter_title}')
@@ -242,7 +248,7 @@ def export_single_chapter(
         else build_srt(timeline)
     )
     sub_ext = 'ass' if sub_fmt == 'ass' else 'srt'
-    sub_path = os.path.join(EXPORTS_DIR, f'{safe_title}.{sub_ext}')
+    sub_path = os.path.join(output_dir, f'{safe_title}.{sub_ext}')
     with open(sub_path, 'w', encoding='utf-8') as f:
         f.write(sub_content)
 
@@ -275,21 +281,79 @@ def export_chapter_zip(
     return zip_path
 
 
-def export_full_book(
+def export_chapter_folder(
     book_title: str,
-    all_segments: list[dict],
+    chapters_data: list[dict],
     character_colors: dict,
     audio_fmt: str = 'wav',
     sub_fmt: str = 'ass',
 ) -> dict:
-    """Merges all segments from all chapters into one file."""
-    return export_single_chapter(
-        book_title, book_title, all_segments, character_colors, audio_fmt, sub_fmt
+    """Write numbered chapter files beneath ``exports/<book title>``."""
+    safe_book = _safe_name(book_title)
+    output_dir = os.path.join(EXPORTS_DIR, safe_book)
+    os.makedirs(output_dir, exist_ok=True)
+    max_number = max(
+        (int(ch.get('chapter_number', 0)) for ch in chapters_data),
+        default=len(chapters_data),
     )
+    number_width = max(2, len(str(max_number)))
+    files = []
+
+    for fallback_number, chapter in enumerate(chapters_data, 1):
+        number = int(chapter.get('chapter_number') or fallback_number)
+        title = chapter['chapter_title']
+        stem = f'{number:0{number_width}d}_{_safe_name(title)}'
+        files.append(export_single_chapter(
+            title,
+            book_title,
+            chapter['segments'],
+            character_colors,
+            audio_fmt,
+            sub_fmt,
+            output_dir=output_dir,
+            file_stem=stem,
+        ))
+
+    return {'directory_path': output_dir, 'chapters': files}
+
+
+def parse_chapter_selection(selection: str | None, chapter_count: int) -> list[int]:
+    """Parse print-style chapter numbers such as ``1,3,5-8``."""
+    if chapter_count < 1:
+        raise ValueError('This book has no chapters to export.')
+
+    value = (selection or '').strip().lower()
+    if value in ('', '*', 'all', 'mind', 'összes'):
+        return list(range(1, chapter_count + 1))
+
+    chosen: set[int] = set()
+    for item in value.split(','):
+        item = item.strip()
+        if not item:
+            raise ValueError('Empty item in chapter selection.')
+        match = re.fullmatch(r'(\d+)\s*-\s*(\d+)', item)
+        if match:
+            start, end = (int(part) for part in match.groups())
+            if start > end:
+                raise ValueError(f'Invalid descending chapter range: {item}')
+            chosen.update(range(start, end + 1))
+        elif item.isdigit():
+            chosen.add(int(item))
+        else:
+            raise ValueError(
+                'Use chapter numbers, commas and ranges, for example: 1,3,5-8.'
+            )
+
+    invalid = sorted(number for number in chosen if not 1 <= number <= chapter_count)
+    if invalid:
+        raise ValueError(
+            f'Chapter number out of range: {invalid[0]} '
+            f'(valid range: 1-{chapter_count}).'
+        )
+    return sorted(chosen)
 
 
 def _safe_name(name: str) -> str:
-    import re
     name = re.sub(r'[^\w\s-]', '', name)
     name = re.sub(r'\s+', '_', name.strip())
     return name[:80] or 'export'

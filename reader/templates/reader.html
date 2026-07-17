@@ -74,8 +74,13 @@
         <div class="export-section">
           <b>Scope</b>
           <label><input type="radio" name="exp-mode" value="chapter" checked> This chapter</label>
-          <label><input type="radio" name="exp-mode" value="chapterwise"> Chapter-wise ZIP</label>
-          <label><input type="radio" name="exp-mode" value="full"> Full book</label>
+          <label><input type="radio" name="exp-mode" value="chapterwise"> Selected chapters</label>
+          <div id="chapter-selection-wrap" class="chapter-selection hidden">
+            <label for="exp-chapters">Chapters</label>
+            <input id="exp-chapters" type="text" value="all"
+                   placeholder="all or 1,3,5-8" autocomplete="off">
+            <small>Use all, a range, or comma-separated numbers.</small>
+          </div>
         </div>
         <div class="export-section">
           <b>Audio</b>
@@ -89,7 +94,7 @@
           {% endif %}
           <label><input type="radio" name="exp-sub" value="srt"{% if book.single_narrator_mode %} checked{% endif %}> SRT (plain)</label>
         </div>
-        <button class="btn btn-primary btn-full" id="do-export-btn">Generate &amp; Download</button>
+        <button class="btn btn-primary btn-full" id="do-export-btn">Generate export</button>
         <div class="export-progress-wrap" id="export-progress-wrap">
           <div class="export-progress-fill" id="export-progress-fill"></div>
         </div>

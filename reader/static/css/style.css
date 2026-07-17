@@ -749,6 +749,22 @@ code {
 }
 .export-section label { display: block; font-size: 0.83rem; margin: 4px 0; cursor: pointer; color: var(--text2); }
 .export-section label:hover { color: var(--text); }
+.chapter-selection { margin: 8px 0 0 20px; }
+.chapter-selection label { margin-bottom: 3px; }
+.chapter-selection input {
+  width: 100%;
+  padding: 6px 8px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+.chapter-selection small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text2);
+  font-size: 0.7rem;
+}
 .export-progress-wrap {
   height: 4px; background: var(--border); border-radius: 2px;
   margin: 8px 0 4px; overflow: hidden; display: none;

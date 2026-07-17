@@ -1247,53 +1247,13 @@ def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: s
         _export_exclusive_end()
 
 
-def _run_full_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: str):
-    job = _export_jobs[job_id]
-    export_pool: TTSExportPool | None = None
-    _export_exclusive_begin()
-    try:
-        job['state'] = 'running'
-        job['message'] = 'Loading chapters...'
-        with get_conn() as conn:
-            book = conn.execute('SELECT * FROM books WHERE id=?', (book_id,)).fetchone()
-            chapters = conn.execute(
-                'SELECT id FROM chapters WHERE book_id=? ORDER BY order_num', (book_id,)
-            ).fetchall()
-        chapters_segs: list[tuple[int, list[dict]]] = []
-        for ch in chapters:
-            segs = _get_chapter_segments(ch['id'], book_id)
-            chapters_segs.append((ch['id'], segs))
-        total = sum(len(s) for _, s in chapters_segs)
-        job['total'] = total
-        job['done'] = 0
-        job['message'] = f'Generating audio (0/{total})'
-        log.info('Full export %s: %d chapters, %d segments', job_id, len(chapters_segs), total)
-        export_pool = _start_export_pool(job)
-        for ch_id, segs in chapters_segs:
-            _ensure_audio_for_chapter(
-                book_id, ch_id, segs, job, export_pool=export_pool
-            )
-        job['message'] = 'Merging audio...'
-        all_segs = [s for _, segs in chapters_segs for s in segs]
-        colors = _get_char_colors(book_id)
-        result = exporter.export_full_book(book['title'], all_segs, colors, audio_fmt, sub_fmt)
-        job['state'] = 'complete'
-        job['message'] = 'Done'
-        job['result'] = {
-            'audio_download': f'/api/export/download?path={result["audio_path"]}',
-            'subtitle_download': f'/api/export/download?path={result["subtitle_path"]}',
-        }
-    except Exception as e:
-        log.exception('Export job %s failed', job_id)
-        job['state'] = 'failed'
-        job['error'] = str(e)
-    finally:
-        if export_pool is not None:
-            export_pool.close()
-        _export_exclusive_end()
-
-
-def _run_chapterwise_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: str):
+def _run_chapterwise_export(
+    job_id: str,
+    book_id: int,
+    audio_fmt: str,
+    sub_fmt: str,
+    chapter_numbers: list[int],
+):
     job = _export_jobs[job_id]
     export_pool: TTSExportPool | None = None
     _export_exclusive_begin()
@@ -1306,9 +1266,17 @@ def _run_chapterwise_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: 
                 'SELECT id, title FROM chapters WHERE book_id=? ORDER BY order_num', (book_id,)
             ).fetchall()
         chapters_data: list[dict] = []
-        for ch in chapters:
+        selected = set(chapter_numbers)
+        for chapter_number, ch in enumerate(chapters, 1):
+            if chapter_number not in selected:
+                continue
             segs = _get_chapter_segments(ch['id'], book_id)
-            chapters_data.append({'chapter_title': ch['title'], 'ch_id': ch['id'], 'segments': segs})
+            chapters_data.append({
+                'chapter_number': chapter_number,
+                'chapter_title': ch['title'],
+                'ch_id': ch['id'],
+                'segments': segs,
+            })
         total = sum(len(c['segments']) for c in chapters_data)
         job['total'] = total
         job['done'] = 0
@@ -1322,16 +1290,19 @@ def _run_chapterwise_export(job_id: str, book_id: int, audio_fmt: str, sub_fmt: 
                 job,
                 export_pool=export_pool,
             )
-        job['message'] = 'Packaging ZIP...'
+        job['message'] = 'Writing chapter files...'
         colors = _get_char_colors(book_id)
-        zip_path = exporter.export_chapter_zip(
+        result = exporter.export_chapter_folder(
             book['title'],
-            [{'chapter_title': c['chapter_title'], 'segments': c['segments']} for c in chapters_data if c['segments']],
+            [c for c in chapters_data if c['segments']],
             colors, audio_fmt, sub_fmt,
         )
         job['state'] = 'complete'
         job['message'] = 'Done'
-        job['result'] = {'zip_download': f'/api/export/download?path={zip_path}'}
+        job['result'] = {
+            'export_path': result['directory_path'],
+            'chapter_count': len(result['chapters']),
+        }
     except Exception as e:
         log.exception('Export job %s failed', job_id)
         job['state'] = 'failed'
@@ -1376,10 +1347,15 @@ def export_full(book_id):
     if tts.status()['state'] != 'ready':
         return jsonify({'error': 'TTS model not ready'}), 503
 
+    with get_conn() as conn:
+        chapter_count = conn.execute(
+            'SELECT COUNT(*) FROM chapters WHERE book_id=?', (book_id,)
+        ).fetchone()[0]
+    chapter_numbers = exporter.parse_chapter_selection('all', chapter_count)
     job_id, _ = _make_export_job()
     threading.Thread(
-        target=_run_full_export,
-        args=(job_id, book_id, audio_fmt, sub_fmt),
+        target=_run_chapterwise_export,
+        args=(job_id, book_id, audio_fmt, sub_fmt, chapter_numbers),
         daemon=True,
     ).start()
     return jsonify({'job_id': job_id})
@@ -1394,10 +1370,21 @@ def export_chapterwise(book_id):
     if tts.status()['state'] != 'ready':
         return jsonify({'error': 'TTS model not ready'}), 503
 
+    with get_conn() as conn:
+        chapter_count = conn.execute(
+            'SELECT COUNT(*) FROM chapters WHERE book_id=?', (book_id,)
+        ).fetchone()[0]
+    try:
+        chapter_numbers = exporter.parse_chapter_selection(
+            body.get('chapters'), chapter_count
+        )
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
     job_id, _ = _make_export_job()
     threading.Thread(
         target=_run_chapterwise_export,
-        args=(job_id, book_id, audio_fmt, sub_fmt),
+        args=(job_id, book_id, audio_fmt, sub_fmt, chapter_numbers),
         daemon=True,
     ).start()
     return jsonify({'job_id': job_id})

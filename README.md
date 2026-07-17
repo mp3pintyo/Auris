@@ -28,7 +28,8 @@ Everything runs locally after setup. No API keys. No hosted TTS dependency.
 - Preview voices before saving.
 - Upload reference WAV files for voice cloning.
 - Invalidate stale cached playback automatically when narrator or character voices change.
-- Export audio as WAV or MP3 and subtitles as ASS or SRT.
+- Export numbered, per-chapter audio as WAV or MP3 and subtitles as ASS or SRT.
+- Select all chapters or use print-style selections such as `1,3,5-8`.
 - Run from a project-local `.venv` created by the installer.
 
 ## Requirements
@@ -80,10 +81,15 @@ The model directory must contain the files OmniVoice expects, such as `config.js
 2. Open the book and start playback from any sentence.
 3. Open Voice Studio from the reader sidebar.
 4. Adjust character voices or the narrator voice, preview them, then save.
-5. Export audio or subtitles if needed.
+5. Export the current chapter or select chapters with `all`, a range such as
+   `2-6`, or a comma-separated expression such as `1,3,7-10`.
+
+Multi-chapter exports are saved beneath `reader/exports/<book_title>/` with
+numbered filenames, for example `01_Introduction.mp3`. When MP3 export succeeds,
+the temporary WAV file is removed automatically.
 
 On RTX 3090-class GPUs, leave **Settings → Parallel export workers** on
-**Auto** or select **2**. Full-book export then loads a second OmniVoice model
+**Auto** or select **2**. Multi-chapter export then loads a second OmniVoice model
 temporarily and runs two CUDA streams. If VRAM is insufficient or either
 worker fails, Auris automatically continues on the primary model.
 

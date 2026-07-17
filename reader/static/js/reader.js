@@ -777,6 +777,14 @@ document.getElementById('export-btn').onclick = () => {
   document.getElementById('export-dropdown').classList.toggle('hidden');
 };
 
+document.querySelectorAll('input[name="exp-mode"]').forEach(input => {
+  input.addEventListener('change', () => {
+    const selected = document.querySelector('input[name="exp-mode"]:checked').value;
+    document.getElementById('chapter-selection-wrap')
+      .classList.toggle('hidden', selected !== 'chapterwise');
+  });
+});
+
 document.getElementById('do-export-btn').onclick = async () => {
   if (!currentChapterId) { showToast('Open a chapter first.'); return; }
 
@@ -803,8 +811,7 @@ document.getElementById('do-export-btn').onclick = async () => {
 
   let url;
   if (mode === 'chapter')          url = `/api/books/${BOOK_ID}/export/chapter/${currentChapterId}`;
-  else if (mode === 'chapterwise') url = `/api/books/${BOOK_ID}/export/chapterwise`;
-  else                             url = `/api/books/${BOOK_ID}/export/full`;
+  else                             url = `/api/books/${BOOK_ID}/export/chapterwise`;
 
   const finish = (msg) => {
     _exportBusy = false;
@@ -820,7 +827,13 @@ document.getElementById('do-export-btn').onclick = async () => {
     const r = await fetch(url, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ audio_fmt: audioFmt, sub_fmt: subFmt }),
+      body: JSON.stringify({
+        audio_fmt: audioFmt,
+        sub_fmt: subFmt,
+        chapters: mode === 'chapterwise'
+          ? document.getElementById('exp-chapters').value
+          : null,
+      }),
     });
     const d = await r.json();
     if (d.error) { finish(d.error); return; }
@@ -873,7 +886,11 @@ document.getElementById('do-export-btn').onclick = async () => {
           if (res.audio_download)    window.open(res.audio_download);
           if (res.subtitle_download) setTimeout(() => window.open(res.subtitle_download), 500);
         }
-        finish('Done. Downloading…');
+        if (res.export_path) {
+          finish(`Done. ${res.chapter_count} chapter(s) saved to ${res.export_path}`);
+        } else {
+          finish('Done. Downloading…');
+        }
         break;
       } else if (sr.state === 'failed') {
         finish('Export failed: ' + (sr.error || 'Unknown error'));

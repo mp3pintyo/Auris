@@ -312,6 +312,24 @@ def install_omnivoice():
     ok("OmniVoice installed from PyPI")
 
 
+def install_higgs_transformers_runtime():
+    """Install Higgs' newer Transformers in an isolated subprocess path.
+
+    OmniVoice remains pinned to 5.3.0 in the main venv. Higgs' community
+    adapter requires >=5.5, so importing both versions in one interpreter is
+    deliberately avoided.
+    """
+    step("Installing isolated Higgs Transformers runtime")
+    target = APP_DIR / ".higgs_runtime"
+    pip_install(
+        "--target",
+        str(target),
+        "--no-deps",
+        "transformers==5.13.0",
+    )
+    ok("Higgs Transformers runtime installed (isolated from OmniVoice)")
+
+
 def install_reader_deps():
     step("Installing remaining dependencies from requirements.txt")
     # requirements.txt intentionally omits torch/torchaudio so this step cannot
@@ -406,6 +424,7 @@ def main():
     install_torch(hw_tag)
     install_omnivoice_deps()
     install_omnivoice()
+    install_higgs_transformers_runtime()
     install_reader_deps()
     install_spacy_model()
     print_summary(hw_tag)

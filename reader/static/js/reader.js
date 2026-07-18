@@ -42,6 +42,9 @@ let _playGen = 0;
 // Cancellation token for the background buffer loop — incremented on each
 // chapter open so the previous loop exits without touching the new chapter.
 let _bufferGenId = 0;
+// All in-flight interactive TTS requests. Stop aborts the HTTP wait and also
+// asks the server-side Higgs token loop to terminate.
+let _ttsAbortControllers = new Map();
 
 function _standby() { return audio === _audioA ? _audioB : _audioA; }
 
@@ -245,7 +248,6 @@ async function openChapter(chapterId, options = {}) {
 
   segments = await fetch(`/api/tts/segments/${BOOK_ID}/${chapterId}`).then(r => r.json());
   renderContent(segments);
-  _prewarmChapter();
 
   document.getElementById('chapter-content').scrollTop = 0;
 
@@ -256,6 +258,7 @@ async function openChapter(chapterId, options = {}) {
     save: persistOpened,
   });
   _startBackgroundBuffer(startIdx);
+  _prewarmChapter();
 }
 
 // ── Content rendering ─────────────────────────────────────────────────────────
@@ -301,8 +304,23 @@ function jumpTo(idx) {
 // chapter-open time gives it the maximum possible lead before playback
 // reaches it — without it, the chain only fires the frontier after 3–4
 // cached segments play through, which is too late for slow TTS on CPU.
-function _prewarmChapter() {
+async function _waitForTtsReady(bufferId, chapterId) {
+  while (_bufferGenId === bufferId && currentChapterId === chapterId) {
+    try {
+      const status = await fetch('/api/tts/status').then(r => r.json());
+      if (status.state === 'ready') return true;
+      if (status.state === 'error') return false;
+    } catch (_) {}
+    await new Promise(r => setTimeout(r, 750));
+  }
+  return false;
+}
+
+async function _prewarmChapter() {
   if (!segments.length) return;
+  const bufferId = _bufferGenId;
+  const chapterId = currentChapterId;
+  if (!await _waitForTtsReady(bufferId, chapterId)) return;
   fetchSegmentData(0);
   const frontier = segments.findIndex(s => !s.has_audio);
   if (frontier > 0) fetchSegmentData(frontier);
@@ -316,6 +334,7 @@ function _prewarmChapter() {
 async function _startBackgroundBuffer(fromIdx) {
   const myId = ++_bufferGenId;
   const myChapterId = currentChapterId;
+  if (!await _waitForTtsReady(myId, myChapterId)) return;
 
   for (let i = fromIdx; i < segments.length; i++) {
     if (_bufferGenId !== myId || currentChapterId !== myChapterId) return;
@@ -355,10 +374,13 @@ async function _startBackgroundBuffer(fromIdx) {
 
 function fetchSegmentData(idx) {
   if (!_segCache.has(idx)) {
+    const controller = new AbortController();
+    _ttsAbortControllers.set(idx, controller);
     const p = fetch('/api/tts/generate', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ book_id: BOOK_ID, chapter_id: currentChapterId, segment_index: idx }),
+      signal: controller.signal,
     }).then(async r => {
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
@@ -367,6 +389,10 @@ function fetchSegmentData(idx) {
         throw new Error(e.error || `HTTP ${r.status}`);
       }
       return r.json();
+    }).finally(() => {
+      if (_ttsAbortControllers.get(idx) === controller) {
+        _ttsAbortControllers.delete(idx);
+      }
     });
     // Evict on failure so the next call retries rather than re-throwing the cached rejection.
     p.catch(() => _segCache.delete(idx));
@@ -491,7 +517,16 @@ _audioB.addEventListener('error', _onAudioError);
 
 function stopPlayback() {
   isPlaying = false;
+  _bufferGenId++;        // terminate the chapter-wide background generation loop
   _playGen++;            // invalidate any in-flight playSegment coroutine
+  for (const [idx, controller] of _ttsAbortControllers.entries()) {
+    controller.abort();
+    _segCache.delete(idx);
+  }
+  _ttsAbortControllers.clear();
+  // Aborting fetch only disconnects the browser. This endpoint interrupts the
+  // actual Higgs autoregressive token loop on the server/GPU.
+  fetch('/api/tts/cancel', { method: 'POST' }).catch(() => {});
   if (_interSegmentTimer) {
     clearTimeout(_interSegmentTimer);
     _interSegmentTimer = null;

@@ -1532,6 +1532,12 @@ class TTSExportPool:
 
     def start(self) -> int:
         """Load an optional second model. Auto mode uses two on 20GB+ CUDA."""
+        # The local Higgs Transformers adapter exposes whole-waveform,
+        # autoregressive generation and a 4B backbone. Keep one resident model;
+        # the OmniVoice-only replica path below must never be selected for it.
+        if getattr(self.primary, "engine_name", "omnivoice") != "omnivoice":
+            log.info("Parallel export replicas are disabled for Higgs TTS.")
+            return 1
         try:
             import torch
 

@@ -6,6 +6,11 @@ let _dlPollTimer = null;
 async function loadSettings() {
   _settings = await fetch('/api/settings').then(r => r.json());
 
+  // Active engine
+  const engine = _settings.tts_engine || 'omnivoice';
+  document.getElementById('tts-engine').value = engine;
+  toggleEngineSettings(engine);
+
   // Model
   const src = _settings.model_source || 'local';
   const srcRadio = document.querySelector(`input[name="model_source"][value="${src}"]`);
@@ -15,6 +20,31 @@ async function loadSettings() {
   document.getElementById('dl-dest').value     = _settings.model_path  || '';
   document.getElementById('hf-endpoint').value = _settings.hf_endpoint || '';
   toggleSource(src);
+
+  // Higgs model and generation
+  const higgsSrc = _settings.higgs_model_source || 'download';
+  const higgsSrcRadio = document.querySelector(
+    `input[name="higgs_model_source"][value="${higgsSrc}"]`
+  );
+  if (higgsSrcRadio) higgsSrcRadio.checked = true;
+  document.getElementById('higgs-model-path').value = _settings.higgs_model_path || '';
+  document.getElementById('higgs-model-repo').value =
+    _settings.higgs_model_repo || 'multimodalart/higgs-audio-v3-tts-4b-transformers';
+  document.getElementById('higgs-temperature').value = _settings.higgs_temperature ?? 0.8;
+  document.getElementById('higgs-top-p').value = _settings.higgs_top_p ?? 0.95;
+  document.getElementById('higgs-top-k').value = _settings.higgs_top_k ?? 50;
+  document.getElementById('higgs-max-new-tokens').value = _settings.higgs_max_new_tokens ?? 1024;
+  document.getElementById('higgs-seed').value = _settings.higgs_seed ?? -1;
+  document.getElementById('higgs-prompt-mode').value =
+    _settings.higgs_prompt_mode || 'raw';
+  document.getElementById('higgs-default-emotion').value =
+    _settings.higgs_default_emotion || 'none';
+  document.getElementById('higgs-default-style').value =
+    _settings.higgs_default_style || 'none';
+  document.getElementById('higgs-default-expressive').value =
+    _settings.higgs_default_expressive || 'none';
+  toggleHiggsSource(higgsSrc);
+  toggleHiggsPromptMode(_settings.higgs_prompt_mode || 'raw');
 
   // Narrator
   document.getElementById('narrator-instruct').value = _settings.narrator_instruct || '';
@@ -127,11 +157,56 @@ function toggleSource(src) {
   document.getElementById('panel-download').classList.toggle('hidden', src !== 'download');
 }
 
+function toggleEngineSettings(engine) {
+  document.querySelectorAll('.omnivoice-settings').forEach(el =>
+    el.classList.toggle('hidden', engine !== 'omnivoice')
+  );
+  document.querySelectorAll('.higgs-settings').forEach(el =>
+    el.classList.toggle('hidden', engine !== 'higgs')
+  );
+}
+
+document.querySelectorAll('input[name="higgs_model_source"]').forEach(el => {
+  el.addEventListener('change', () => toggleHiggsSource(el.value));
+});
+
+function toggleHiggsSource(src) {
+  document.getElementById('higgs-panel-local').classList.toggle('hidden', src !== 'local');
+  document.getElementById('higgs-panel-download').classList.toggle('hidden', src !== 'download');
+}
+
+function toggleHiggsPromptMode(mode) {
+  document.querySelectorAll('.higgs-expressive-control').forEach(el =>
+    el.classList.toggle('hidden', mode !== 'expressive')
+  );
+}
+
 // ── Path checker ──────────────────────────────────────────────────────────────
 
 async function checkPath() {
   const path = document.getElementById('model-path').value.trim();
   const hint = document.getElementById('path-status');
+  hint.textContent = 'Checking…';
+  const r = await fetch('/api/settings/check-model-path', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ path }),
+  });
+  const d = await r.json();
+  if (!d.exists) {
+    hint.textContent = 'Path does not exist.';
+    hint.className = 'status-hint status-error';
+  } else if (!d.has_config) {
+    hint.textContent = 'Directory exists but no config.json found.';
+    hint.className = 'status-hint status-warn';
+  } else {
+    hint.textContent = 'Valid model directory.';
+    hint.className = 'status-hint status-ok';
+  }
+}
+
+async function checkHiggsPath() {
+  const path = document.getElementById('higgs-model-path').value.trim();
+  const hint = document.getElementById('higgs-path-status');
   hint.textContent = 'Checking…';
   const r = await fetch('/api/settings/check-model-path', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -225,8 +300,12 @@ async function reloadTTS() {
         hint.className = 'status-hint status-error';
       }
     } catch (_) {}
-    if (n > 60) clearInterval(t);
-  }, 1000);
+    if (n > 900) {
+      clearInterval(t);
+      hint.textContent = 'Still loading; check the TTS status badge or server log.';
+      hint.className = 'status-hint status-warn';
+    }
+  }, 2000);
 }
 
 async function refreshAccelStatus(st) {
@@ -237,6 +316,7 @@ async function refreshAccelStatus(st) {
     const a = st.accel || {};
     const probe = a.probe || {};
     const parts = [
+      `Engine: ${st.engine || 'omnivoice'}`,
       `Active: ${a.effective || 'off'}`,
       a.message || '',
       probe.triton ? 'triton:yes' : 'triton:no',
@@ -295,11 +375,29 @@ async function installSpacy() {
 
 async function saveSettings() {
   const src = document.querySelector('input[name="model_source"]:checked')?.value || 'local';
+  const higgsSrc = document.querySelector(
+    'input[name="higgs_model_source"]:checked'
+  )?.value || 'download';
   const payload = {
+    tts_engine:       document.getElementById('tts-engine').value || 'omnivoice',
     model_source:      src,
     model_path:        document.getElementById('model-path').value.trim(),
     model_repo:        document.getElementById('model-repo').value.trim(),
     hf_endpoint:       document.getElementById('hf-endpoint').value.trim(),
+    higgs_model_source: higgsSrc,
+    higgs_model_path:  document.getElementById('higgs-model-path').value.trim(),
+    higgs_model_repo:  document.getElementById('higgs-model-repo').value.trim(),
+    higgs_temperature: parseFloat(document.getElementById('higgs-temperature').value),
+    higgs_top_p:       parseFloat(document.getElementById('higgs-top-p').value),
+    higgs_top_k:       parseInt(document.getElementById('higgs-top-k').value, 10),
+    higgs_max_new_tokens: parseInt(
+      document.getElementById('higgs-max-new-tokens').value, 10
+    ),
+    higgs_seed:        parseInt(document.getElementById('higgs-seed').value, 10),
+    higgs_prompt_mode: document.getElementById('higgs-prompt-mode').value || 'raw',
+    higgs_default_emotion: document.getElementById('higgs-default-emotion').value,
+    higgs_default_style: document.getElementById('higgs-default-style').value,
+    higgs_default_expressive: document.getElementById('higgs-default-expressive').value,
     narrator_instruct: document.getElementById('narrator-instruct').value.trim(),
     single_narrator_mode: document.getElementById('default-single-narrator-mode').checked,
     normalize_text:    document.getElementById('normalize-text').checked,

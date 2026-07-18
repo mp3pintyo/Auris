@@ -24,6 +24,8 @@ omnivoice>=0.2.1
 
 # torch / torchaudio: installed by setup.py (hardware-aware), not listed here.
 transformers==5.3.0
+# Higgs TTS uses Transformers 5.13 in reader/.higgs_runtime via setup.py.
+# It must not replace this OmniVoice-compatible version in the main venv.
 accelerate>=1.13.0
 gradio>=6.0
 tensorboardX>=2.6

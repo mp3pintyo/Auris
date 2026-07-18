@@ -19,15 +19,35 @@ SETTINGS_FILE = _APP_DIR / 'data' / 'settings.json'
 
 # Default model path = <repo_root>/model_backup/OmniVoice
 _DEFAULT_MODEL_PATH = str(_REPO_ROOT / 'model_backup' / 'OmniVoice')
+_DEFAULT_HIGGS_MODEL_PATH = str(_REPO_ROOT / 'model_backup' / 'Higgs-TTS-3-4B')
 LEGACY_NARRATOR_INSTRUCT = 'female, middle-aged, moderate pitch, american accent'
 DEFAULT_NARRATOR_INSTRUCT = 'male, elderly, low pitch, british accent'
 
 DEFAULTS: dict = {
-    # Model
+    # Active TTS engine. Each engine keeps an independent model configuration.
+    'tts_engine': 'omnivoice',          # 'omnivoice' | 'higgs'
+
+    # OmniVoice model
     'model_source': 'local',           # 'local' | 'download'
     'model_path': _DEFAULT_MODEL_PATH,
     'model_repo': 'k2-fsa/OmniVoice',
     'hf_endpoint': '',                 # e.g. https://hf-mirror.com for restricted networks
+
+    # Higgs TTS 3 (Transformers-compatible port used for direct local inference)
+    'higgs_model_source': 'download',  # 'local' | 'download' (HF cache)
+    'higgs_model_path': _DEFAULT_HIGGS_MODEL_PATH,
+    'higgs_model_repo': 'multimodalart/higgs-audio-v3-tts-4b-transformers',
+    'higgs_temperature': 0.8,
+    'higgs_top_p': 0.95,
+    'higgs_top_k': 50,
+    'higgs_max_new_tokens': 1024,
+    'higgs_seed': -1,
+    # raw = match the reference Gradio app (plain text, no automatic controls)
+    # expressive = apply Auris normalization, scene speed and expression tags
+    'higgs_prompt_mode': 'raw',
+    'higgs_default_emotion': 'none',
+    'higgs_default_style': 'none',
+    'higgs_default_expressive': 'none',
 
     # Narrator
     'narrator_instruct': DEFAULT_NARRATOR_INSTRUCT,

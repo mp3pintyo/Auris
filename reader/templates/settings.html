@@ -4,8 +4,28 @@
 <div class="settings-page">
   <h1 class="settings-page-title">Settings</h1>
 
-  <!-- OmniVoice Model -->
+  <!-- Active engine -->
   <section class="settings-section">
+    <div class="settings-section-title">Text-to-Speech Engine</div>
+    <div class="setting-row">
+      <label>Active engine</label>
+      <select id="tts-engine" class="select-input" onchange="toggleEngineSettings(this.value)">
+        <option value="omnivoice">OmniVoice</option>
+        <option value="higgs">Higgs TTS 3 — 4B</option>
+      </select>
+      <span class="muted" style="font-size:.78rem">
+        Save, then use <strong>Reload TTS engine</strong>. Switching unloads the
+        previous model before loading the selected engine.
+      </span>
+    </div>
+    <div class="setting-row" style="margin-top:12px">
+      <button class="btn btn-ghost btn-sm" onclick="reloadTTS()">Reload TTS engine</button>
+      <span id="tts-reload-hint" class="status-hint"></span>
+    </div>
+  </section>
+
+  <!-- OmniVoice Model -->
+  <section class="settings-section engine-settings omnivoice-settings">
     <div class="settings-section-title">OmniVoice Model</div>
 
     <div class="setting-row">
@@ -49,9 +69,115 @@
       </div>
     </div>
 
-    <div class="setting-row" style="margin-top:12px">
-      <button class="btn btn-ghost btn-sm" onclick="reloadTTS()">Reload TTS engine</button>
-      <span id="tts-reload-hint" class="status-hint"></span>
+  </section>
+
+  <!-- Higgs TTS -->
+  <section class="settings-section engine-settings higgs-settings hidden">
+    <div class="settings-section-title">Higgs TTS 3 — 4B</div>
+    <p class="section-desc">
+      Direct local inference uses the Transformers-compatible
+      <code>multimodalart/higgs-audio-v3-tts-4b-transformers</code> adapter for the
+      official <code>bosonai/higgs-tts-3-4b</code> weights and capabilities.
+    </p>
+    <div class="setting-row">
+      <label>Model source</label>
+      <div class="radio-group">
+        <label><input type="radio" name="higgs_model_source" value="download" id="higgs-src-download"> HuggingFace cache</label>
+        <label><input type="radio" name="higgs_model_source" value="local" id="higgs-src-local"> Local snapshot</label>
+      </div>
+    </div>
+    <div id="higgs-panel-download" class="sub-panel">
+      <div class="setting-row">
+        <label>Transformers repository</label>
+        <input type="text" id="higgs-model-repo" class="text-input"
+               value="multimodalart/higgs-audio-v3-tts-4b-transformers">
+        <span class="muted" style="font-size:.78rem">Downloaded into the normal HuggingFace cache on first load.</span>
+      </div>
+    </div>
+    <div id="higgs-panel-local" class="sub-panel hidden">
+      <div class="setting-row">
+        <label>Local model directory</label>
+        <div class="input-group">
+          <input type="text" id="higgs-model-path" class="text-input" placeholder="/path/to/higgs-transformers-snapshot">
+          <button class="btn btn-ghost btn-sm" onclick="checkHiggsPath()">Check</button>
+        </div>
+        <span id="higgs-path-status" class="status-hint"></span>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <label>Temperature</label>
+      <input type="number" id="higgs-temperature" class="text-input" min="0" max="2" step="0.05">
+    </div>
+    <div class="setting-row">
+      <label>Top P</label>
+      <input type="number" id="higgs-top-p" class="text-input" min="0" max="1" step="0.01">
+    </div>
+    <div class="setting-row">
+      <label>Top K</label>
+      <input type="number" id="higgs-top-k" class="text-input" min="0" max="200" step="1">
+    </div>
+    <div class="setting-row">
+      <label>Maximum new tokens</label>
+      <input type="number" id="higgs-max-new-tokens" class="text-input" min="128" max="4096" step="32">
+    </div>
+    <div class="setting-row">
+      <label>Seed</label>
+      <input type="number" id="higgs-seed" class="text-input" min="-1" step="1">
+      <span class="muted" style="font-size:.78rem"><code>-1</code> = random; use a fixed seed for repeatable comparisons.</span>
+    </div>
+    <div class="setting-row">
+      <label>Prompt mode</label>
+      <select id="higgs-prompt-mode" class="select-input" onchange="toggleHiggsPromptMode(this.value)">
+        <option value="raw">Raw — friend app compatible (recommended for Hungarian)</option>
+        <option value="expressive">Auris expressive — automatic controls</option>
+      </select>
+      <span class="muted" style="font-size:.78rem">
+        Raw sends clean text exactly like the local Gradio implementation.
+        Expressive adds number normalization, narrator pitch/whisper, scene speed
+        and Auris expression tags.
+      </span>
+    </div>
+    <div class="setting-row higgs-expressive-control">
+      <label>Default emotion</label>
+      <select id="higgs-default-emotion" class="select-input">
+        <option value="none">None</option>
+        <option value="contentment">Contentment</option>
+        <option value="affection">Affection</option>
+        <option value="contemplation">Contemplation</option>
+        <option value="amusement">Amusement</option>
+        <option value="enthusiasm">Enthusiasm</option>
+        <option value="awe">Awe</option>
+        <option value="anger">Anger</option>
+        <option value="fear">Fear</option>
+        <option value="sadness">Sadness</option>
+      </select>
+    </div>
+    <div class="setting-row higgs-expressive-control">
+      <label>Default style</label>
+      <select id="higgs-default-style" class="select-input">
+        <option value="none">None</option>
+        <option value="whispering">Whispering</option>
+        <option value="shouting">Shouting</option>
+        <option value="singing">Singing</option>
+      </select>
+    </div>
+    <div class="setting-row higgs-expressive-control">
+      <label>Expressiveness</label>
+      <select id="higgs-default-expressive" class="select-input">
+        <option value="none">Model default</option>
+        <option value="expressive_low">Low</option>
+        <option value="expressive_high">High</option>
+      </select>
+      <span class="muted" style="font-size:.78rem">
+        Auris also maps scene speed, whisper/pitch instructions, pauses and its
+        existing non-verbal tags to Higgs inline control tokens.
+      </span>
+    </div>
+    <div class="status-block">
+      <strong>License:</strong> research/non-commercial, plus creator use for
+      audiobooks and similar media with prominent Boson AI Higgs Audio attribution.
+      Voice cloning requires the speaker's consent.
     </div>
   </section>
 
@@ -81,7 +207,10 @@
       <label>Voice instruct string</label>
       <input type="text" id="narrator-instruct" class="text-input"
              placeholder="female, middle-aged, moderate pitch, american accent">
-      <span class="muted" style="font-size:.78rem">Comma-separated OmniVoice voice design attributes.</span>
+      <span class="muted" style="font-size:.78rem">
+        OmniVoice uses all voice-design attributes. Higgs uses reference audio for
+        speaker identity and maps whisper / pitch attributes to control tokens.
+      </span>
     </div>
     <div class="setting-row">
       <label class="narrator-mode-row">
@@ -110,8 +239,8 @@
   </section>
 
   <!-- Export Defaults -->
-  <section class="settings-section">
-    <div class="settings-section-title">Export Defaults</div>
+  <section class="settings-section engine-settings omnivoice-settings">
+    <div class="settings-section-title">OmniVoice Generation &amp; Export</div>
     <div class="setting-row">
       <label>Speech quality (diffusion steps)</label>
       <select id="tts-num-step" class="select-input">
@@ -191,6 +320,11 @@
         worker fails.
       </span>
     </div>
+  </section>
+
+  <!-- Shared output defaults -->
+  <section class="settings-section">
+    <div class="settings-section-title">Output Defaults</div>
     <div class="setting-row">
       <label>Audio format</label>
       <select id="audio-format" class="select-input">

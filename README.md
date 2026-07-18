@@ -1,6 +1,8 @@
 # Auris
 
-Offline audiobook reader for EPUB, PDF, and TXT with local OmniVoice TTS, character-aware voices, per-book narrator control, and synced text highlighting.
+Offline audiobook reader for EPUB, PDF, and TXT with selectable local
+OmniVoice or Higgs TTS 3 speech, character-aware voices, per-book narrator
+control, and synced text highlighting.
 
 Everything runs locally after setup. No API keys. No hosted TTS dependency.
 
@@ -74,6 +76,27 @@ You can either:
 - Point Settings at an existing local OmniVoice model directory.
 
 The model directory must contain the files OmniVoice expects, such as `config.json` and model weights.
+
+### Higgs TTS 3
+
+Select **Higgs TTS 3 — 4B** in Settings to try the Boson AI model. Auris uses
+the Transformers-compatible
+`multimodalart/higgs-audio-v3-tts-4b-transformers` adapter and downloads its
+model files into the HuggingFace cache on first load. You can also point the
+Higgs section at a compatible local snapshot.
+
+Higgs and OmniVoice keep separate settings and run with separate Transformers
+versions. The installer puts Higgs' Transformers 5.13 runtime in
+`reader/.higgs_runtime`; OmniVoice remains on its compatible 5.3 release.
+
+Higgs supports Hungarian, transcript-assisted zero-shot voice cloning, and
+inline emotion, style, prosody, pause, and sound-effect controls. Auris maps its
+existing scene speed and expression tags to those controls.
+
+Higgs has its own research/non-commercial license with a creator-use grant.
+Audiobooks and similar creator media require prominent Boson AI Higgs Audio
+attribution, and voice cloning requires the speaker's consent. Review the
+[official model card](https://huggingface.co/bosonai/higgs-tts-3-4b) before use.
 
 ## Usage
 
@@ -189,4 +212,6 @@ This would fix the main remaining gap: narration sentences that carry emotional 
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+The Auris source is MIT. See [LICENSE](LICENSE). Models retain their own
+licenses; in particular, Higgs TTS 3 is not distributed under the Auris MIT
+license.

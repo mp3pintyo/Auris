@@ -14,7 +14,8 @@ from flask import (
 )
 
 from core.database import init_db, get_conn
-from core.tts_engine import TTSEngine, TTSExportPool
+from core.tts_engine import TTSExportPool
+from core.tts_router import TTSEngineRouter
 from core import characters as char_module
 from core import enrichment, exporter, structure, settings as app_settings
 from core.parser import epub_parser, pdf_parser, txt_parser
@@ -29,7 +30,7 @@ app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500 MB
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), 'uploads')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-tts = TTSEngine()
+tts = TTSEngineRouter()
 
 DEFAULT_NARRATOR_INSTRUCT = app_settings.DEFAULT_NARRATOR_INSTRUCT
 
@@ -747,6 +748,11 @@ def tts_status():
 def tts_load():
     tts.load_async()
     return jsonify({'ok': True})
+
+
+@app.route('/api/tts/cancel', methods=['POST'])
+def tts_cancel():
+    return jsonify({'ok': True, 'cancel_requested': tts.cancel()})
 
 
 @app.route('/api/tts/generate', methods=['POST'])
@@ -1477,13 +1483,46 @@ def save_settings():
     body = request.get_json(force=True) or {}
     previous = app_settings.load()
     allowed = {
+        'tts_engine',
         'model_source', 'model_path', 'model_repo', 'hf_endpoint',
+        'higgs_model_source', 'higgs_model_path', 'higgs_model_repo',
+        'higgs_temperature', 'higgs_top_p', 'higgs_top_k',
+        'higgs_max_new_tokens', 'higgs_seed', 'higgs_default_emotion',
+        'higgs_default_style', 'higgs_default_expressive', 'higgs_prompt_mode',
         'narrator_instruct', 'single_narrator_mode', 'default_speed', 'audio_format',
         'subtitle_format', 'theme', 'font_size', 'font_family', 'line_height',
         'normalize_text', 'tts_num_step', 'tts_batch_size', 'tts_coalesce_chars',
         'tts_accel', 'tts_export_workers',
     }
     updates = {k: v for k, v in body.items() if k in allowed}
+    if 'tts_engine' in updates:
+        engine = str(updates['tts_engine'] or 'omnivoice').strip().lower()
+        updates['tts_engine'] = engine if engine in ('omnivoice', 'higgs') else 'omnivoice'
+    if 'higgs_model_source' in updates:
+        source = str(updates['higgs_model_source'] or 'download').strip().lower()
+        updates['higgs_model_source'] = source if source in ('local', 'download') else 'download'
+    if 'higgs_prompt_mode' in updates:
+        mode = str(updates['higgs_prompt_mode'] or 'raw').strip().lower()
+        updates['higgs_prompt_mode'] = mode if mode in ('raw', 'expressive') else 'raw'
+    for key, default, low, high in (
+        ('higgs_temperature', 0.8, 0.0, 2.0),
+        ('higgs_top_p', 0.95, 0.0, 1.0),
+    ):
+        if key in updates:
+            try:
+                updates[key] = max(low, min(float(updates[key]), high))
+            except (TypeError, ValueError):
+                updates[key] = default
+    for key, default, low, high in (
+        ('higgs_top_k', 50, 0, 200),
+        ('higgs_max_new_tokens', 1024, 128, 4096),
+        ('higgs_seed', -1, -1, 2147483647),
+    ):
+        if key in updates:
+            try:
+                updates[key] = max(low, min(int(updates[key]), high))
+            except (TypeError, ValueError):
+                updates[key] = default
     if 'normalize_text' in updates:
         updates['normalize_text'] = bool(updates['normalize_text'])
     if 'tts_num_step' in updates:
@@ -1524,13 +1563,24 @@ def save_settings():
     if 'tts_accel' in updates and updates['tts_accel'] != previous.get('tts_accel'):
         pass  # user can hit Reload TTS; do not force mid-request
 
-    # If model path changed, reset TTS so it reloads from new path
-    if 'model_path' in updates:
-        tts.model_path = updates['model_path']
-        tts._ready = False
-        tts._error = None
-        tts.model = None
-        tts._prompt_mem.clear()
+    # Engine/model selection is applied on explicit Reload TTS. Keeping the
+    # currently resident model alive makes Save Settings safe during playback.
+
+    # Persisted segment rows short-circuit the engine cache entirely. Any Higgs
+    # engine/sampling/control change therefore needs fresh segment records, or
+    # playback would silently continue serving audio made by the old engine.
+    higgs_audio_keys = {
+        'tts_engine', 'higgs_model_source', 'higgs_model_path',
+        'higgs_model_repo', 'higgs_temperature', 'higgs_top_p', 'higgs_top_k',
+        'higgs_max_new_tokens', 'higgs_seed', 'higgs_default_emotion',
+        'higgs_default_style', 'higgs_default_expressive', 'higgs_prompt_mode',
+    }
+    if any(
+        key in updates and updates[key] != previous.get(key)
+        for key in higgs_audio_keys
+    ):
+        with get_conn() as conn:
+            conn.execute('DELETE FROM tts_segments')
 
     if 'narrator_instruct' in updates and updates['narrator_instruct'] != previous.get('narrator_instruct'):
         with get_conn() as conn:

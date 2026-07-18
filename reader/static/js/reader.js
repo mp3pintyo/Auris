@@ -634,8 +634,6 @@ document.getElementById('btn-play').onclick = () => {
 
 document.getElementById('btn-stop').onclick = () => {
   stopPlayback();
-  // True stop: go back to the beginning of the chapter, not just pause in place.
-  if (currentChapterId) setCurrentSegment(0, { highlight: true, behavior: 'smooth', save: true });
 };
 
 document.getElementById('btn-next-seg').onclick = () => {

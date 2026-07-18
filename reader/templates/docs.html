@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Performance Guide — Auris{% endblock %}
+{% block title %}Dokumentáció — Auris{% endblock %}
 {% block content %}
 <div class="docs-shell">
   <aside class="docs-sidebar" aria-label="Dokumentáció tartalomjegyzéke">
@@ -7,16 +7,22 @@
       <div class="docs-toc-label">Tartalom</div>
       <nav class="docs-toc">
         <a href="#overview" class="active">Áttekintés</a>
-        <a href="#settings">RTX 3090 beállítások</a>
-        <a href="#parallel">Párhuzamos export</a>
-        <a href="#measurement">GPU-mérés</a>
-        <a href="#logs">Log értelmezése</a>
-        <a href="#benchmarks">Mérési eredmények</a>
+        <a href="#auris">Auris funkciók</a>
+        <a href="#workflow">Munkafolyamat</a>
+        <a href="#voices">Hangok és klónozás</a>
+        <a href="#omnivoice">OmniVoice</a>
+        <a href="#higgs">Higgs TTS 3</a>
+        <a href="#engine-lifecycle">Motor és beállítások</a>
+        <a href="#export">Export és gyorsítótár</a>
+        <a href="#performance">Teljesítmény</a>
         <a href="#troubleshooting">Hibaelhárítás</a>
       </nav>
       <div class="docs-side-note">
         <span class="docs-side-note-mark">i</span>
-        <div><strong>RTX 3090 · Windows 11</strong><span>Mért, helyi ajánlások az Auris jelenlegi exportmotorjához.</span></div>
+        <div>
+          <strong>Két külön TTS motor</strong>
+          <span>Az Auris egyszerre egy motort tart aktívan. A közös könyv- és hangadatokat mindkettő használja.</span>
+        </div>
       </div>
     </div>
   </aside>
@@ -24,167 +30,531 @@
   <main class="docs-main">
     <header class="docs-hero" id="overview">
       <div>
-        <h1>Auris Performance Guide</h1>
-        <p>Gyors, stabil könyvexport NVIDIA RTX 3090-en — mért értékekkel, érthető logokkal és kipróbált beállításokkal.</p>
+        <h1>Auris dokumentáció</h1>
+        <p>
+          Helyi könyvolvasás, többszereplős felolvasás és audiobook-export
+          OmniVoice vagy Higgs TTS 3 motorral. Ez az oldal a jelenleg
+          implementált Auris-funkciókat és a két motor eltéréseit írja le.
+        </p>
       </div>
       <a class="docs-settings-link" href="/settings">Beállítások megnyitása <span aria-hidden="true">→</span></a>
     </header>
 
-    <section class="benchmark-lead" aria-labelledby="benchmark-title">
+    <section class="benchmark-lead docs-engine-intro" aria-labelledby="engine-title">
       <div class="benchmark-lead-intro">
-        <span class="docs-kicker">Saját A/B mérés</span>
-        <h2 id="benchmark-title">Két GPU-sávval <em>1,64×</em> gyorsabb</h2>
-        <p>Ugyanaz a 32 szegmenses, 4477 karakteres teszt RTX 3090-en, 8 diffusion steppel.</p>
+        <span class="docs-kicker">TTS motorválasztás</span>
+        <h2 id="engine-title">Közös Auris, két eltérő beszédmotor</h2>
+        <p>
+          A könyvtár, a fejezetek, a szereplők, a Voice Studio, a lejátszás,
+          a könyvjelzők és az export közös. A modellbetöltés és a generálási
+          paraméterek motoronként elkülönülnek.
+        </p>
       </div>
-      <div class="benchmark-numbers">
-        <div class="benchmark-number"><span class="benchmark-value">147,65 <small>s</small></span><span class="benchmark-label">1 modell</span></div>
-        <span class="benchmark-arrow" aria-hidden="true">→</span>
-        <div class="benchmark-number is-highlight"><span class="benchmark-value">90,23 <small>s</small></span><span class="benchmark-label">2 modell · 2 CUDA stream</span></div>
-        <div class="benchmark-vram"><span>≈ 7,73 GB</span><small>mért peak allocated VRAM</small></div>
+      <div class="results-comparison docs-engine-cards">
+        <article>
+          <span class="result-label">OmniVoice</span>
+          <h3>Rugalmas voice design és gyors batch export</h3>
+          <p>Hangklónozás, leírásból tervezett vagy automatikus hang, 600+ nyelv, optimalizált tömeges feldolgozás.</p>
+          <a href="#omnivoice">OmniVoice tudnivalók →</a>
+        </article>
+        <article>
+          <span class="result-label">Higgs TTS 3 — 4B</span>
+          <h3>Erős magyar kiejtés és expresszív vezérlés</h3>
+          <p>100+ nyelv, zero-shot hangklónozás, érzelem-, stílus-, prozódia-, szünet- és hangeffekt-tokenek.</p>
+          <a href="#higgs">Higgs tudnivalók →</a>
+        </article>
       </div>
-      <div class="benchmark-scale" aria-label="Exportidő összehasonlítás">
-        <div class="benchmark-bar"><span>1 modell</span><i style="--bar:100%"></i><b>147,65 s</b></div>
-        <div class="benchmark-bar is-fast"><span>2 modell</span><i style="--bar:61.1%"></i><b>90,23 s</b></div>
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">↻</span>
+        <div>
+          <strong>Motorváltás után Reload TTS engine szükséges.</strong>
+          <p>Az Auris előbb leállítja és felszabadítja az előző motort, majd külön környezetben betölti a kiválasztottat.</p>
+        </div>
       </div>
-      <p class="benchmark-estimate"><strong>Gyakorlati becslés:</strong> a korábbi 2 órás export ugyanilyen arány mellett körülbelül 73–75 percre csökkenhet. A tényleges idő a mondathosszaktól, hangoktól és a már elkészült cache-től függ.</p>
     </section>
 
-    <section class="docs-section" id="settings">
+    <section class="docs-section" id="auris">
       <div class="docs-section-heading">
         <span class="docs-section-index">01</span>
-        <div><h2>Ajánlott RTX 3090 beállítások</h2><p>A Balanced profil a jó kiindulópont. A Fast akkor hasznos, ha az exportidő fontosabb a finom minőségi különbségeknél.</p></div>
+        <div>
+          <h2>Auris-funkciók — mindkét motorral</h2>
+          <p>A következő képességek nem kötődnek egy adott TTS modellhez.</p>
+        </div>
+      </div>
+      <div class="docs-two-column">
+        <div>
+          <h3>Könyvtár és olvasó</h3>
+          <ul class="docs-check-list">
+            <li><strong>EPUB, PDF és TXT import</strong>, automatikus cím-, fejezet- és nyelvfelismeréssel.</li>
+            <li>Fejezetes tartalomjegyzék, olvasási időbecslés és fejezet-progressz.</li>
+            <li>Automatikusan mentett olvasási pozíció és folytatás a Library oldalról.</li>
+            <li>Könyvjelzők létrehozása, listázása, megnyitása és törlése.</li>
+            <li>Night, Sepia, Paper és AMOLED téma; serif, sans-serif és monospace betű.</li>
+            <li>Állítható betűméret, sorköz és felolvasási sebesség.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Beszéd és tartalomkészítés</h3>
+          <ul class="docs-check-list">
+            <li>Lejátszás, szünet, valódi generálás-megszakítás, előző/következő szegmens.</li>
+            <li>Előtöltés és háttér-pufferelés a folyamatosabb hallgatáshoz.</li>
+            <li>Egynarrátoros vagy szereplőnként eltérő hangú felolvasás.</li>
+            <li>Narrátor- és szereplőhang előnézete a Voice Studioban.</li>
+            <li>Aktuális vagy kiválasztott fejezetek exportja WAV/MP3 és ASS/SRT formátumban.</li>
+            <li>Export-progressz, ETA, újrahasznosítható audio cache és letölthető eredmény.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="settings-guide-wrap" style="margin-top:28px">
+        <table class="settings-guide">
+          <thead><tr><th>Billentyű</th><th>Funkció</th><th>Billentyű</th><th>Funkció</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Space</strong></td><td>Lejátszás / szünet</td><td><strong>← / →</strong></td><td>Előző / következő szegmens</td></tr>
+            <tr><td><strong>B</strong></td><td>Könyvjelző hozzáadása</td><td><strong>M</strong></td><td>Könyvjelzőpanel</td></tr>
+            <tr><td><strong>C</strong></td><td>Tartalomjegyzék</td><td><strong>T</strong></td><td>Témaváltás</td></tr>
+            <tr><td><strong>?</strong></td><td>Gyorsbillentyűk</td><td><strong>Esc</strong></td><td>Felugró panel bezárása</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="docs-section docs-section-tinted" id="workflow">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">02</span>
+        <div>
+          <h2>Ajánlott munkafolyamat</h2>
+          <p>A motorválasztás nem változtatja meg a könyv feldolgozásának fő lépéseit.</p>
+        </div>
+      </div>
+      <div class="pipeline" aria-label="Az Auris feldolgozási folyamata">
+        <div class="pipeline-node"><span class="pipeline-icon">1</span><strong>Import</strong><small>EPUB · PDF · TXT</small></div>
+        <span class="pipeline-connector" aria-hidden="true">→</span>
+        <div class="pipeline-node"><span class="pipeline-icon">2</span><strong>Elemzés</strong><small>fejezet · nyelv · szereplő</small></div>
+        <span class="pipeline-connector" aria-hidden="true">→</span>
+        <div class="pipeline-node"><span class="pipeline-icon">3</span><strong>Voices</strong><small>narrátor · karakter · referencia</small></div>
+        <span class="pipeline-connector" aria-hidden="true">→</span>
+        <div class="pipeline-node"><span class="pipeline-icon">4</span><strong>Hallgatás</strong><small>szegmens · puffer · cache</small></div>
+        <span class="pipeline-connector" aria-hidden="true">→</span>
+        <div class="pipeline-node pipeline-output"><span class="pipeline-icon">5</span><strong>Export</strong><small>audio + felirat</small></div>
+      </div>
+      <div class="docs-two-column">
+        <div>
+          <h3>Karakterfelismerés</h3>
+          <p>
+            Import után az Auris háttérben megkeresi a szereplőneveket és
+            megpróbálja a párbeszédeket beszélőhöz rendelni. Az angol
+            <code>en_core_web_sm</code> spaCy modell adja a pontosabb elemzést;
+            nélküle regex-alapú tartalék felismerés működik.
+          </p>
+        </div>
+        <div>
+          <h3>Szöveg-előkészítés</h3>
+          <p>
+            A fejezetek felolvasási szegmensekre bomlanak. A számnormalizálás
+            számokat, dátumokat és pénzértékeket alakíthat beszélt formára.
+            Magyar egész számokhoz az Auris a <code>num2words</code> útvonalát használja.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="docs-section" id="voices">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">03</span>
+        <div>
+          <h2>Voice Studio, referenciahang és referenciaszöveg</h2>
+          <p>
+            A narrátorhoz és minden felismert szereplőhöz külön hangbeállítás,
+            WAV referencia és pontos átirat menthető. Ezeket a preview,
+            lejátszás, pufferelés és export ugyanúgy megkapja.
+          </p>
+        </div>
       </div>
       <div class="settings-guide-wrap">
         <table class="settings-guide">
-          <thead><tr><th>Settings mező</th><th><span class="profile-dot"></span>Balanced</th><th><span class="profile-dot fast"></span>Fast</th><th>Miért?</th></tr></thead>
+          <thead><tr><th>Lehetőség</th><th>OmniVoice</th><th>Higgs TTS 3</th></tr></thead>
           <tbody>
-            <tr><td>Speech quality</td><td><strong>16 step</strong></td><td><strong>8 step</strong></td><td>16 általában már jó minőség; 8 érezhetően gyorsabb.</td></tr>
-            <tr><td>GPU batch size</td><td><strong>8</strong></td><td><strong>8</strong></td><td>A hossz szerinti 8-as csomagolás adta a jobb mért eredményt.</td></tr>
-            <tr><td>Merge short lines</td><td><strong>400 char</strong></td><td><strong>400 char</strong></td><td>Csökkenti a sok rövid GPU-hívás költségét, túl hosszú blokkok nélkül.</td></tr>
-            <tr><td>GPU acceleration</td><td><strong>Off</strong></td><td><strong>Off</strong></td><td>A CUDA Graph ezen a Windows + 3090 mérésen nem gyorsított.</td></tr>
-            <tr><td>Parallel export workers</td><td><strong>2</strong></td><td><strong>2</strong></td><td>Két modell és két CUDA stream adta az 1,64× gyorsulást.</td></tr>
-            <tr><td>Normalize numbers</td><td><strong>On</strong></td><td><strong>On</strong></td><td>Természetesebb szám-, dátum- és pénzfelolvasás.</td></tr>
-            <tr><td>Audio format</td><td><strong>WAV</strong></td><td><strong>WAV</strong></td><td>Veszteségmentes, és nem igényel külön ffmpeg kódolást.</td></tr>
+            <tr><td><strong>Referenciahang + átirat</strong></td><td>Elsődleges, stabil voice clone mód.</td><td>Zero-shot voice clone; az átirat lényegesen javítja a hűséget.</td></tr>
+            <tr><td><strong>Üres referenciaszöveg</strong></td><td>Whisperrel automatikusan átírhatja, lassabb és pontatlanabb lehet.</td><td>Átirat nélkül is futhat, de a pontos szöveg erősen ajánlott.</td></tr>
+            <tr><td><strong>Voice instruct</strong></td><td>Nem, kor, hangmagasság és akcentus alapján hangot tervez.</td><td>A hangazonosságot főként a referencia adja; Expressive módban pitch/whisper tokenné alakul.</td></tr>
+            <tr><td><strong>Automatikus hang</strong></td><td>Referencia és instruct nélkül támogatott.</td><td>Referencia nélkül a modell saját hangkondicionálásával generál.</td></tr>
+            <tr><td><strong>Single narrator</strong></td><td colspan="2">Minden narrációt és párbeszédet ugyanazzal a narrátorhanggal olvas.</td></tr>
           </tbody>
         </table>
       </div>
       <div class="docs-callout">
-        <span class="docs-callout-icon" aria-hidden="true">↻</span>
-        <div><strong>Mentés után indítsd újra a TTS motort.</strong><p>Az acceleration és a modellszám változásaihoz használd a <em>Reload TTS engine</em> gombot, vagy indítsd újra a <code>reader\run.bat</code> fájlt.</p></div>
-      </div>
-    </section>
-
-    <section class="docs-section" id="parallel">
-      <div class="docs-section-heading">
-        <span class="docs-section-index">02</span>
-        <div><h2>Hogyan működik a párhuzamos export?</h2><p>A második modell csak export közben töltődik be, majd a munka végén felszabadul. A rendszer költség alapján osztja ketté a mondatokat, hogy a két sáv közel egyszerre végezzen.</p></div>
-      </div>
-      <div class="pipeline" aria-label="A párhuzamos export feldolgozási folyamata">
-        <div class="pipeline-node"><span class="pipeline-icon">¶</span><strong>Szegmensek</strong><small>szöveg + hang</small></div>
-        <span class="pipeline-connector" aria-hidden="true">→</span>
-        <div class="pipeline-node pipeline-split"><span class="pipeline-icon">⌁</span><strong>Költségelosztó</strong><small>hossz alapján</small></div>
-        <span class="pipeline-connector" aria-hidden="true">→</span>
-        <div class="pipeline-lanes">
-          <div class="pipeline-lane"><span>01</span><div><strong>GPU lane 1</strong><small>modell + CUDA stream</small></div></div>
-          <div class="pipeline-lane"><span>02</span><div><strong>GPU lane 2</strong><small>modell + CUDA stream</small></div></div>
-        </div>
-        <span class="pipeline-connector" aria-hidden="true">→</span>
-        <div class="pipeline-node"><span class="pipeline-icon">⌁</span><strong>Audio cache</strong><small>atomikus WAV-írás</small></div>
-        <span class="pipeline-connector" aria-hidden="true">→</span>
-        <div class="pipeline-node pipeline-output"><span class="pipeline-icon">♪</span><strong>Export</strong><small>összefűzés</small></div>
-      </div>
-      <div class="docs-two-column">
-        <div><h3>Mikor kapcsol be?</h3><ul class="docs-check-list">
-          <li>A <strong>Parallel export workers</strong> értéke 2 vagy Auto.</li>
-          <li>Legalább <strong>16 még elkészítendő</strong> szegmens van.</li>
-          <li>Minden tétel referenciahangos <strong>voice clone</strong> módban fut.</li>
-          <li>Van elegendő szabad VRAM a második modellhez.</li>
-        </ul></div>
-        <div><h3>Beépített védelem</h3><ul class="docs-check-list">
-          <li>Kevés VRAM vagy workerhiba esetén automatikus visszaállás 1 modellre.</li>
-          <li>A cache-fájlok atomikusan készülnek, így nem írják felül egymást.</li>
-          <li>A DB- és progresszfrissítések zároltak.</li>
-          <li>Voice design esetén biztonsági okból egyetlen sáv marad.</li>
-        </ul></div>
-      </div>
-    </section>
-
-    <section class="docs-section docs-section-tinted" id="measurement">
-      <div class="docs-section-heading">
-        <span class="docs-section-index">03</span>
-        <div><h2>GPU-mérés Windows 11 alatt</h2><p>A Feladatkezelő alapértelmezett <strong>3D</strong> grafikonja nem a CUDA számítási terhelést mutatja. Az alacsony 3D százalék ezért nem jelenti azt, hogy az Auris nem használja a GPU-t.</p></div>
-      </div>
-      <div class="measurement-grid">
+        <span class="docs-callout-icon" aria-hidden="true">♪</span>
         <div>
-          <h3>A megbízható ellenőrzés</h3><p>Nyiss egy külön PowerShell ablakot export közben, és futtasd:</p>
-          <div class="code-block">
-            <div class="code-block-head"><span>PowerShell</span><button type="button" class="copy-code" data-copy="nvidia-smi dmon -s pucm -d 1" aria-label="Parancs másolása">Másolás</button></div>
-            <pre><code>nvidia-smi dmon -s pucm -d 1</code></pre>
-          </div>
-          <p class="docs-footnote">Az <code>sm</code> a számítási terhelés, a <code>pwr</code> a fogyasztás, a <code>mem</code> a memória-vezérlő aktivitása.</p>
+          <strong>Jó referencia: tiszta, egyszereplős, 3–10 másodperces felvétel.</strong>
+          <p>
+            Lehetőleg a cél nyelvén készüljön, ne legyen benne zene, visszhang
+            vagy másik beszélő. Az átirat betű szerint azt tartalmazza, ami a
+            hangban elhangzik. A Voice Studio egyszer menti a hangot és a
+            szöveget; nem kell generáláskor újra megadni.
+          </p>
         </div>
-        <div class="utilization-note">
-          <span class="utilization-pulse" aria-hidden="true"></span><h3>Amit a mérésben láttunk</h3>
-          <dl><div><dt>GPU burst</dt><dd>akár 100% SM</dd></div><div><dt>Fogyasztás</dt><dd>346–347 W csúcs</dd></div><div><dt>Köztes szakasz</dt><dd>12–27% terhelés</dd></div><div><dt>Használt VRAM</dt><dd>kb. 3,4–6,8 GB</dd></div></dl>
-          <p>A hullámzó kihasználtság normális: a GPU-generálást CPU-s előkészítés, dekódolás, fájlírás és új csomag összeállítása követi.</p>
+      </div>
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">!</span>
+        <div>
+          <strong>Csak engedéllyel klónozz azonosítható hangot.</strong>
+          <p>Ne használd megtévesztésre, megszemélyesítésre, csalásra vagy a beszélő beleegyezése nélkül.</p>
         </div>
       </div>
     </section>
 
-    <section class="docs-section" id="logs">
+    <section class="docs-section docs-engine-section" id="omnivoice">
       <div class="docs-section-heading">
         <span class="docs-section-index">04</span>
-        <div><h2>Mit keress az exportlogban?</h2><p>A két sáv sikeres indulása és az egyes GPU-hívások valódi ideje közvetlenül látható a terminálban.</p></div>
+        <div>
+          <h2>OmniVoice</h2>
+          <p>
+            A k2-fsa többnyelvű TTS modellje. Az Aurisban voice clone,
+            voice design és automatikus hang módban használható, jellemzően
+            24 kHz-es kimenettel.
+          </p>
+        </div>
       </div>
-      <div class="log-viewer" aria-label="Példa exportlog">
-        <div class="log-viewer-head"><span></span><span></span><span></span><b>Auris export</b></div>
-        <div class="log-line"><i>01</i><code><em class="log-ok">INFO</em> Parallel TTS export ready: <strong>2 model replicas / 2 CUDA streams</strong></code></div>
-        <div class="log-line"><i>02</i><code><em class="log-ok">INFO</em> Parallel export split: lane-1=16 lane-2=16</code></div>
-        <div class="log-line"><i>03</i><code><em>GPU</em> generate done: worker=<strong>lane-1</strong> batch=8 elapsed=4.10s peak_alloc=3.82GB</code></div>
-        <div class="log-line"><i>04</i><code><em>GPU</em> generate done: worker=<strong>lane-2</strong> batch=8 elapsed=4.18s peak_alloc=3.91GB</code></div>
+      <div class="docs-two-column">
+        <div>
+          <h3>Erősségek</h3>
+          <ul class="docs-check-list">
+            <li><strong>600+ nyelv</strong>; ismert nyelvnél az Auris átadja a nyelvkódot.</li>
+            <li>Voice clone pontos referenciahanggal és referenciaszöveggel.</li>
+            <li>Voice design nem, kor, hangmagasság és akcentus leírásából.</li>
+            <li>Lista/batch generálás és újrahasznosítható clone prompt.</li>
+            <li>Automatikus hosszú szöveg-darabolás és alkalmazásszintű szegmensek.</li>
+            <li>OmniVoice-specifikus exportoptimalizálás és opcionális kétmodell-sáv.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Minőségi kiindulópont</h3>
+          <ul class="docs-check-list">
+            <li><strong>Speech quality:</strong> 16 step; végső minőséghez 24 vagy 32.</li>
+            <li><strong>Guidance:</strong> az Auris/upstream alapérték 2.0.</li>
+            <li><strong>Speed:</strong> 1.0; egyszerre csak egy paramétert változtass.</li>
+            <li><strong>Normalize numbers:</strong> könyvszövegnél általában bekapcsolva.</li>
+            <li><strong>Referencia:</strong> azonos nyelvű minta adja a legsemlegesebb kiejtést.</li>
+            <li>Keresztnyelvű referencia átviheti a forráshang akcentusát.</li>
+          </ul>
+        </div>
       </div>
-      <dl class="log-glossary">
-        <div><dt>elapsed</dt><dd>Az adott generate hívás teljes ideje.</dd></div>
-        <div><dt>peak_alloc</dt><dd>A PyTorch által ténylegesen lefoglalt VRAM csúcsa.</dd></div>
-        <div><dt>reserved</dt><dd>A gyors újrahasználathoz fenntartott CUDA memóriapool.</dd></div>
-        <div><dt>batch</dt><dd>Egy generate hívásban együtt feldolgozott blokkok száma.</dd></div>
-        <div><dt>clone</dt><dd>Jelzi, hogy referenciahangos voice clone fut-e.</dd></div>
-      </dl>
+
+      <div class="settings-guide-wrap" style="margin-top:28px">
+        <table class="settings-guide">
+          <thead><tr><th>OmniVoice beállítás</th><th>Mit szabályoz?</th><th>Ajánlás</th></tr></thead>
+          <tbody>
+            <tr><td>Speech quality</td><td>8/16/24/32 iteratív dekódolási lépés; több lépés lassabb és finomabb.</td><td><strong>16</strong></td></tr>
+            <tr><td>GPU batch size</td><td>Egy generate hívásban együtt feldolgozott egyesített blokkok száma.</td><td><strong>Auto</strong></td></tr>
+            <tr><td>Merge short lines</td><td>Egymást követő, azonos hangú rövid sorok egyesítése, majd visszavágása.</td><td><strong>720 karakter</strong></td></tr>
+            <tr><td>GPU acceleration</td><td>Plain PyTorch, CUDA Graph, Triton vagy Hybrid útvonal.</td><td>Gépenként mérendő</td></tr>
+            <tr><td>Parallel export workers</td><td>Második modell csak nagyobb voice-clone export idejére.</td><td><strong>Auto</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="docs-footnote" style="margin-top:14px">
+        Upstream: <a href="https://github.com/k2-fsa/OmniVoice" target="_blank" rel="noopener">k2-fsa/OmniVoice</a>.
+        Az OmniVoice modell- és csomaglicenc feltételeit mindig az aktuális upstream forrásban ellenőrizd.
+      </p>
     </section>
 
-    <section class="docs-section" id="benchmarks">
+    <section class="docs-section docs-section-tinted docs-engine-section" id="higgs">
       <div class="docs-section-heading">
         <span class="docs-section-index">05</span>
-        <div><h2>Mit tanultunk a mérésekből?</h2><p>A gyorsulás két külön optimalizálásból jön: hossz szerinti csomagolásból és párhuzamos modellfuttatásból.</p></div>
+        <div>
+          <h2>Higgs TTS 3 — 4B</h2>
+          <p>
+            A Boson AI autoregresszív, beszélgetésre és expresszív beszédre
+            tervezett modellje. 100+ nyelvet, zero-shot hangklónozást és
+            szövegbe ágyazható vezérlőtokeneket támogat; a kimenet 24 kHz.
+          </p>
+        </div>
       </div>
-      <div class="results-comparison">
-        <article>
-          <span class="result-label">Hossz szerinti batch</span><h3>5,76 s <span>→</span> 4,10 s</h3>
-          <p>24 vegyes hosszúságú tételnél a 3 × 8 hossz szerinti bucket kb. <strong>29%-kal gyorsabb</strong> lett, miközben ugyanazt a 199,8 s hanganyagot készítette el.</p>
-          <div class="result-detail"><span>Peak VRAM</span><strong>7,65 GB → 3,82 GB</strong></div>
-        </article>
-        <article>
-          <span class="result-label">CUDA Graph</span><h3>2,27 s <span>→</span> 2,31 s</h3>
-          <p>A rövid natív tesztben a graph nem gyorsított. A cache már közös poolt használ és legfeljebb 4 shape-et tart, de ezen a gépen a <strong>plain PyTorch</strong> maradt a mért nyertes.</p>
-          <div class="result-detail"><span>Ajánlás</span><strong>Acceleration: Off</strong></div>
-        </article>
+
+      <div class="docs-two-column">
+        <div>
+          <h3>Magyar kiejtés</h3>
+          <ul class="docs-check-list">
+            <li>A hivatalos modellkártyán a <strong>magyar a WER/CER 5 alatti</strong>, magasabb minőségi csoportban szerepel.</li>
+            <li>Magyar könyvhöz a <strong>Raw prompt mode</strong> a biztos kiindulópont.</li>
+            <li>Használj magyar referenciahangot és hozzá betűpontos magyar átiratot.</li>
+            <li>Az Auris javítja a régi PDF-ek gyakori <code>õ→ő</code> és <code>û→ű</code> karakterhibáit.</li>
+            <li>A worker teljes kommunikációja UTF-8; így a tokenizer sértetlen magyar szöveget kap.</li>
+            <li>A Raw útvonal a projektben található, bevált Transformers <code>direct_speech()</code> hívást követi.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Auris-integráció</h3>
+          <ul class="docs-check-list">
+            <li>A hivatalos képességeket a Transformers-kompatibilis community adapterrel futtatja helyben.</li>
+            <li>Külön <code>.higgs_runtime</code> környezetben használ Transformers 5.13-at.</li>
+            <li>Nem ütközik az OmniVoice saját Transformers-verziójával.</li>
+            <li>CUDA esetén BF16, CPU-n FP32 betöltés; a modell egy külön worker processzben él.</li>
+            <li>A Stop megszakítja a futó processzt, majd cache-ből újratölti a modellt.</li>
+            <li>A referenciaszöveg a mentett Voice Studio rekordból automatikusan továbbadódik.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="settings-guide-wrap" style="margin-top:28px">
+        <table class="settings-guide">
+          <thead><tr><th>Higgs beállítás</th><th>Alapérték</th><th>Hatás</th></tr></thead>
+          <tbody>
+            <tr><td>Temperature</td><td><strong>0.8</strong></td><td>Mintavételi változatosság; magasabban szabadabb, kevésbé stabil lehet.</td></tr>
+            <tr><td>Top P</td><td><strong>0.95</strong></td><td>Nucleus sampling valószínűségi tömege; 0 esetén kikapcsolható.</td></tr>
+            <tr><td>Top K</td><td><strong>50</strong></td><td>A megtartott legvalószínűbb tokenek száma; 0 esetén kikapcsolható.</td></tr>
+            <tr><td>Maximum new tokens</td><td><strong>1024</strong></td><td>A generálható audiótokenek felső korlátja.</td></tr>
+            <tr><td>Seed</td><td><strong>-1</strong></td><td>-1 véletlen; rögzített egész szám ismételhető A/B összehasonlításhoz.</td></tr>
+            <tr><td>Prompt mode</td><td><strong>Raw</strong></td><td>Raw: tiszta szöveg. Expressive: Auris normalizálás és automatikus vezérlőtokenek.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="docs-two-column">
+        <div>
+          <h3>Raw mód</h3>
+          <p>
+            A megtisztított könyvszöveget extra előtagok nélkül adja át. Nem
+            alkalmaz automatikus érzelmet vagy voice-design akcentust. Magyar
+            kiejtés ellenőrzéséhez és a referenciaalkalmazással való
+            összehasonlításhoz ezt használd.
+          </p>
+        </div>
+        <div>
+          <h3>Expressive mód</h3>
+          <p>
+            Alkalmazhat számnormalizálást, alapérzelmet, stílust,
+            expresszivitást, sebesség-, pitch-, whisper-, szünet- és
+            hangeffekt-tokeneket. A tokenek kreatív vezérlést adnak, de
+            minden könyvnél érdemes rövid preview-val ellenőrizni őket.
+          </p>
+        </div>
+      </div>
+
+      <div class="settings-guide-wrap" style="margin-top:28px">
+        <table class="settings-guide">
+          <thead><tr><th>Tokenkategória</th><th>Támogatott értékek</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Emotion</strong></td><td>elation, amusement, enthusiasm, determination, pride, contentment, affection, relief, contemplation, confusion, surprise, awe, longing, arousal, anger, fear, disgust, bitterness, sadness, shame, helplessness</td></tr>
+            <tr><td><strong>Style</strong></td><td>singing, shouting, whispering</td></tr>
+            <tr><td><strong>Prosody</strong></td><td>speed_very_slow, speed_slow, speed_fast, speed_very_fast, pitch_low, pitch_high, pause, long_pause, expressive_low, expressive_high</td></tr>
+            <tr><td><strong>Sound effect</strong></td><td>cough, laughter, crying, screaming, burping, humming, sigh, sniff, sneeze</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">&lt;|</span>
+        <div>
+          <strong>Tokenformátum: <code>&lt;|category:value|&gt;</code></strong>
+          <p>
+            Az emotion, style, speed, pitch és expressive token általában a
+            mondat elejére kerül. A pause és sound effect ott álljon, ahol
+            történnie kell. Hangeffekt után szükséges a hozzá illő leírt hang,
+            például <code>&lt;|sfx:laughter|&gt;Haha</code> vagy
+            <code>&lt;|sfx:sigh|&gt;Uh</code>.
+          </p>
+        </div>
+      </div>
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">§</span>
+        <div>
+          <strong>Higgs licenc és alkotói felhasználás</strong>
+          <p>
+            Kutatási és nem kereskedelmi licenc. A Creator Use Grant podcast,
+            videó, audiobook és hasonló — akár monetizált — kreatív tartalomhoz
+            enged használatot, jól látható Boson AI Higgs Audio
+            forrásmegjelöléssel. Hosztolt API, szolgáltatásba építés,
+            továbbértékesítés vagy más termékhasználat külön kereskedelmi
+            licencet igényel. Mindig az aktuális hivatalos licenc az irányadó.
+          </p>
+        </div>
+      </div>
+      <p class="docs-footnote" style="margin-top:14px">
+        Hivatalos modellkártya, nyelvek, tokenek és licenc:
+        <a href="https://huggingface.co/bosonai/higgs-tts-3-4b" target="_blank" rel="noopener">bosonai/higgs-tts-3-4b</a>.
+      </p>
+    </section>
+
+    <section class="docs-section" id="engine-lifecycle">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">06</span>
+        <div>
+          <h2>Motorválasztás, betöltés és beállítások</h2>
+          <p>A Settings oldalon a közös és a motorspecifikus opciók külön blokkokban jelennek meg.</p>
+        </div>
+      </div>
+      <div class="docs-two-column">
+        <div>
+          <h3>Motorváltás</h3>
+          <ol class="docs-number-list">
+            <li>Válaszd ki az <strong>Active engine</strong> mezőben az OmniVoice vagy Higgs motort.</li>
+            <li>Mentsd a beállításokat.</li>
+            <li>Nyomd meg a <strong>Reload TTS engine</strong> gombot.</li>
+            <li>Várd meg a jobb felső állapotjelző <strong>ready</strong> állapotát.</li>
+          </ol>
+        </div>
+        <div>
+          <h3>Mi történik a háttérben?</h3>
+          <ul class="docs-check-list">
+            <li>Az előző motor leáll és felszabadítja a modellt/VRAM-ot.</li>
+            <li>Az új motor a saját modellel és függőségekkel töltődik be.</li>
+            <li>Betöltés közben az olvasó nem küld sikertelen generálási áradatot.</li>
+            <li>A modell cache-ben marad az interaktív használathoz.</li>
+            <li>Hangot befolyásoló beállításváltás friss szegmenshangokat készít.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">i</span>
+        <div>
+          <strong>A böngésző frissítése nem tölti újra a Python modellt.</strong>
+          <p>
+            Modell- vagy motorváltoztatáshoz használd a Reload gombot. Python-
+            vagy JavaScript-kód frissítése után állítsd le a szervert
+            <code>Ctrl+C</code>-vel, futtasd újra a <code>.\run.bat</code>-ot,
+            majd a böngészőben nyomj <code>Ctrl+F5</code>-öt.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="docs-section docs-section-tinted" id="export">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">07</span>
+        <div>
+          <h2>Export, felirat és audio cache</h2>
+          <p>A lejátszás és az export ugyanazt a hangroutingot, referenciát és referenciaszöveget használja.</p>
+        </div>
+      </div>
+      <div class="docs-two-column">
+        <div>
+          <h3>Exportlehetőségek</h3>
+          <ul class="docs-check-list">
+            <li><strong>This chapter:</strong> az aktuális fejezet egyben.</li>
+            <li><strong>Selected chapters:</strong> <code>all</code>, tartomány vagy lista, például <code>1,3,5-8</code>.</li>
+            <li><strong>WAV:</strong> veszteségmentes és mindig elérhető.</li>
+            <li><strong>MP3:</strong> ffmpeg szükséges a PATH környezeti változóban.</li>
+            <li><strong>ASS:</strong> szereplőnként színezett/stílusozott felirat.</li>
+            <li><strong>SRT:</strong> egyszerű, széles körben kompatibilis felirat.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Cache és konzisztencia</h3>
+          <ul class="docs-check-list">
+            <li>A kész hang cache-kulcsa tartalmazza a motort, szöveget, hangot, átiratot és generálási paramétereket.</li>
+            <li>Referencia-, voice-, motor- vagy releváns beállításváltás után nem használható a régi szegmenshang.</li>
+            <li>A WAV cache atomikusan készül, így félbehagyott írás nem válik érvényes hanggá.</li>
+            <li>Export alatt az interaktív generálás vár, így nem versenyez ugyanazért a TTS motorért.</li>
+            <li>Megszakadt export újraindításakor a már érvényesen elkészült cache felhasználható.</li>
+            <li>Az ETA az első elkészült csomagok után válik pontosabbá.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="docs-section" id="performance">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">08</span>
+        <div>
+          <h2>Teljesítmény és GPU-mérés</h2>
+          <p>
+            Az alábbi saját mérés az <strong>OmniVoice exportmotorra</strong>,
+            RTX 3090-re és Windows 11-re vonatkozik. Nem Higgs benchmark.
+          </p>
+        </div>
+      </div>
+      <div class="benchmark-numbers">
+        <div class="benchmark-number"><span class="benchmark-value">147,65 <small>s</small></span><span class="benchmark-label">1 OmniVoice modell</span></div>
+        <span class="benchmark-arrow" aria-hidden="true">→</span>
+        <div class="benchmark-number is-highlight"><span class="benchmark-value">90,23 <small>s</small></span><span class="benchmark-label">2 modell · 2 CUDA stream</span></div>
+        <div class="benchmark-vram"><span>1,64× gyorsabb</span><small>32 szegmens · 4477 karakter · 8 step</small></div>
+      </div>
+      <div class="settings-guide-wrap" style="margin-top:28px">
+        <table class="settings-guide">
+          <thead><tr><th>OmniVoice profil</th><th>Balanced</th><th>Fast</th></tr></thead>
+          <tbody>
+            <tr><td>Speech quality</td><td><strong>16 step</strong></td><td><strong>8 step</strong></td></tr>
+            <tr><td>GPU batch size</td><td><strong>8 vagy Auto</strong></td><td><strong>8 vagy Auto</strong></td></tr>
+            <tr><td>Merge short lines</td><td><strong>400–720</strong></td><td><strong>720–1000</strong></td></tr>
+            <tr><td>GPU acceleration</td><td><strong>Off a mért gépen</strong></td><td><strong>Off a mért gépen</strong></td></tr>
+            <tr><td>Parallel export workers</td><td><strong>2</strong></td><td><strong>2</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="docs-two-column">
+        <div>
+          <h3>GPU ellenőrzése</h3>
+          <p>A Feladatkezelő 3D grafikonja nem megbízható CUDA-mérő. Export közben külön PowerShellben futtasd:</p>
+          <div class="code-block">
+            <div class="code-block-head">
+              <span>PowerShell</span>
+              <button type="button" class="copy-code" data-copy="nvidia-smi dmon -s pucm -d 1" aria-label="Parancs másolása">Másolás</button>
+            </div>
+            <pre><code>nvidia-smi dmon -s pucm -d 1</code></pre>
+          </div>
+        </div>
+        <div>
+          <h3>Mit jelent a hullámzó terhelés?</h3>
+          <p>
+            Normális, hogy a magas GPU-burst után alacsonyabb szakasz következik:
+            közben CPU-s előkészítés, audio-dekódolás, fájlírás és a következő
+            csomag összeállítása történik. A terminál
+            <code>GPU generate done</code>, <code>elapsed</code> és
+            <code>peak_alloc</code> sorai hasznosabbak a 3D grafikonnál.
+          </p>
+        </div>
       </div>
     </section>
 
     <section class="docs-section" id="troubleshooting">
       <div class="docs-section-heading">
-        <span class="docs-section-index">06</span>
-        <div><h2>Hibaelhárítás</h2><p>A leggyakoribb jelenségek és a legrövidebb út a megoldásig.</p></div>
+        <span class="docs-section-index">09</span>
+        <div>
+          <h2>Hibaelhárítás</h2>
+          <p>A leggyakoribb közös és motorspecifikus jelenségek.</p>
+        </div>
       </div>
       <div class="faq-list">
-        <details><summary>Csak egy worker jelenik meg a logban</summary><div><p>Ellenőrizd, hogy a Settingsben 2 worker van beállítva, majd töltsd újra a TTS motort. Két sáv csak legalább 16 függő, referenciahangos voice clone szegmensnél indul. Voice design feladatnál szándékosan egy sáv marad.</p></div></details>
-        <details><summary>CUDA out of memory vagy túl magas VRAM-használat</summary><div><p>A rendszer először automatikusan megpróbál visszaállni egy modellre. Ha az export még így is elfogyasztja a memóriát, állítsd a workert 1-re és a GPU batch size értékét 8-ra, majd indítsd újra az exportot.</p></div></details>
-        <details><summary>Az export elején pontatlan vagy nagyon hosszú az ETA</summary><div><p>Ez normális. Az első néhány csomagból még kevés minta áll rendelkezésre; a becslés több elkészült batch után stabilizálódik.</p></div></details>
-        <details><summary>Megszakadt vagy elakadt az export</summary><div><p>Nézd meg a terminál utolsó <code>GPU generate done</code> és worker sorait. Újraindításkor a már elkészült audio cache újrahasznosul, ezért ne töröld az <code>audio_cache</code> könyvtárat.</p></div></details>
-        <details><summary>A GPU még mindig alig látszik a Feladatkezelőben</summary><div><p>A 3D és Video Encode grafikon nem mérvadó. Használd a fenti <code>nvidia-smi dmon</code> parancsot; a rövid, magas SM- és fogyasztási csúcsok bizonyítják a CUDA-terhelést.</p></div></details>
+        <details>
+          <summary>A Play gomb után „Model not ready” jelenik meg</summary>
+          <div><p>Várd meg a <strong>ready</strong> állapotot. Első Higgs-betöltéskor a több gigabájtos modell letöltése és inicializálása hosszabb lehet. A fejezet háttér-pufferelése automatikusan vár a modellre.</p></div>
+        </details>
+        <details>
+          <summary>A Higgs magyar szöveget angolosan ejt</summary>
+          <div><p>Állítsd a Prompt mode-ot <strong>Raw</strong> értékre, használj magyar referenciahangot és pontos magyar referenciaszöveget, majd ments és töltsd újra a motort. Ellenőrizd a könyv nyelvét és a forrásszöveg ő/ű karaktereit is.</p></div>
+        </details>
+        <details>
+          <summary>Higgs betöltéskor „audio_head.weight | MISSING” látható</summary>
+          <div><p>A használt Transformers adapternél ez ismert betöltési riport: a modell saját weight-tying rendje kezeli. Önmagában nem hiba. Az a mérvadó, hogy utána megjelenik-e a <code>Higgs TTS ready (...)</code> sor.</p></div>
+        </details>
+        <details>
+          <summary>A Stop után még fut a generálás</summary>
+          <div><p>A jelenlegi Auris megszakítja a böngészős kéréseket és a backend generálást is. Higgs esetén leállítja az izolált worker processzt, majd újratölti a modellt. Régi szerverfolyamat esetén indítsd újra a <code>run.bat</code>-ot és frissíts <code>Ctrl+F5</code>-tel.</p></div>
+        </details>
+        <details>
+          <summary>OmniVoice exportnál csak egy worker indul</summary>
+          <div><p>Két sáv csak megfelelő számú függő voice-clone tételnél és elegendő VRAM esetén indul. Voice design, kevés munka vagy memóriahiány esetén szándékosan egy modell marad.</p></div>
+        </details>
+        <details>
+          <summary>CUDA out of memory</summary>
+          <div><p>OmniVoice-nál csökkentsd a batch méretét és állíts egy export workerre. Higgsnél zárj be más GPU-igényes programokat, állítsd le a régi motort, majd töltsd újra. Motorváltáskor ne tarts két külön Auris szervert egyszerre.</p></div>
+        </details>
+        <details>
+          <summary>Megváltoztattam a hangot, de a régi felolvasás hallatszik</summary>
+          <div><p>Mentsd a Voice Studio módosítását. Az Auris törli az érintett szegmensrekordokat, és új cache-kulccsal generál. Ha a böngészőben régi JavaScript fut, használj <code>Ctrl+F5</code>-öt.</p></div>
+        </details>
+        <details>
+          <summary>Az MP3 export nem készül el</summary>
+          <div><p>Az MP3 kódoláshoz ffmpeg szükséges a rendszer PATH-jában. A WAV export külső kódoló nélkül is működik.</p></div>
+        </details>
       </div>
     </section>
-    <footer class="docs-footer"><span>Auris · helyi audiobook workflow</span><a href="#overview">Vissza az elejére ↑</a></footer>
+
+    <footer class="docs-footer">
+      <span>Auris · helyi, kétmotoros audiobook workflow</span>
+      <a href="#overview">Vissza az elejére ↑</a>
+    </footer>
   </main>
 </div>
 {% endblock %}

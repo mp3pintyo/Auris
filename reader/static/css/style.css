@@ -90,7 +90,7 @@
 .profile-dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin:0 7px 1px 0; background:var(--accent); }
 .profile-dot.fast { background:#73aa8b; }
 .docs-callout { margin-top:18px; display:flex; align-items:flex-start; gap:13px; padding:17px 19px; background:var(--accent-bg); border-left:2px solid var(--accent2); }
-.docs-callout-icon { color:var(--accent); font-size:1.15rem; }
+.docs-callout-icon { color:var(--accent); flex:0 0 auto; font-size:1.15rem; min-width:32px; }
 .docs-callout strong { font-size:.78rem; font-weight:500; }
 .docs-callout p { margin-top:4px; color:var(--text2); font-size:.75rem; line-height:1.5; }
 .pipeline { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:30px 24px; border:1px solid var(--border); background:var(--bg2); }
@@ -106,6 +106,14 @@
 .pipeline-lane>span { color:var(--accent); font:italic .72rem var(--font-family); }
 .docs-two-column { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:clamp(28px,5vw,68px); margin-top:28px; }
 .docs-two-column h3,.measurement-grid h3 { font:normal 1rem var(--font-family); margin-bottom:13px; }
+.docs-two-column p { color:var(--text2); font-size:.78rem; line-height:1.65; }
+.docs-engine-intro .results-comparison { margin-top:24px; }
+.docs-engine-cards article a { color:var(--accent); font-weight:500; text-decoration:none; }
+.docs-engine-cards article a:hover { text-decoration:underline; }
+.docs-engine-section { scroll-margin-top:100px; }
+.docs-number-list { counter-reset:docs-step; display:grid; gap:14px; list-style:none; margin:20px 0 0; padding:0; }
+.docs-number-list li { color:var(--text2); counter-increment:docs-step; font-size:.78rem; line-height:1.65; padding-left:42px; position:relative; }
+.docs-number-list li::before { align-items:center; background:var(--accent); border-radius:50%; color:#fff; content:counter(docs-step); display:flex; font-size:.72rem; font-weight:600; height:28px; justify-content:center; left:0; position:absolute; top:0; width:28px; }
 .docs-check-list { list-style:none; }
 .docs-check-list li { position:relative; padding:8px 0 8px 20px; color:var(--text2); font-size:.78rem; line-height:1.5; border-bottom:1px solid var(--border); }
 .docs-check-list li::before { content:'✓'; position:absolute; left:0; color:var(--accent); }

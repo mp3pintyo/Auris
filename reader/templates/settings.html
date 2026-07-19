@@ -390,6 +390,11 @@
     <span id="save-hint" class="status-hint"></span>
   </div>
 </div>
+
+<div id="settings-unsaved-banner" class="settings-unsaved-banner hidden" role="status" aria-live="polite">
+  <span><strong>Unsaved changes.</strong> Save Settings before leaving this page.</span>
+  <button class="btn btn-primary btn-sm" type="button" onclick="saveSettings()">Save Settings</button>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/settings.js"></script>

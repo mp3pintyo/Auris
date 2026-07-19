@@ -1,5 +1,17 @@
 let _settings = {};
 let _dlPollTimer = null;
+let _settingsReady = false;
+let _settingsDirty = false;
+
+function setSettingsDirty(dirty) {
+  _settingsDirty = dirty;
+  const banner = document.getElementById('settings-unsaved-banner');
+  if (banner) banner.classList.toggle('hidden', !dirty);
+}
+
+function markSettingsDirty() {
+  if (_settingsReady) setSettingsDirty(true);
+}
 
 // ── Load ──────────────────────────────────────────────────────────────────────
 
@@ -119,6 +131,8 @@ async function loadSettings() {
 
   checkSpacy();
   checkExistingDownload();
+  _settingsReady = true;
+  setSettingsDirty(false);
 }
 
 // ── Theme selection ───────────────────────────────────────────────────────────
@@ -133,7 +147,10 @@ function selectTheme(theme, persist = true) {
     document.body.classList.remove('theme-' + t)
   );
   if (theme !== 'night') document.body.classList.add('theme-' + theme);
-  if (persist) localStorage.setItem('theme', theme);
+  if (persist) {
+    localStorage.setItem('theme', theme);
+    markSettingsDirty();
+  }
 }
 
 // ── Font family selection ─────────────────────────────────────────────────────
@@ -143,7 +160,10 @@ function selectFontFamily(ff, persist = true) {
   document.querySelectorAll('.font-option').forEach(el => {
     el.classList.toggle('active', el.dataset.ff === ff);
   });
-  if (persist) localStorage.setItem('fontFamily', ff);
+  if (persist) {
+    localStorage.setItem('fontFamily', ff);
+    markSettingsDirty();
+  }
 }
 
 // ── Model source toggle ───────────────────────────────────────────────────────
@@ -429,6 +449,7 @@ async function saveSettings() {
     localStorage.setItem('fontFamily', payload.font_family);
     localStorage.setItem('fontSize',   payload.font_size);
     localStorage.setItem('lineHeight', payload.line_height);
+    setSettingsDirty(false);
   } else {
     hint.textContent = 'Save failed.';
     hint.className   = 'status-hint status-error';
@@ -443,4 +464,6 @@ function esc(s) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
+document.querySelector('.settings-page').addEventListener('input', markSettingsDirty);
+document.querySelector('.settings-page').addEventListener('change', markSettingsDirty);
 loadSettings();

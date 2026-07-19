@@ -979,6 +979,20 @@ code {
   display: flex; align-items: center; gap: 16px; padding-top: 6px;
 }
 
+.settings-unsaved-banner {
+  position: fixed; z-index: 30; left: 50%; bottom: 18px;
+  transform: translateX(-50%); display: flex; align-items: center; gap: 16px;
+  max-width: calc(100vw - 32px); padding: 10px 12px 10px 16px;
+  background: var(--card); color: var(--text); border: 1px solid var(--accent);
+  border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+  font-size: .82rem;
+}
+.settings-unsaved-banner strong { color: var(--accent); }
+
+@media (max-width: 520px) {
+  .settings-unsaved-banner { bottom: 12px; gap: 10px; padding-left: 12px; }
+}
+
 /* Theme picker swatches */
 .theme-swatches { display: flex; gap: 10px; margin-top: 4px; }
 .theme-swatch {

@@ -37,6 +37,10 @@ tts = TTSEngineRouter()
 DEFAULT_NARRATOR_INSTRUCT = app_settings.DEFAULT_NARRATOR_INSTRUCT
 
 _export_jobs: dict = {}
+_chapter_generation_jobs: dict = {}
+_chapter_generation_by_chapter: dict[tuple[int, int], str] = {}
+_chapter_generation_active_job_id: str | None = None
+_chapter_generation_lock = threading.Lock()
 
 # When > 0, an export job owns the TTS engine. Interactive /api/tts/generate
 # must not start new synth work (cache hits still OK) so full-book batching
@@ -622,8 +626,15 @@ def delete_book(book_id):
 def list_chapters(book_id):
     with get_conn() as conn:
         rows = conn.execute(
-            'SELECT id, title, order_num, section_type, word_count FROM chapters '
-            'WHERE book_id=? ORDER BY order_num',
+            'SELECT c.id, c.title, c.order_num, c.section_type, c.word_count, '
+            'COUNT(s.id) AS audio_total, '
+            'COALESCE(SUM(CASE WHEN s.audio_path IS NOT NULL THEN 1 ELSE 0 END), 0) '
+            'AS audio_ready '
+            'FROM chapters c '
+            'LEFT JOIN tts_segments s ON s.chapter_id=c.id AND s.book_id=c.book_id '
+            'WHERE c.book_id=? '
+            'GROUP BY c.id, c.title, c.order_num, c.section_type, c.word_count '
+            'ORDER BY c.order_num',
             (book_id,)
         ).fetchall()
     return jsonify([dict(r) for r in rows])
@@ -1402,6 +1413,238 @@ def _start_export_pool(job: dict) -> TTSExportPool:
     return pool
 
 
+def _chapter_audio_counts(segs: list[dict]) -> tuple[int, int]:
+    total = len(segs)
+    ready = sum(
+        1
+        for seg in segs
+        if seg.get('audio_path') and os.path.exists(seg['audio_path'])
+    )
+    return ready, total
+
+
+def _chapter_generation_snapshot(
+    book_id: int,
+    chapter_id: int,
+    segs: list[dict] | None = None,
+) -> dict:
+    if segs is None:
+        segs = _get_chapter_segments(chapter_id, book_id)
+    ready, total = _chapter_audio_counts(segs)
+    key = (book_id, chapter_id)
+
+    with _chapter_generation_lock:
+        job_id = _chapter_generation_by_chapter.get(key)
+        job = _chapter_generation_jobs.get(job_id) if job_id else None
+        active_id = _chapter_generation_active_job_id
+        active_job = _chapter_generation_jobs.get(active_id) if active_id else None
+
+    if job and job.get('state') in ('pending', 'running', 'failed'):
+        _refresh_export_job_fields(job)
+        snapshot = dict(job)
+    else:
+        complete = bool(total and ready >= total)
+        snapshot = {
+            'job_id': job_id,
+            'state': 'complete' if complete else 'idle',
+            'message': 'Ready' if complete else 'Not generated',
+            'done': ready,
+            'total': total,
+            'eta_sec': None,
+            'elapsed_sec': None,
+            'error': None,
+        }
+
+    snapshot.update({
+        'book_id': book_id,
+        'chapter_id': chapter_id,
+        'ready': ready,
+        'percent': round((snapshot.get('done', ready) / total) * 100) if total else 0,
+    })
+    if active_job and active_job.get('state') in ('pending', 'running'):
+        snapshot['busy_job_id'] = active_id
+        snapshot['busy_chapter_id'] = active_job.get('chapter_id')
+    return snapshot
+
+
+def _run_chapter_generation(job_id: str, book_id: int, chapter_id: int) -> None:
+    global _chapter_generation_active_job_id
+    job = _chapter_generation_jobs[job_id]
+    generation_pool: TTSExportPool | None = None
+    _export_exclusive_begin()
+    try:
+        job['state'] = 'running'
+        job['message'] = 'Loading chapter segments...'
+        segs = _get_chapter_segments(chapter_id, book_id)
+        job['total'] = len(segs)
+        job['done'] = 0
+        job['message'] = f'Generating audio (0/{len(segs)})'
+        generation_pool = _start_export_pool(job)
+        _ensure_audio_for_chapter(
+            book_id,
+            chapter_id,
+            segs,
+            job,
+            export_pool=generation_pool,
+        )
+        ready, total = _chapter_audio_counts(segs)
+        if ready < total:
+            raise RuntimeError(
+                f'Only {ready} of {total} chapter segments were generated.'
+            )
+        job['done'] = total
+        job['state'] = 'complete'
+        job['message'] = 'Ready'
+        job['result'] = {
+            'book_id': book_id,
+            'chapter_id': chapter_id,
+            'ready': ready,
+            'total': total,
+        }
+    except Exception as exc:
+        log.exception('Chapter generation job %s failed', job_id)
+        job['state'] = 'failed'
+        job['error'] = str(exc)
+        job['message'] = 'Generation failed'
+    finally:
+        if generation_pool is not None:
+            generation_pool.close()
+        _export_exclusive_end()
+        with _chapter_generation_lock:
+            if _chapter_generation_active_job_id == job_id:
+                _chapter_generation_active_job_id = None
+
+
+@app.route(
+    '/api/books/<int:book_id>/chapters/<int:chapter_id>/generate',
+    methods=['GET'],
+)
+def chapter_generation_status(book_id, chapter_id):
+    with get_conn() as conn:
+        exists = conn.execute(
+            'SELECT 1 FROM chapters WHERE id=? AND book_id=?',
+            (chapter_id, book_id),
+        ).fetchone()
+    if not exists:
+        return jsonify({'error': 'Chapter not found'}), 404
+    return jsonify(_chapter_generation_snapshot(book_id, chapter_id))
+
+
+@app.route(
+    '/api/books/<int:book_id>/chapters/<int:chapter_id>/generate',
+    methods=['POST'],
+)
+def generate_chapter_audio(book_id, chapter_id):
+    global _chapter_generation_active_job_id
+
+    with get_conn() as conn:
+        exists = conn.execute(
+            'SELECT 1 FROM chapters WHERE id=? AND book_id=?',
+            (chapter_id, book_id),
+        ).fetchone()
+    if not exists:
+        return jsonify({'error': 'Chapter not found'}), 404
+
+    key = (book_id, chapter_id)
+    with _chapter_generation_lock:
+        existing_id = _chapter_generation_by_chapter.get(key)
+        existing = (
+            _chapter_generation_jobs.get(existing_id) if existing_id else None
+        )
+        if existing and existing.get('state') in ('pending', 'running'):
+            return jsonify(dict(existing))
+
+        active_id = _chapter_generation_active_job_id
+        active = _chapter_generation_jobs.get(active_id) if active_id else None
+        if active and active.get('state') in ('pending', 'running'):
+            return jsonify({
+                'error': 'Another chapter or export is already generating audio.',
+                'busy_job_id': active_id,
+                'busy_chapter_id': active.get('chapter_id'),
+            }), 409
+        if any(
+            job.get('state') in ('pending', 'running')
+            for job in list(_export_jobs.values())
+        ):
+            return jsonify({'error': 'An audio export is already running.'}), 409
+
+    if _export_exclusive_active():
+        return jsonify({'error': 'Audio generation or export is already running.'}), 409
+    if tts.status()['state'] != 'ready':
+        return jsonify({'error': 'TTS model not ready'}), 503
+
+    segs = _get_chapter_segments(chapter_id, book_id)
+    ready, total = _chapter_audio_counts(segs)
+    if total and ready >= total:
+        return jsonify({
+            'state': 'complete',
+            'message': 'Ready',
+            'done': total,
+            'total': total,
+            'ready': ready,
+            'percent': 100,
+            'book_id': book_id,
+            'chapter_id': chapter_id,
+        })
+
+    job_id = str(uuid.uuid4())
+    job = {
+        'job_id': job_id,
+        'book_id': book_id,
+        'chapter_id': chapter_id,
+        'state': 'pending',
+        'message': 'Starting...',
+        'done': ready,
+        'total': total,
+        'eta_sec': None,
+        'elapsed_sec': None,
+        't0': None,
+        'synth_t0': None,
+        'synth_done': 0,
+        'result': None,
+        'error': None,
+    }
+    with _chapter_generation_lock:
+        # Re-check after segment preparation: another request may have reserved
+        # the single bulk-generation slot in the meantime.
+        active_id = _chapter_generation_active_job_id
+        active = _chapter_generation_jobs.get(active_id) if active_id else None
+        if active and active.get('state') in ('pending', 'running'):
+            return jsonify({
+                'error': 'Another chapter or export is already generating audio.',
+                'busy_job_id': active_id,
+                'busy_chapter_id': active.get('chapter_id'),
+            }), 409
+        if any(
+            export_job.get('state') in ('pending', 'running')
+            for export_job in list(_export_jobs.values())
+        ):
+            return jsonify({'error': 'An audio export is already running.'}), 409
+        _chapter_generation_jobs[job_id] = job
+        _chapter_generation_by_chapter[key] = job_id
+        _chapter_generation_active_job_id = job_id
+
+    threading.Thread(
+        target=_run_chapter_generation,
+        args=(job_id, book_id, chapter_id),
+        daemon=True,
+    ).start()
+    return jsonify(dict(job))
+
+
+@app.route('/api/chapter-generation/status/<job_id>')
+def chapter_generation_job_status(job_id):
+    job = _chapter_generation_jobs.get(job_id)
+    if not job:
+        return jsonify({'error': 'Unknown job'}), 404
+    _refresh_export_job_fields(job)
+    snapshot = dict(job)
+    total = int(snapshot.get('total') or 0)
+    done = int(snapshot.get('done') or 0)
+    snapshot['percent'] = round((done / total) * 100) if total else 0
+    return jsonify(snapshot)
+
+
 def _get_char_colors(book_id):
     with get_conn() as conn:
         rows = conn.execute(
@@ -1569,7 +1812,12 @@ def export_chapter(book_id, chapter_id):
     if tts.status()['state'] != 'ready':
         return jsonify({'error': 'TTS model not ready'}), 503
 
-    job_id, _ = _make_export_job()
+    with _chapter_generation_lock:
+        active_id = _chapter_generation_active_job_id
+        active = _chapter_generation_jobs.get(active_id) if active_id else None
+        if active and active.get('state') in ('pending', 'running'):
+            return jsonify({'error': 'Chapter audio generation is already running.'}), 409
+        job_id, _ = _make_export_job()
     threading.Thread(
         target=_run_chapter_export,
         args=(job_id, book_id, chapter_id, audio_fmt, sub_fmt),
@@ -1592,7 +1840,12 @@ def export_full(book_id):
             'SELECT COUNT(*) FROM chapters WHERE book_id=?', (book_id,)
         ).fetchone()[0]
     chapter_numbers = exporter.parse_chapter_selection('all', chapter_count)
-    job_id, _ = _make_export_job()
+    with _chapter_generation_lock:
+        active_id = _chapter_generation_active_job_id
+        active = _chapter_generation_jobs.get(active_id) if active_id else None
+        if active and active.get('state') in ('pending', 'running'):
+            return jsonify({'error': 'Chapter audio generation is already running.'}), 409
+        job_id, _ = _make_export_job()
     threading.Thread(
         target=_run_chapterwise_export,
         args=(job_id, book_id, audio_fmt, sub_fmt, chapter_numbers),
@@ -1621,7 +1874,12 @@ def export_chapterwise(book_id):
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
 
-    job_id, _ = _make_export_job()
+    with _chapter_generation_lock:
+        active_id = _chapter_generation_active_job_id
+        active = _chapter_generation_jobs.get(active_id) if active_id else None
+        if active and active.get('state') in ('pending', 'running'):
+            return jsonify({'error': 'Chapter audio generation is already running.'}), 409
+        job_id, _ = _make_export_job()
     threading.Thread(
         target=_run_chapterwise_export,
         args=(job_id, book_id, audio_fmt, sub_fmt, chapter_numbers),

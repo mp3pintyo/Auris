@@ -45,6 +45,7 @@ let _bufferGenId = 0;
 let _prewarmFrontier = 0;
 const TTS_PREWARM_CHUNK = 12;
 const TTS_PREWARM_LOW_WATER = 5;
+let _activeChapterGeneration = null;
 // All in-flight interactive TTS requests. Stop aborts the HTTP wait and also
 // asks the server-side Higgs token loop to terminate.
 let _ttsAbortControllers = new Map();
@@ -190,11 +191,16 @@ async function loadTOC() {
     const wc = ch.word_count ? ch.word_count.toLocaleString() + ' words' : '';
     const badge = ch.section_type !== 'chapter'
       ? `<span class="toc-section-badge">${esc(ch.section_type)}</span>` : '';
+    const ready = Number(ch.audio_total) > 0 &&
+      Number(ch.audio_ready) >= Number(ch.audio_total);
     return `
       <div class="toc-item" data-id="${ch.id}" onclick="openChapter(${ch.id})">
         ${badge}
         <span class="toc-item-title">${esc(ch.title)}</span>
-        ${wc ? `<span class="toc-item-meta">${wc}</span>` : ''}
+        <span class="toc-item-details">
+          <span class="toc-item-meta">${wc}</span>
+          <span class="toc-ready-badge${ready ? '' : ' hidden'}">&#10003; Ready</span>
+        </span>
       </div>`;
   }).join('');
 
@@ -252,6 +258,7 @@ async function openChapter(chapterId, options = {}) {
 
   segments = await fetch(`/api/tts/segments/${BOOK_ID}/${chapterId}`).then(r => r.json());
   renderContent(segments);
+  refreshChapterGenerationPanel(chapterId);
 
   document.getElementById('chapter-content').scrollTop = 0;
 
@@ -322,11 +329,201 @@ async function _waitForTtsReady(bufferId, chapterId) {
 
 async function _prewarmChapter() {
   if (!segments.length) return;
+  if (_exportBusy) return;
   const bufferId = _bufferGenId;
   const chapterId = currentChapterId;
   if (!await _waitForTtsReady(bufferId, chapterId)) return;
   _extendPrewarm(currentSegIdx);
 }
+
+// ── Whole-chapter generation ─────────────────────────────────────────────────
+
+function markChapterReady(chapterId, ready = true) {
+  const badge = document.querySelector(
+    `.toc-item[data-id="${chapterId}"] .toc-ready-badge`
+  );
+  if (badge) badge.classList.toggle('hidden', !ready);
+}
+
+function renderChapterGenerationStatus(state) {
+  if (!state || Number(state.chapter_id) !== Number(currentChapterId)) return;
+  const card = document.getElementById('chapter-generate-card');
+  const btn = document.getElementById('chapter-generate-btn');
+  const pctEl = document.getElementById('chapter-generate-percent');
+  const fill = document.getElementById('chapter-generate-fill');
+  const progress = document.getElementById('chapter-generate-progress');
+  const status = document.getElementById('chapter-generate-status');
+  const total = Number(state.total) || segments.length || 0;
+  const done = Math.min(Number(state.done ?? state.ready) || 0, total || Infinity);
+  const pct = total > 0
+    ? Math.max(0, Math.min(100, Math.round((done / total) * 100)))
+    : 0;
+  const isComplete = state.state === 'complete' || (total > 0 && done >= total);
+  const isRunning = state.state === 'pending' || state.state === 'running';
+  const busyElsewhere = state.busy_job_id &&
+    Number(state.busy_chapter_id) !== Number(currentChapterId);
+
+  pctEl.textContent = `${isComplete ? 100 : pct}%`;
+  fill.style.width = `${isComplete ? 100 : pct}%`;
+  progress.setAttribute('aria-valuenow', String(isComplete ? 100 : pct));
+  card.classList.toggle('complete', isComplete);
+
+  if (isComplete) {
+    btn.disabled = true;
+    btn.innerHTML = '&#10003; Ready';
+    status.textContent = `${total}/${total} segments generated`;
+    markChapterReady(currentChapterId, true);
+  } else if (isRunning) {
+    btn.disabled = true;
+    btn.textContent = 'Generating…';
+    let message = `${done}/${total} segments generated`;
+    if (state.eta_sec != null && Number.isFinite(state.eta_sec) && done < total) {
+      message += ` · ~${formatDurationShort(state.eta_sec)} left`;
+    }
+    status.textContent = message;
+  } else if (busyElsewhere) {
+    btn.disabled = true;
+    btn.textContent = 'Generator busy';
+    status.textContent = 'Another chapter is being generated.';
+  } else if (state.state === 'failed') {
+    btn.disabled = false;
+    btn.textContent = 'Retry chapter';
+    status.textContent = state.error || 'Generation failed.';
+  } else {
+    btn.disabled = !total;
+    btn.textContent = done > 0 ? 'Continue generation' : 'Generate chapter';
+    status.textContent = total
+      ? `${done}/${total} segments ready`
+      : 'This chapter has no audio segments.';
+  }
+}
+
+async function refreshChapterGenerationPanel(chapterId) {
+  try {
+    const state = await fetch(
+      `/api/books/${BOOK_ID}/chapters/${chapterId}/generate`
+    ).then(r => r.json());
+    if (Number(chapterId) !== Number(currentChapterId)) return;
+    renderChapterGenerationStatus(state);
+    const jobId = state.job_id || state.busy_job_id;
+    const jobChapterId = state.state === 'running' || state.state === 'pending'
+      ? chapterId
+      : state.busy_chapter_id;
+    if (jobId && (state.state === 'running' || state.state === 'pending' || state.busy_job_id)) {
+      monitorChapterGeneration(jobId, jobChapterId);
+    }
+  } catch (_) {
+    if (Number(chapterId) === Number(currentChapterId)) {
+      document.getElementById('chapter-generate-status').textContent =
+        'Could not load generation status.';
+    }
+  }
+}
+
+function pauseInteractiveTtsForBulkWork() {
+  _exportBusy = true;
+  _bufferGenId++;
+  if (isPlaying) {
+    try { stopPlayback(); } catch (_) {}
+  }
+  for (const [idx, controller] of _ttsAbortControllers.entries()) {
+    controller.abort();
+    _segCache.delete(idx);
+  }
+  _ttsAbortControllers.clear();
+}
+
+async function monitorChapterGeneration(jobId, chapterId) {
+  if (_activeChapterGeneration?.jobId === jobId) return;
+  _activeChapterGeneration = { jobId, chapterId };
+  _exportBusy = true;
+
+  while (_activeChapterGeneration?.jobId === jobId) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    let state;
+    try {
+      state = await fetch(`/api/chapter-generation/status/${jobId}`).then(r => r.json());
+    } catch (_) {
+      continue;
+    }
+
+    if (Number(currentChapterId) === Number(chapterId)) {
+      renderChapterGenerationStatus(state);
+    }
+    if (state.state !== 'complete' && state.state !== 'failed') continue;
+
+    _activeChapterGeneration = null;
+    _exportBusy = false;
+    if (state.state === 'complete') {
+      markChapterReady(chapterId, true);
+      if (Number(currentChapterId) === Number(chapterId)) {
+        segments.forEach(seg => { seg.has_audio = true; });
+        showToast('Chapter audio is ready.');
+      }
+    } else if (Number(currentChapterId) === Number(chapterId)) {
+      showToast('Chapter generation failed.');
+    }
+
+    if (currentChapterId) {
+      refreshChapterGenerationPanel(currentChapterId);
+      _startBackgroundBuffer(currentSegIdx);
+      _prewarmChapter();
+    }
+    return;
+  }
+}
+
+document.getElementById('chapter-generate-btn').onclick = async () => {
+  if (!currentChapterId) return;
+  const chapterId = currentChapterId;
+  pauseInteractiveTtsForBulkWork();
+  renderChapterGenerationStatus({
+    chapter_id: chapterId,
+    state: 'pending',
+    done: segments.filter(seg => seg.has_audio).length,
+    total: segments.length,
+  });
+
+  try {
+    const response = await fetch(
+      `/api/books/${BOOK_ID}/chapters/${chapterId}/generate`,
+      { method: 'POST' },
+    );
+    const state = await response.json();
+    if (!response.ok || state.error) {
+      _exportBusy = false;
+      renderChapterGenerationStatus({
+        ...state,
+        chapter_id: chapterId,
+        state: 'failed',
+        done: segments.filter(seg => seg.has_audio).length,
+        total: segments.length,
+      });
+      _startBackgroundBuffer(currentSegIdx);
+      _prewarmChapter();
+      return;
+    }
+    renderChapterGenerationStatus(state);
+    if (state.state === 'complete') {
+      _exportBusy = false;
+      segments.forEach(seg => { seg.has_audio = true; });
+      markChapterReady(chapterId, true);
+      return;
+    }
+    monitorChapterGeneration(state.job_id, chapterId);
+  } catch (error) {
+    _exportBusy = false;
+    renderChapterGenerationStatus({
+      chapter_id: chapterId,
+      state: 'failed',
+      error: error.message,
+      done: segments.filter(seg => seg.has_audio).length,
+      total: segments.length,
+    });
+    _startBackgroundBuffer(currentSegIdx);
+    _prewarmChapter();
+  }
+};
 
 // Keep a chunk of concurrent HTTP requests ahead of playback.  The server
 // coalesces requests arriving together into one OmniVoice generate_many()

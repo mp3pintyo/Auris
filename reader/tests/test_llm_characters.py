@@ -80,6 +80,37 @@ class SpeakerUnitTest(unittest.TestCase):
             [False, True, True],
         )
 
+    def test_single_narrator_ignores_fine_grained_speaker_units(self):
+        text = (
+            "A hajó állt. A szél fújt. Az ég sötét volt. "
+            "A kapitány csendben várt."
+        )
+
+        fine_grained = enrich_chapter(
+            text,
+            {},
+            speaker_annotations={},
+        )
+        single_narrator = enrich_chapter(
+            text,
+            {},
+            narrator_instruct="one narrator voice",
+            single_narrator_mode=True,
+            speaker_annotations={},
+        )
+
+        self.assertEqual(len(fine_grained), 4)
+        self.assertLess(len(single_narrator), len(fine_grained))
+        self.assertTrue(
+            all(segment["character_name"] is None for segment in single_narrator)
+        )
+        self.assertTrue(
+            all(
+                segment["instruct"] == "one narrator voice"
+                for segment in single_narrator
+            )
+        )
+
 
 class LLMBookAnalysisTest(unittest.TestCase):
     def test_legacy_hungarian_glyphs_in_model_name_are_repaired(self):

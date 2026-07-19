@@ -401,28 +401,79 @@ def _should_merge_sentences(buffer: str, sentence: str) -> bool:
     return not _has_dialogue(buffer) and not _has_dialogue(sentence) and combined_words <= 22
 
 
-def _split_sentences(text: str, chapter_title: str | None = None) -> list[str]:
-    paragraphs = _split_paragraphs(text, chapter_title)
+def _merge_paragraph_sentences(paragraph: str) -> list[str]:
+    """Apply the normal short-sentence merge within one paragraph."""
+    sentences = _split_paragraph_sentences(paragraph)
+    if not sentences:
+        return []
+
     segments: list[str] = []
-
-    for paragraph in paragraphs:
-        sentences = _split_paragraph_sentences(paragraph)
-        if not sentences:
-            continue
-
-        buffer = ""
-        for sentence in sentences:
-            if not buffer:
-                buffer = sentence
-            elif _should_merge_sentences(buffer, sentence):
-                buffer = f"{buffer} {sentence}".strip()
-            else:
-                segments.append(buffer)
-                buffer = sentence
-        if buffer:
+    buffer = ""
+    for sentence in sentences:
+        if not buffer:
+            buffer = sentence
+        elif _should_merge_sentences(buffer, sentence):
+            buffer = f"{buffer} {sentence}".strip()
+        else:
             segments.append(buffer)
-
+            buffer = sentence
+    if buffer:
+        segments.append(buffer)
     return segments
+
+
+def _split_sentences(text: str, chapter_title: str | None = None) -> list[str]:
+    segments: list[str] = []
+    for paragraph in _split_paragraphs(text, chapter_title):
+        segments.extend(_merge_paragraph_sentences(paragraph))
+    return segments
+
+
+def _split_single_narrator_segments(
+    text: str,
+    chapter_title: str | None = None,
+    max_words: int = 60,
+) -> list[str]:
+    """Build longer paragraph-local blocks when every line uses one voice.
+
+    Speaker turns do not need separate model conditioning in this mode.  Keep
+    dialogue/narration and whisper boundaries for prosody, while combining
+    adjacent compatible text up to OmniVoice's useful long-form range.
+    """
+    output: list[str] = []
+    max_words = max(30, int(max_words))
+
+    for paragraph in _split_paragraphs(text, chapter_title):
+        base_segments = _merge_paragraph_sentences(paragraph)
+        buffer = ""
+        buffer_kind: tuple[bool, bool] | None = None
+
+        for segment in base_segments:
+            kind = (
+                _has_dialogue(segment),
+                bool(_WHISPER_RE.search(segment)),
+            )
+            combined_words = len((buffer + " " + segment).split())
+            closes_emphatically = bool(
+                buffer and (_QUESTION_RE.search(buffer) or _SURPRISE_RE.search(buffer))
+            )
+            if (
+                buffer
+                and kind == buffer_kind
+                and combined_words <= max_words
+                and not closes_emphatically
+            ):
+                buffer = f"{buffer} {segment}".strip()
+            else:
+                if buffer:
+                    output.append(buffer)
+                buffer = segment
+                buffer_kind = kind
+
+        if buffer:
+            output.append(buffer)
+
+    return output
 
 
 def _build_dialogue_map(text: str) -> dict[str, str]:
@@ -552,7 +603,17 @@ def enrich_chapter(
     """
     cleaned_text = str(chapter_text or "").strip()
     dialogue_map = _build_dialogue_map(cleaned_text)
-    if speaker_annotations is None:
+    # Speaker annotations deliberately use fine-grained units so dialogue can
+    # switch voices at exact boundaries. In single-narrator mode those
+    # boundaries carry no routing information and would turn a chapter into
+    # hundreds of tiny model jobs.
+    if single_narrator_mode:
+        speaker_annotations = None
+        sentences = _split_single_narrator_segments(
+            cleaned_text,
+            chapter_title=chapter_title,
+        )
+    elif speaker_annotations is None:
         sentences = _split_sentences(cleaned_text, chapter_title=chapter_title)
     else:
         sentences = [unit["text"] for unit in build_speaker_units(cleaned_text)]

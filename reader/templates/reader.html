@@ -10,6 +10,27 @@
       <a href="/voice-studio/{{ book.id }}" class="btn btn-sm btn-ghost" title="Voice Studio">Voices</a>
       <button id="toc-close" class="btn btn-sm btn-ghost toc-close" title="Close contents" aria-label="Close contents">&#215;</button>
     </div>
+    <div class="chapter-generate-card" id="chapter-generate-card">
+      <div class="chapter-generate-heading">
+        <span>Chapter audio</span>
+        <span id="chapter-generate-percent" class="chapter-generate-percent">0%</span>
+      </div>
+      <button id="chapter-generate-btn" class="btn btn-primary btn-full" disabled>
+        Generate chapter
+      </button>
+      <div class="chapter-generate-progress"
+           id="chapter-generate-progress"
+           role="progressbar"
+           aria-label="Chapter audio generation"
+           aria-valuemin="0"
+           aria-valuemax="100"
+           aria-valuenow="0">
+        <div id="chapter-generate-fill" class="chapter-generate-fill"></div>
+      </div>
+      <div id="chapter-generate-status" class="chapter-generate-status">
+        Open a chapter to see its status.
+      </div>
+    </div>
     <div id="toc-list" class="toc-list">
       <div class="loading-spinner">Loading…</div>
     </div>

@@ -311,6 +311,12 @@ class AccelResolveTest(unittest.TestCase):
 
 
 class CoalesceTest(unittest.TestCase):
+    def test_legacy_coalesce_setting_is_disabled_for_audio_accuracy(self):
+        with patch("core.settings.get", return_value=720):
+            from core.tts_engine import _tts_coalesce_chars_from_settings
+
+            self.assertEqual(_tts_coalesce_chars_from_settings(), 0)
+
     def test_coalesce_merges_same_voice(self):
         pending = [
             {

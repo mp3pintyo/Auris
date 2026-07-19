@@ -22,6 +22,7 @@ _DEFAULT_MODEL_PATH = str(_REPO_ROOT / 'model_backup' / 'OmniVoice')
 _DEFAULT_HIGGS_MODEL_PATH = str(_REPO_ROOT / 'model_backup' / 'Higgs-TTS-3-4B')
 LEGACY_NARRATOR_INSTRUCT = 'female, middle-aged, moderate pitch, american accent'
 DEFAULT_NARRATOR_INSTRUCT = 'male, elderly, low pitch, british accent'
+TTS_SEGMENT_RENDER_VERSION = 2
 
 DEFAULTS: dict = {
     # Active TTS engine. Each engine keeps an independent model configuration.
@@ -66,10 +67,11 @@ DEFAULTS: dict = {
     # On OOM the engine automatically halves the batch and retries.
     'tts_batch_size': 0,
 
-    # Merge consecutive same-voice short lines up to this many characters before
-    # synthesis (export/playback batch path). Reduces diffusion-call overhead.
-    # 0 = disabled. ~720 is a strong speed win on audiobooks.
-    'tts_coalesce_chars': 720,
+    # Kept for backward compatibility with old settings files.  Segments are
+    # never joined then split: that can put one sentence's phonemes in another.
+    'tts_coalesce_chars': 0,
+    # Internal migration marker for persisted tts_segments records.
+    'tts_segment_render_version': TTS_SEGMENT_RENDER_VERSION,
 
     # OmniVoice iterative decoding steps for playback and export.
     # Higher = better quality but slower. 16 is a good default; 32 is max quality.
@@ -118,6 +120,25 @@ def save(updates: dict) -> dict:
     with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
         json.dump(current, f, indent=2)
     return current
+
+
+def migrate_tts_segment_render_version() -> bool:
+    """Record the current segment-audio format and report if old rows are stale."""
+    try:
+        if SETTINGS_FILE.exists():
+            with open(SETTINGS_FILE, encoding='utf-8') as f:
+                saved = json.load(f)
+        else:
+            saved = {}
+        previous = int(saved.get('tts_segment_render_version', 0))
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        previous = 0
+
+    if previous == TTS_SEGMENT_RENDER_VERSION:
+        return False
+
+    save({'tts_segment_render_version': TTS_SEGMENT_RENDER_VERSION})
+    return True
 
 
 def get(key: str, default=None):

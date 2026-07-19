@@ -84,15 +84,6 @@ async function loadSettings() {
       batchSelect.value = batch;
     }
   }
-  const coal = String(_settings.tts_coalesce_chars ?? 720);
-  const coalSelect = document.getElementById('tts-coalesce-chars');
-  if (coalSelect) {
-    if (![...coalSelect.options].some(o => o.value === coal)) {
-      coalSelect.value = '720';
-    } else {
-      coalSelect.value = coal;
-    }
-  }
   const accel = String(_settings.tts_accel ?? 'auto');
   const accelSelect = document.getElementById('tts-accel');
   if (accelSelect) {
@@ -423,7 +414,6 @@ async function saveSettings() {
     normalize_text:    document.getElementById('normalize-text').checked,
     tts_num_step:      parseInt(document.getElementById('tts-num-step').value, 10) || 16,
     tts_batch_size:    parseInt(document.getElementById('tts-batch-size').value, 10) || 0,
-    tts_coalesce_chars: parseInt(document.getElementById('tts-coalesce-chars').value, 10) || 0,
     tts_accel:         document.getElementById('tts-accel')?.value || 'auto',
     tts_export_workers: parseInt(
       document.getElementById('tts-export-workers')?.value || '0', 10

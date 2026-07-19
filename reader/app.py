@@ -100,6 +100,12 @@ def _startup():
             return
         try:
             init_db()
+            # v2 stopped splitting coalesced waveforms by character count.  Any
+            # persisted segment pointer can therefore refer to audio with a
+            # sentence-boundary artifact and must be regenerated once.
+            if app_settings.migrate_tts_segment_render_version():
+                with get_conn() as conn:
+                    conn.execute('DELETE FROM tts_segments')
         except Exception:
             tts.load_async()
             raise
@@ -1049,7 +1055,7 @@ def _ensure_audio_for_chapter(
             "pending_segments=%d",
             num_step,
             _settings_get("tts_batch_size", 0),
-            _settings_get("tts_coalesce_chars", 720),
+            _settings_get("tts_coalesce_chars", 0),
             len(pending_items),
         )
     except Exception:
@@ -1491,7 +1497,7 @@ def save_settings():
         'higgs_default_style', 'higgs_default_expressive', 'higgs_prompt_mode',
         'narrator_instruct', 'single_narrator_mode', 'default_speed', 'audio_format',
         'subtitle_format', 'theme', 'font_size', 'font_family', 'line_height',
-        'normalize_text', 'tts_num_step', 'tts_batch_size', 'tts_coalesce_chars',
+        'normalize_text', 'tts_num_step', 'tts_batch_size',
         'tts_accel', 'tts_export_workers',
     }
     updates = {k: v for k, v in body.items() if k in allowed}
@@ -1540,11 +1546,6 @@ def save_settings():
             updates['tts_batch_size'] = max(0, min(int(updates['tts_batch_size']), 48))
         except (TypeError, ValueError):
             updates['tts_batch_size'] = 0
-    if 'tts_coalesce_chars' in updates:
-        try:
-            updates['tts_coalesce_chars'] = max(0, min(int(updates['tts_coalesce_chars']), 4000))
-        except (TypeError, ValueError):
-            updates['tts_coalesce_chars'] = 720
     if 'tts_accel' in updates:
         mode = str(updates['tts_accel'] or 'auto').strip().lower()
         if mode not in ('off', 'auto', 'cuda_graph', 'triton', 'hybrid'):

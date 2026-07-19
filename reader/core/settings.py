@@ -22,7 +22,7 @@ _DEFAULT_MODEL_PATH = str(_REPO_ROOT / 'model_backup' / 'OmniVoice')
 _DEFAULT_HIGGS_MODEL_PATH = str(_REPO_ROOT / 'model_backup' / 'Higgs-TTS-3-4B')
 LEGACY_NARRATOR_INSTRUCT = 'female, middle-aged, moderate pitch, american accent'
 DEFAULT_NARRATOR_INSTRUCT = 'male, elderly, low pitch, british accent'
-TTS_SEGMENT_RENDER_VERSION = 2
+TTS_EXPRESSION_POLICY_VERSION = 2
 
 DEFAULTS: dict = {
     # Active TTS engine. Each engine keeps an independent model configuration.
@@ -62,16 +62,19 @@ DEFAULTS: dict = {
     # EN/ZH prefer WeTextProcessing (optional); other languages use num2words.
     'normalize_text': True,
 
+    # Internal migration marker. Version 2 stops treating OmniVoice's literal
+    # "oh/ah" non-verbal tags as silent punctuation/prosody controls.
+    'tts_expression_policy_version': TTS_EXPRESSION_POLICY_VERSION,
+
     # How many segments to synthesize in one OmniVoice.generate() call.
     # 0 = auto from free VRAM (recommended). Larger values keep the GPU busier.
     # On OOM the engine automatically halves the batch and retries.
     'tts_batch_size': 0,
 
-    # Kept for backward compatibility with old settings files.  Segments are
-    # never joined then split: that can put one sentence's phonemes in another.
-    'tts_coalesce_chars': 0,
-    # Internal migration marker for persisted tts_segments records.
-    'tts_segment_render_version': TTS_SEGMENT_RENDER_VERSION,
+    # Merge consecutive same-voice short lines up to this many characters before
+    # synthesis (export/playback batch path). Reduces diffusion-call overhead.
+    # 0 = disabled. ~720 is a strong speed win on audiobooks.
+    'tts_coalesce_chars': 720,
 
     # OmniVoice iterative decoding steps for playback and export.
     # Higher = better quality but slower. 16 is a good default; 32 is max quality.
@@ -122,22 +125,22 @@ def save(updates: dict) -> dict:
     return current
 
 
-def migrate_tts_segment_render_version() -> bool:
-    """Record the current segment-audio format and report if old rows are stale."""
+def migrate_tts_expression_policy_version() -> bool:
+    """Record the expression policy and report whether segment prompts are stale."""
     try:
         if SETTINGS_FILE.exists():
             with open(SETTINGS_FILE, encoding='utf-8') as f:
                 saved = json.load(f)
         else:
             saved = {}
-        previous = int(saved.get('tts_segment_render_version', 0))
+        previous = int(saved.get('tts_expression_policy_version', 0))
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         previous = 0
 
-    if previous == TTS_SEGMENT_RENDER_VERSION:
+    if previous == TTS_EXPRESSION_POLICY_VERSION:
         return False
 
-    save({'tts_segment_render_version': TTS_SEGMENT_RENDER_VERSION})
+    save({'tts_expression_policy_version': TTS_EXPRESSION_POLICY_VERSION})
     return True
 
 

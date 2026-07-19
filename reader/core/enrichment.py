@@ -393,24 +393,12 @@ def _should_allow_confirmation_tag(text: str, is_dialogue: bool) -> bool:
 
 
 def _select_expression_tag(sentence: str, context: str, is_dialogue: bool) -> str | None:
-    is_question   = bool(_QUESTION_RE.search(sentence))
-    is_exclamation = bool(_SURPRISE_RE.search(sentence))
     tag_text = _explicit_tag_text(sentence)
 
-    # Question tags are explicit non-verbal symbols in OmniVoice. Using them on
-    # every normal question adds unwanted pre-utterance sounds, so only keep
-    # them for clearly stylized dialogue questions.
-    if is_dialogue and is_question:
-        if _SKEPTIC_CONTEXT_RE.search(tag_text):
-            return "[question-ei]"         # sceptical / rhetorical
-        if _SHOCK_CONTEXT_RE.search(tag_text) or _SHOCKED_QUESTION_END_RE.search(sentence):
-            return "[question-oh]"         # shocked / disbelieving
-        if _WONDER_CONTEXT_RE.search(tag_text):
-            return "[question-ah]"         # curious / wondering
-        return None
-
-    # Explicit emotion attribution should be sentence-local, otherwise nearby
-    # narration leaks non-verbal sounds like "mm" into unrelated lines.
+    # OmniVoice question/surprise tags are literal non-verbal vocalizations
+    # ("oh", "ah", and similar), not silent prosody controls.  Punctuation must
+    # therefore never add them automatically.  Keep only sound tags supported
+    # by explicit sentence-local wording, such as laughter or a sigh.
     if is_dialogue:
         for pattern, tag in _TAG_RULES:
             if not pattern.search(tag_text):
@@ -418,20 +406,6 @@ def _select_expression_tag(sentence: str, context: str, is_dialogue: bool) -> st
             if tag == "[confirmation-en]" and not _should_allow_confirmation_tag(tag_text, is_dialogue):
                 continue
             return tag
-
-    # Quiet realizations don't need an exclamation mark to warrant a tag
-    if _MILD_REALIZATION_RE.search(tag_text):
-        return "[surprise-ah]"
-
-    # Surprise / exclamation — differentiated by intensity
-    if is_exclamation or _SURPRISE_HINT_RE.search(tag_text):
-        if _STRONG_SURPRISE_RE.search(tag_text):
-            return "[surprise-wa]"         # jaw-drop / scream shock
-        if _EXCITED_SURPRISE_RE.search(tag_text):
-            return "[surprise-yo]"         # triumphant / elated
-        if _MILD_REALIZATION_RE.search(tag_text):
-            return "[surprise-ah]"         # gentle dawning realization
-        return "[surprise-oh]"             # default surprise
 
     return None
 

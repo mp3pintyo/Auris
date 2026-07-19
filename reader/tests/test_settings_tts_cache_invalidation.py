@@ -56,15 +56,15 @@ class SettingsTtsCacheInvalidationTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self._segment_count(), 1)
 
-    def test_segment_render_migration_marks_old_audio_stale_once(self):
-        settings.save({'tts_segment_render_version': 1})
+    def test_expression_policy_migration_marks_old_prompts_stale_once(self):
+        settings.save({'tts_expression_policy_version': 1})
 
-        self.assertTrue(settings.migrate_tts_segment_render_version())
+        self.assertTrue(settings.migrate_tts_expression_policy_version())
         self.assertEqual(
-            settings.load()['tts_segment_render_version'],
-            settings.TTS_SEGMENT_RENDER_VERSION,
+            settings.load()['tts_expression_policy_version'],
+            settings.TTS_EXPRESSION_POLICY_VERSION,
         )
-        self.assertFalse(settings.migrate_tts_segment_render_version())
+        self.assertFalse(settings.migrate_tts_expression_policy_version())
 
 
 if __name__ == '__main__':

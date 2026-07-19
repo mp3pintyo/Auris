@@ -274,10 +274,17 @@
       </span>
     </div>
     <div class="setting-row">
-      <label>Sentence boundaries</label>
+      <label>Merge short lines (chars)</label>
+      <select id="tts-coalesce-chars" class="select-input">
+        <option value="0">0 — off (one GPU call per sentence)</option>
+        <option value="400">400 — light merge</option>
+        <option value="720">720 — recommended</option>
+        <option value="1000">1000 — aggressive (faster export)</option>
+      </select>
       <span class="muted" style="font-size:.78rem">
-        Each sentence is synthesized as its own audio clip, so speech never crosses
-        into the next sentence. GPU batching remains enabled for export speed.
+        Joins consecutive same-voice sentences into one longer synth, then splits the
+        audio back for subtitles/timeline. This usually speeds full-book export more
+        than raising batch size alone (paper: batch 1→8 only ~30% faster).
       </span>
     </div>
     <div class="setting-row">

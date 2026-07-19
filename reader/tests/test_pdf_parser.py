@@ -1,6 +1,6 @@
 import unittest
 
-from core.parser.pdf_parser import _join_line_spans, _split_chapters
+from core.parser.pdf_parser import _join_line_spans, _split_chapters, _without_page_numbers
 from core.parser.sections import is_explicit_section
 
 
@@ -78,6 +78,20 @@ class PdfChapterSplitTest(unittest.TestCase):
         ]
         chapters = _split_chapters(blocks, default_title='Regény')
         self.assertEqual([c['title'] for c in chapters], ['I. FEJEZET', 'II. FEJEZET'])
+
+
+class PdfPageNumberFilterTest(unittest.TestCase):
+    def test_removes_centered_standalone_page_numbers(self):
+        blocks = [
+            {**_block('42'), 'bbox': (292, 780, 303, 794), 'page_width': 595},
+            {**_block('A 42. oldalon folytatódik.'), 'bbox': (70, 200, 300, 214), 'page_width': 595},
+            {**_block('42'), 'bbox': (70, 200, 82, 214), 'page_width': 595},
+        ]
+
+        self.assertEqual(
+            [block['text'] for block in _without_page_numbers(blocks)],
+            ['A 42. oldalon folytatódik.', '42'],
+        )
 
 
 if __name__ == '__main__':

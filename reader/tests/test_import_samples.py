@@ -64,3 +64,24 @@ class ImportSampleTest(unittest.TestCase):
         # Must not collapse the whole novel into a single chapter
         self.assertLess(max(ch['word_count'] for ch in book['chapters']), 10_000)
         self.assertTrue(all(ch['word_count'] > 50 for ch in book['chapters']))
+
+    def test_hungarian_pdf_removes_centered_page_numbers(self):
+        try:
+            import fitz
+        except ImportError:
+            self.skipTest('PyMuPDF not installed')
+
+        doc = fitz.open(SAMPLES / 'Rejto_Jeno-14-karatos-auto.pdf')
+        try:
+            blocks = pdf_parser._collect_blocks(doc)
+        finally:
+            doc.close()
+
+        page_numbers = [
+            block['text'] for block in blocks
+            if pdf_parser._is_centered_page_number(block)
+        ]
+        filtered = pdf_parser._without_page_numbers(blocks)
+
+        self.assertGreater(len(page_numbers), 100)
+        self.assertFalse(any(pdf_parser._is_centered_page_number(block) for block in filtered))

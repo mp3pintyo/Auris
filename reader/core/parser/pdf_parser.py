@@ -77,8 +77,33 @@ def _collect_blocks(doc):
                 text = _join_line_spans(spans)
                 if text:
                     size = max((span.get('size', 12) for span in spans), default=12)
-                    all_blocks.append({'text': text, 'size': size, 'page': page_num})
+                    all_blocks.append({
+                        'text': text,
+                        'size': size,
+                        'page': page_num,
+                        'bbox': tuple(line.get('bbox', ())),
+                        'page_width': page.rect.width,
+                    })
     return all_blocks
+
+
+def _is_centered_page_number(block):
+    """Return whether a line is a centred, standalone Arabic page number."""
+    text = block.get('text', '').strip()
+    bbox = block.get('bbox') or ()
+    page_width = block.get('page_width')
+    if not re.fullmatch(r'\d{1,4}', text) or len(bbox) < 4 or not page_width:
+        return False
+
+    line_center = (bbox[0] + bbox[2]) / 2
+    # Page numbers are conventionally centered; keeping this geometric check
+    # avoids deleting numeric content from ordinary paragraph or table cells.
+    return abs(line_center - page_width / 2) <= page_width * 0.08
+
+
+def _without_page_numbers(blocks):
+    """Remove PDF page-number lines before language and chapter processing."""
+    return [block for block in blocks if not _is_centered_page_number(block)]
 
 
 def _body_font_size(all_blocks):
@@ -171,7 +196,7 @@ def parse(file_path):
     except Exception:
         pass
 
-    all_blocks = _collect_blocks(doc)
+    all_blocks = _without_page_numbers(_collect_blocks(doc))
 
     if not all_blocks:
         doc.close()

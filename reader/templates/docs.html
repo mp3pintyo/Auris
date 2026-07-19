@@ -175,7 +175,7 @@
         <table class="settings-guide">
           <thead><tr><th>Lehetőség</th><th>OmniVoice</th><th>Higgs TTS 3</th></tr></thead>
           <tbody>
-            <tr><td><strong>Referenciahang + átirat</strong></td><td>Elsődleges, stabil voice clone mód.</td><td>Zero-shot voice clone; az átirat lényegesen javítja a hűséget.</td></tr>
+            <tr><td><strong>Referenciahang + átirat</strong></td><td>Elsődleges, stabil voice clone mód.</td><td>Zero-shot voice clone; az átirat lényegesen javítja a hűséget. Az ideális kliphossz eltér az OmniVoice-tól: 5–30 mp.</td></tr>
             <tr><td><strong>Üres referenciaszöveg</strong></td><td>Whisperrel automatikusan átírhatja, lassabb és pontatlanabb lehet.</td><td>Átirat nélkül is futhat, de a pontos szöveg erősen ajánlott.</td></tr>
             <tr><td><strong>Voice instruct</strong></td><td>Nem, kor, hangmagasság és akcentus alapján hangot tervez.</td><td>A hangazonosságot főként a referencia adja; Expressive módban pitch/whisper tokenné alakul.</td></tr>
             <tr><td><strong>Automatikus hang</strong></td><td>Referencia és instruct nélkül támogatott.</td><td>Referencia nélkül a modell saját hangkondicionálásával generál.</td></tr>
@@ -186,12 +186,13 @@
       <div class="docs-callout">
         <span class="docs-callout-icon" aria-hidden="true">♪</span>
         <div>
-          <strong>Jó referencia: tiszta, egyszereplős, 3–10 másodperces felvétel.</strong>
+          <strong>Jó referencia: tiszta, egyszereplős beszéd és betűpontos átirat.</strong>
           <p>
             Lehetőleg a cél nyelvén készüljön, ne legyen benne zene, visszhang
             vagy másik beszélő. Az átirat betű szerint azt tartalmazza, ami a
             hangban elhangzik. A Voice Studio egyszer menti a hangot és a
-            szöveget; nem kell generáláskor újra megadni.
+            szöveget; nem kell generáláskor újra megadni. A javasolt hossz
+            motorfüggő: a Higgs TTS 3 részletes ajánlását lásd alább.
           </p>
         </div>
       </div>
@@ -328,6 +329,23 @@
             expresszivitást, sebesség-, pitch-, whisper-, szünet- és
             hangeffekt-tokeneket. A tokenek kreatív vezérlést adnak, de
             minden könyvnél érdemes rövid preview-val ellenőrizni őket.
+          </p>
+        </div>
+      </div>
+
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">♪</span>
+        <div>
+          <strong>Higgs referenciahang: hivatalosan 5–30 másodperc; a legjobb kiindulópont 8–15 másodperc.</strong>
+          <p>
+            A <strong>bosonai/higgs-tts-3-4b</strong> számára egyetlen beszélő
+            tiszta, zaj-, zene- és háttérhangmentes beszédét használd. A
+            3–5 másodperces minta is működhet zero-shot klónozással, de kevésbé
+            stabil; 30 másodperc fölött általában nem javul az eredmény, viszont
+            nő a kontextus- és tokenigény. A pontos <code>ref_text</code>
+            (a töltelékszavakkal együtt) erősen javítja a hanghűséget. Hosszú
+            generálásnál ugyanazt a referenciahangot és átiratot használd
+            következetesen.
           </p>
         </div>
       </div>

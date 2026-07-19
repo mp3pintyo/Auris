@@ -118,10 +118,54 @@ Typical local URLs are:
 - LM Studio: `http://127.0.0.1:1234/v1`
 - Ollama: `http://127.0.0.1:11434/v1`
 
-Auris sends numbered text units in chapter-sized batches and stores both the
-canonical character roster and each dialogue-to-speaker assignment. During this
-import-time analysis the selected TTS engine is unloaded to free VRAM. TTS is
-loaded lazily when the reader or Voice Studio next needs it. The legacy English
+For the LM Studio test configuration used during development:
+
+- served model: `unsloth/gemma-4-26b-a4b-it`
+- LM Studio context length: `160000` tokens
+- Auris request timeout: `600` seconds
+- maximum stored characters: `60`
+- API key: empty for a normal local server
+
+The context length is configured in LM Studio or Ollama, not in Auris. Auris
+deliberately sends one chapter per request because the size of the structured
+speaker-assignment response, rather than the model's input context, is normally
+the limiting factor.
+
+Recommended setup:
+
+1. Start the local server and load the language model.
+2. Open **Settings → Character & Dialogue Speaker Detection**.
+3. Select **Local LLM — recommended**.
+4. Enter the base URL and the exact model identifier exposed by the server.
+5. Set the request timeout and maximum character count. Add an API key only if
+   the local server requires one.
+6. Use **Test connection**, save the settings, and then import the book.
+
+Character and dialogue-speaker analysis is an import-time background job.
+Auris unloads the selected TTS engine before it starts so the TTS and language
+models do not compete for VRAM. It sends numbered text units chapter by chapter,
+builds a canonical character roster, and stores every dialogue-to-speaker
+assignment with the book. The reader, Voice Studio, playback, and export then
+reuse those stored assignments; the TTS engine is loaded lazily only when it is
+next needed. If an individual chapter fails, successful chapter results are
+kept and the book is marked as partially analyzed instead of discarding the
+whole run.
+
+Books imported before enabling Local LLM detection must be deleted and imported
+again if they should receive the new speaker assignments. The analysis is not
+retroactively started just by changing the setting.
+
+The two files in `test_docs/` were measured end to end against LM Studio with
+`unsloth/gemma-4-26b-a4b-it` and a 160,000-token server context:
+
+| Test document | Chapters | Dialogue candidates | Speaker assigned | Coverage | Chapter errors | Elapsed |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Rejto_Jeno-14-karatos-auto.pdf` | 21 | 2,063 | 1,845 | 89.4% | 0 | 6m 36s |
+| `14Carat.txt` | 21 | 1,395 | 1,350 | 96.8% | 0 | 7m 56s |
+
+These figures describe the tested model and documents, not a guaranteed score
+for every book. Dialogue style, OCR/text extraction quality, model choice, and
+model quantization can all change the result. The legacy English-oriented
 spaCy/regex detector remains available as a fallback mode.
 
 Multi-chapter exports are saved beneath `reader/exports/<book_title>/` with

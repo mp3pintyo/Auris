@@ -9,6 +9,7 @@
         <a href="#overview" class="active">Áttekintés</a>
         <a href="#auris">Auris funkciók</a>
         <a href="#workflow">Munkafolyamat</a>
+        <a href="#llm-detection">Helyi LLM felismerés</a>
         <a href="#voices">Hangok és klónozás</a>
         <a href="#omnivoice">OmniVoice</a>
         <a href="#higgs">Higgs TTS 3</a>
@@ -158,6 +159,137 @@
             Magyar egész számokhoz az Auris a <code>num2words</code> útvonalát használja.
           </p>
         </div>
+      </div>
+
+      <div class="settings-guide-wrap" style="margin-top:28px">
+        <h3 id="llm-detection">Helyi LLM beállítása — LM Studio vagy Ollama</h3>
+        <p>
+          Indítsd el a helyi szervert és töltsd be a használni kívánt nyelvi
+          modellt. Ezután nyisd meg a
+          <a href="/settings"><strong>Settings → Character &amp; Dialogue Speaker Detection</strong></a>
+          részt, válaszd a <strong>Local LLM — recommended</strong> módot, majd
+          töltsd ki az alábbi mezőket. A <strong>Test connection</strong> gombbal
+          ellenőrizd a kapcsolatot, mentsd a beállításokat, és csak ezután
+          importáld a könyvet.
+        </p>
+        <table class="settings-guide">
+          <thead><tr><th>Beállítás</th><th>LM Studio példa</th><th>Ollama példa / magyarázat</th></tr></thead>
+          <tbody>
+            <tr>
+              <td><strong>OpenAI-compatible base URL</strong></td>
+              <td><code>http://127.0.0.1:1234/v1</code></td>
+              <td><code>http://127.0.0.1:11434/v1</code></td>
+            </tr>
+            <tr>
+              <td><strong>Model name</strong></td>
+              <td><code>unsloth/gemma-4-26b-a4b-it</code></td>
+              <td>A szerver által közzétett pontos modellazonosító.</td>
+            </tr>
+            <tr>
+              <td><strong>API key</strong></td>
+              <td>Normál helyi szervernél üres.</td>
+              <td>Csak akkor kell, ha a végpont hitelesítést kér.</td>
+            </tr>
+            <tr>
+              <td><strong>Request timeout</strong></td>
+              <td><strong>600 másodperc</strong> volt a tesztérték.</td>
+              <td>Lassabb modellen vagy CPU offload mellett emelhető.</td>
+            </tr>
+            <tr>
+              <td><strong>Maximum characters</strong></td>
+              <td><strong>60</strong> volt a tesztérték.</td>
+              <td>A könyvhöz eltárolható kanonikus szereplők felső korlátja.</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="docs-footnote" style="margin-top:14px">
+          A kontextusméretet a modellszerverben kell beállítani. A teszthez az
+          LM Studio <strong>160&nbsp;000 tokenes</strong> kontextust kapott.
+          Az Auris ettől függetlenül szándékosan fejezetenként küldi a szöveget:
+          a strukturált válasz mérete általában hamarabb jelent korlátot, mint
+          a modell bemeneti kontextusa.
+        </p>
+      </div>
+
+      <div class="docs-two-column" style="margin-top:28px">
+        <div>
+          <h3>Mi történik importkor?</h3>
+          <ul class="docs-check-list">
+            <li>Az import elindít egy háttérben futó karakter- és beszélőelemzést.</li>
+            <li>Az Auris előbb leállítja és kiüríti a TTS modellt, hogy felszabadítsa a VRAM-ot.</li>
+            <li>A helyi LLM fejezetenként megkapja a számozott szövegegységeket.</li>
+            <li>Kanonikus szereplőlista és minden párbeszédhez külön beszélő-hozzárendelés készül.</li>
+            <li>Az eredmény tartósan a könyvhöz kerül; a Reader, Voice Studio, lejátszás és export ugyanazt használja.</li>
+            <li>A TTS csak akkor töltődik vissza, amikor a felhasználó legközelebb ténylegesen felolvasást vagy hangelőnézetet kér.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Állapot és hibakezelés</h3>
+          <ul class="docs-check-list">
+            <li>Az elemzés állapota és fejezet-progressze az importált könyvnél követhető.</li>
+            <li>Egy hibás fejezet nem törli a már sikeresen feldolgozott fejezetek eredményeit.</li>
+            <li>Részleges hiba esetén a könyv <strong>partial</strong> állapotot kap, a használható hozzárendelések megmaradnak.</li>
+            <li>A <strong>legacy spaCy / regex</strong> mód továbbra is választható, de angol nyelvre készült és a beszélő-hozzárendelése korlátozott.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">!</span>
+        <div>
+          <strong>A korábban importált könyveket újra kell importálni.</strong>
+          <p>
+            A helyi LLM elemzés importkor fut le. A felismerési mód utólagos
+            átállítása önmagában nem indít visszamenőleges elemzést, ezért a
+            régi példányt törölni, majd az eredeti fájlt újra importálni kell.
+          </p>
+        </div>
+      </div>
+
+      <div class="settings-guide-wrap" style="margin-top:28px">
+        <h3>Tesztmérés a projekt két dokumentumával</h3>
+        <p>
+          A mérés LM Studio alatt, az
+          <code>unsloth/gemma-4-26b-a4b-it</code> modellel és
+          160&nbsp;000 tokenes szerveroldali kontextussal futott. Mindkét
+          dokumentum 21 fejezete hibamentesen feldolgozódott.
+        </p>
+        <table class="settings-guide">
+          <thead>
+            <tr>
+              <th>Tesztdokumentum</th>
+              <th>Fejezet</th>
+              <th>Párbeszéd-jelölt</th>
+              <th>Beszélő hozzárendelve</th>
+              <th>Lefedettség</th>
+              <th>Idő</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>Rejto_Jeno-14-karatos-auto.pdf</code></td>
+              <td>21</td>
+              <td>2&nbsp;063</td>
+              <td>1&nbsp;845</td>
+              <td><strong>89,4%</strong></td>
+              <td>6 perc 36 mp</td>
+            </tr>
+            <tr>
+              <td><code>14Carat.txt</code></td>
+              <td>21</td>
+              <td>1&nbsp;395</td>
+              <td>1&nbsp;350</td>
+              <td><strong>96,8%</strong></td>
+              <td>7 perc 56 mp</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="docs-footnote" style="margin-top:14px">
+          Ezek a számok a megadott modellre és tesztfájlokra vonatkozó mérési
+          eredmények, nem általános garanciák. A könyv párbeszédstílusa, a
+          PDF/OCR szövegkinyerés minősége, a választott modell és annak
+          kvantálása is befolyásolja a felismerést.
+        </p>
       </div>
     </section>
 

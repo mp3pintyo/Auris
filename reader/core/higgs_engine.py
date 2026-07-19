@@ -148,6 +148,7 @@ class HiggsTTSEngine:
         self._generating = threading.Event()
         self._loading = False
         self._ready = False
+        self._cancel_load = threading.Event()
         self._error: str | None = None
         self._resolved_model = ""
         self._worker: subprocess.Popen | None = None
@@ -192,9 +193,11 @@ class HiggsTTSEngine:
     def load_async(self) -> None:
         if self._ready or self._loading:
             return
+        self._cancel_load.clear()
         threading.Thread(target=self._load, daemon=True).start()
 
     def load_sync(self) -> None:
+        self._cancel_load.clear()
         self._load()
         if not self._ready:
             raise RuntimeError(self._error or "Higgs TTS model failed to load")
@@ -240,9 +243,16 @@ class HiggsTTSEngine:
             )
             if not response.get("ok"):
                 raise RuntimeError(response.get("error") or "Higgs worker failed to start")
+            if self._cancel_load.is_set():
+                log.info("Higgs load cancelled for import-time LLM analysis.")
+                self.unload()
+                return
             self._sample_rate = int(response.get("sample_rate", SAMPLE_RATE))
             self._load_metadata = dict(response)
             self._resolved_model = source
+            if self._cancel_load.is_set():
+                self.unload()
+                return
             self._ready = True
             self.model = self._worker  # resident-worker marker used by lifecycle code
             log.info(
@@ -264,6 +274,7 @@ class HiggsTTSEngine:
             self._loading = False
 
     def unload(self) -> None:
+        self._cancel_load.set()
         worker = self._worker
         if worker is not None:
             try:
@@ -280,7 +291,7 @@ class HiggsTTSEngine:
         self.model = None
         self.tokenizer = None
         self._ready = False
-        self._loading = False
+        # If startup is in flight, _load owns the transition back to false.
         gc.collect()
         try:
             import torch

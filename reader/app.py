@@ -17,6 +17,7 @@ from core.database import init_db, get_conn
 from core.tts_engine import TTSExportPool
 from core.tts_router import TTSEngineRouter
 from core import characters as char_module
+from core import llm_characters
 from core import enrichment, exporter, structure, settings as app_settings
 from core.parser import epub_parser, pdf_parser, txt_parser
 
@@ -49,6 +50,9 @@ _chapter_build_locks: dict = {}
 _chapter_build_locks_meta = threading.Lock()
 _startup_lock = threading.Lock()
 _startup_complete = False
+_character_analysis_lock = threading.Lock()
+_character_analysis_state_lock = threading.Lock()
+_character_analysis_pending = 0
 
 
 def _export_exclusive_begin() -> None:
@@ -106,9 +110,9 @@ def _startup():
                 with get_conn() as conn:
                     conn.execute('DELETE FROM tts_segments')
         except Exception:
-            tts.load_async()
             raise
-        tts.load_async()
+        # Load TTS lazily in the reader/voice studio. The library/import path
+        # deliberately leaves VRAM free for a local language model.
         _startup_complete = True
 
 
@@ -188,20 +192,37 @@ def _compute_segments_for_chapter(book_id: int, chapter_id: int) -> list[dict]:
             (book_id,)
         ).fetchall()
         book = conn.execute(
-            'SELECT narrator_instruct, single_narrator_mode FROM books WHERE id=?',
+            'SELECT narrator_instruct, single_narrator_mode, character_analysis_status, '
+            'character_analysis_provider '
+            'FROM books WHERE id=?',
             (book_id,)
         ).fetchone()
+        annotation_rows = conn.execute(
+            'SELECT unit_index, speaker_name FROM speaker_annotations '
+            'WHERE chapter_id=? ORDER BY unit_index',
+            (chapter_id,),
+        ).fetchall()
 
     if not ch:
         return []
 
     char_map = {r['name']: dict(r) for r in chars}
+    use_llm_annotations = bool(
+        book
+        and book['character_analysis_status'] in ('complete', 'partial')
+        and book['character_analysis_provider'] == 'llm'
+    )
+    speaker_annotations = (
+        {int(row['unit_index']): row['speaker_name'] for row in annotation_rows}
+        if use_llm_annotations else None
+    )
     segs = enrichment.enrich_chapter(
         ch['content'],
         char_map,
         _book_narrator_instruct(dict(book) if book else None),
         single_narrator_mode=_book_single_narrator_mode(dict(book) if book else None),
         chapter_title=ch['title'],
+        speaker_annotations=speaker_annotations,
     )
     return segs
 
@@ -276,6 +297,8 @@ def reader_page(book_id):
     book_data = dict(book)
     book_data['narrator_instruct'] = _book_narrator_instruct(book_data)
     book_data['single_narrator_mode'] = _book_single_narrator_mode(book_data)
+    if not _character_analysis_is_active():
+        tts.load_async()
     return render_template('reader.html', book=book_data)
 
 
@@ -287,6 +310,8 @@ def voice_studio_page(book_id):
     book_data = dict(book)
     book_data['narrator_instruct'] = _book_narrator_instruct(book_data)
     book_data['single_narrator_mode'] = _book_single_narrator_mode(book_data)
+    if not _character_analysis_is_active():
+        tts.load_async()
     return render_template('voice_studio.html', book=book_data)
 
 
@@ -322,13 +347,23 @@ def import_book():
 
     chapters = structure.enrich_chapters(data['chapters'])
 
+    detection_config = app_settings.load()
+    detection_mode = str(
+        detection_config.get('character_detection_mode', 'legacy') or 'legacy'
+    ).lower()
+    analysis_status = 'queued' if detection_mode == 'llm' else 'running'
+
     with get_conn() as conn:
         cur = conn.execute(
-            'INSERT INTO books (title, author, file_path, file_type, cover_b64, language, single_narrator_mode, total_chapters) '
-            'VALUES (?,?,?,?,?,?,?,?)',
+            'INSERT INTO books (title, author, file_path, file_type, cover_b64, language, '
+            'single_narrator_mode, total_chapters, character_analysis_status, '
+            'character_analysis_provider, character_analysis_model) '
+            'VALUES (?,?,?,?,?,?,?,?,?,?,?)',
             (data['title'], data['author'], dest, ext,
              data.get('cover_b64'), data.get('language', 'en'),
-             int(bool(app_settings.get('single_narrator_mode', False))), len(chapters))
+             int(bool(app_settings.get('single_narrator_mode', False))), len(chapters),
+             analysis_status, detection_mode,
+             detection_config.get('llm_model', '') if detection_mode == 'llm' else 'spaCy/regex')
         )
         book_id = cur.lastrowid
 
@@ -340,27 +375,166 @@ def import_book():
                  ch['content'], ch['word_count'])
             )
 
-    # Detect characters in background
-    threading.Thread(target=_detect_characters, args=(book_id, data), daemon=True).start()
+    # Import-time local LLM analysis owns the available GPU memory. Release TTS
+    # before the worker starts (and before it waits behind another queued book).
+    if detection_mode == 'llm':
+        _character_analysis_reserve()
+        tts.unload()
+
+    # Detect characters / attribute dialogue in the background.
+    threading.Thread(
+        target=_detect_characters,
+        args=(book_id, data, detection_mode, detection_config),
+        daemon=True,
+    ).start()
 
     return jsonify({'book_id': book_id, 'title': data['title'], 'chapters': len(chapters)})
 
 
-def _detect_characters(book_id: int, data: dict):
-    full_text = ' '.join(ch['content'] for ch in data['chapters'])
-    chars = char_module.extract_characters(full_text, top_n=20)
-    with get_conn() as conn:
-        for ch in chars:
-            try:
-                conn.execute(
-                    'INSERT OR IGNORE INTO characters '
-                    '(book_id, name, gender, frequency, instruct, color_hex) '
-                    'VALUES (?,?,?,?,?,?)',
-                    (book_id, ch['name'], ch['gender'], ch['frequency'],
-                     ch['instruct'], ch['color_hex'])
+def _detect_characters(
+    book_id: int,
+    data: dict,
+    mode: str | None = None,
+    config: dict | None = None,
+):
+    config = config or app_settings.load()
+    mode = str(
+        mode or config.get('character_detection_mode', 'legacy') or 'legacy'
+    ).lower()
+    if mode != 'llm':
+        try:
+            full_text = ' '.join(ch['content'] for ch in data['chapters'])
+            chars = char_module.extract_characters(full_text, top_n=20)
+            _store_character_analysis(
+                book_id, chars, [], 'complete', 'Legacy detection complete.'
+            )
+        except Exception as exc:
+            _set_character_analysis_status(book_id, 'failed', str(exc))
+        return
+
+    try:
+        with _character_analysis_lock:
+            if not tts.wait_until_unloaded(timeout=600):
+                raise RuntimeError(
+                    'Timed out waiting for the TTS model to release VRAM.'
                 )
-            except Exception:
-                pass
+            _set_character_analysis_status(
+                book_id, 'running', 'Connecting to the local language model…'
+            )
+            with get_conn() as conn:
+                rows = conn.execute(
+                    'SELECT id, title, content FROM chapters '
+                    'WHERE book_id=? ORDER BY order_num',
+                    (book_id,),
+                ).fetchall()
+            parsed_chapters = [dict(row) for row in rows]
+
+            def progress(current: int, total: int, chapter_title: str):
+                _set_character_analysis_status(
+                    book_id,
+                    'running',
+                    f'Analyzing chapter {current}/{total}: {chapter_title}',
+                )
+
+            result = llm_characters.analyze_book(
+                title=str(data.get('title') or ''),
+                author=str(data.get('author') or ''),
+                chapters=parsed_chapters,
+                base_url=config.get('llm_base_url', ''),
+                api_key=config.get('llm_api_key', ''),
+                model=config.get('llm_model', ''),
+                timeout=float(config.get('llm_timeout_sec', 600)),
+                max_tokens=int(config.get('llm_max_output_tokens', 8192)),
+                max_characters=int(config.get('llm_max_characters', 60)),
+                batch_chars=int(config.get('llm_batch_chars', 10000)),
+                progress=progress,
+            )
+            failed_batches = len(result.get('errors') or [])
+            final_status = 'partial' if failed_batches else 'complete'
+            message = (
+                f"{'Partial' if failed_batches else 'Complete'}: "
+                f"{len(result['characters'])} characters and "
+                f"{len(result['annotations'])} attributed dialogue units."
+            )
+            if failed_batches:
+                message += f" {failed_batches} chapter batch(es) failed; see server log."
+            _store_character_analysis(
+                book_id,
+                result['characters'],
+                result['annotations'],
+                final_status,
+                message,
+            )
+    except Exception as exc:
+        log.exception('LLM character analysis failed for book %s', book_id)
+        _set_character_analysis_status(book_id, 'failed', str(exc))
+    finally:
+        _character_analysis_release()
+
+
+def _character_analysis_reserve() -> None:
+    global _character_analysis_pending
+    with _character_analysis_state_lock:
+        _character_analysis_pending += 1
+
+
+def _character_analysis_release() -> None:
+    global _character_analysis_pending
+    with _character_analysis_state_lock:
+        _character_analysis_pending = max(0, _character_analysis_pending - 1)
+
+
+def _character_analysis_is_active() -> bool:
+    with _character_analysis_state_lock:
+        return _character_analysis_pending > 0
+
+
+def _set_character_analysis_status(book_id: int, status: str, message: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            'UPDATE books SET character_analysis_status=?, character_analysis_message=?, '
+            "character_analysis_updated_at=datetime('now') WHERE id=?",
+            (status, str(message or '')[:1000], book_id),
+        )
+
+
+def _store_character_analysis(
+    book_id: int,
+    chars: list[dict],
+    annotations: list[dict],
+    status: str,
+    message: str,
+) -> None:
+    with get_conn() as conn:
+        conn.execute('DELETE FROM speaker_annotations WHERE book_id=?', (book_id,))
+        conn.execute('DELETE FROM characters WHERE book_id=?', (book_id,))
+        conn.execute('DELETE FROM tts_segments WHERE book_id=?', (book_id,))
+        for ch in chars:
+            conn.execute(
+                'INSERT INTO characters '
+                '(book_id, name, gender, frequency, instruct, color_hex) '
+                'VALUES (?,?,?,?,?,?)',
+                (
+                    book_id, ch['name'], ch['gender'], ch['frequency'],
+                    ch['instruct'], ch['color_hex'],
+                ),
+            )
+        for annotation in annotations:
+            conn.execute(
+                'INSERT INTO speaker_annotations '
+                '(book_id, chapter_id, unit_index, unit_text, speaker_name, confidence) '
+                'VALUES (?,?,?,?,?,?)',
+                (
+                    book_id, annotation['chapter_id'], annotation['unit_index'],
+                    annotation['unit_text'], annotation['speaker_name'],
+                    annotation['confidence'],
+                ),
+            )
+        conn.execute(
+            'UPDATE books SET character_analysis_status=?, character_analysis_message=?, '
+            "character_analysis_updated_at=datetime('now') WHERE id=?",
+            (status, message, book_id),
+        )
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -372,7 +546,9 @@ def list_books():
     with get_conn() as conn:
         rows = conn.execute(
             'SELECT b.id, b.title, b.author, b.file_type, b.cover_b64, b.added_at, '
-            'b.last_read, b.total_chapters, rp.chapter_id AS progress_chapter_id, '
+            'b.last_read, b.total_chapters, b.character_analysis_status, '
+            'b.character_analysis_message, b.character_analysis_provider, '
+            'b.character_analysis_model, rp.chapter_id AS progress_chapter_id, '
             'rp.position AS progress_position, c.title AS progress_chapter_title '
             'FROM books b '
             'LEFT JOIN reading_progress rp ON rp.book_id = b.id '
@@ -389,6 +565,27 @@ def list_books():
             d['cover_url'] = None
         books.append(d)
     return jsonify(books)
+
+
+@app.route('/api/books/<int:book_id>/character-analysis')
+def character_analysis_status(book_id):
+    with get_conn() as conn:
+        row = conn.execute(
+            'SELECT character_analysis_status AS status, '
+            'character_analysis_message AS message, '
+            'character_analysis_provider AS provider, '
+            'character_analysis_model AS model, '
+            'character_analysis_updated_at AS updated_at, '
+            '(SELECT COUNT(*) FROM characters c WHERE c.book_id=books.id) '
+            'AS character_count, '
+            '(SELECT COUNT(*) FROM speaker_annotations a WHERE a.book_id=books.id) '
+            'AS dialogue_count '
+            'FROM books WHERE id=?',
+            (book_id,),
+        ).fetchone()
+    if not row:
+        return jsonify({'error': 'Book not found'}), 404
+    return jsonify(dict(row))
 
 
 @app.route('/api/books/<int:book_id>/cover')
@@ -746,11 +943,25 @@ def delete_narrator_ref_audio(book_id):
 
 @app.route('/api/tts/status')
 def tts_status():
-    return jsonify(tts.status())
+    if _character_analysis_is_active():
+        return jsonify({
+            'state': 'paused',
+            'message': 'TTS is unloaded while character analysis uses the local LLM.',
+        })
+    status = tts.status()
+    if status.get('state') == 'not_loaded':
+        tts.load_async()
+        status = {**status, 'state': 'loading'}
+    return jsonify(status)
 
 
 @app.route('/api/tts/load', methods=['POST'])
 def tts_load():
+    if _character_analysis_is_active():
+        return jsonify({
+            'ok': False,
+            'error': 'Character analysis is running; TTS remains unloaded to protect VRAM.',
+        }), 409
     tts.load_async()
     return jsonify({'ok': True})
 
@@ -1498,6 +1709,9 @@ def save_settings():
         'subtitle_format', 'theme', 'font_size', 'font_family', 'line_height',
         'normalize_text', 'tts_num_step', 'tts_batch_size', 'tts_coalesce_chars',
         'tts_accel', 'tts_export_workers',
+        'character_detection_mode', 'llm_base_url', 'llm_api_key', 'llm_model',
+        'llm_timeout_sec', 'llm_max_output_tokens', 'llm_max_characters',
+        'llm_batch_chars',
     }
     updates = {k: v for k, v in body.items() if k in allowed}
     if 'tts_engine' in updates:
@@ -1509,6 +1723,26 @@ def save_settings():
     if 'higgs_prompt_mode' in updates:
         mode = str(updates['higgs_prompt_mode'] or 'raw').strip().lower()
         updates['higgs_prompt_mode'] = mode if mode in ('raw', 'expressive') else 'raw'
+    if 'character_detection_mode' in updates:
+        mode = str(updates['character_detection_mode'] or 'legacy').strip().lower()
+        updates['character_detection_mode'] = (
+            mode if mode in ('legacy', 'llm') else 'legacy'
+        )
+    if 'llm_base_url' in updates:
+        updates['llm_base_url'] = str(updates['llm_base_url'] or '').strip().rstrip('/')
+    if 'llm_model' in updates:
+        updates['llm_model'] = str(updates['llm_model'] or '').strip()
+    for key, default, low, high in (
+        ('llm_timeout_sec', 600, 15, 3600),
+        ('llm_max_output_tokens', 8192, 512, 32768),
+        ('llm_max_characters', 60, 1, 200),
+        ('llm_batch_chars', 10000, 10000, 500000),
+    ):
+        if key in updates:
+            try:
+                updates[key] = max(low, min(int(updates[key]), high))
+            except (TypeError, ValueError):
+                updates[key] = default
     for key, default, low, high in (
         ('higgs_temperature', 0.8, 0.0, 2.0),
         ('higgs_top_p', 0.95, 0.0, 1.0),
@@ -1600,6 +1834,23 @@ def save_settings():
             )
 
     return jsonify({'ok': True, 'settings': result})
+
+
+@app.route('/api/settings/llm-test', methods=['POST'])
+def llm_test():
+    body = request.get_json(force=True) or {}
+    base_url = str(body.get('base_url') or app_settings.get('llm_base_url', '')).strip()
+    api_key = str(body.get('api_key') or app_settings.get('llm_api_key', ''))
+    selected = str(body.get('model') or app_settings.get('llm_model', '')).strip()
+    try:
+        models = llm_characters.list_models(base_url, api_key=api_key)
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    return jsonify({
+        'ok': True,
+        'models': models,
+        'selected_available': bool(selected and selected in models),
+    })
 
 
 @app.route('/api/settings/spacy-status')

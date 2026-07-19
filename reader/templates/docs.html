@@ -142,10 +142,12 @@
         <div>
           <h3>Karakterfelismerés</h3>
           <p>
-            Import után az Auris háttérben megkeresi a szereplőneveket és
-            megpróbálja a párbeszédeket beszélőhöz rendelni. Az angol
-            <code>en_core_web_sm</code> spaCy modell adja a pontosabb elemzést;
-            nélküle regex-alapú tartalék felismerés működik.
+            Import után az Auris a beállított helyi LLM-mel fejezetenként
+            azonosítja a szereplőket és a konkrét párbeszédek beszélőit.
+            LM Studio, Ollama és más OpenAI-kompatibilis <code>/v1</code>
+            végpont használható. Az elemzés előtt a TTS modell kiürül a
+            memóriából, az eredmény pedig tartósan a könyvhöz kerül. A régi
+            angol spaCy/regex felismerés választható tartalék mód maradt.
           </p>
         </div>
         <div>

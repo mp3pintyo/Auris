@@ -48,3 +48,5 @@ desktop.ini
 .vscode/
 *.swp
 *.swo
+# Local LLM evaluation output
+reader/data/llm_eval_*

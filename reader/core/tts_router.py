@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 
 def selected_engine_name() -> str:
@@ -57,6 +58,29 @@ class TTSEngineRouter:
     def load_async(self) -> None:
         self._select_if_needed()
         self._engine.load_async()
+
+    def unload(self) -> None:
+        """Stop the active engine and release its VRAM before local LLM work."""
+        with self._lock:
+            cancel = getattr(self._engine, "cancel", None)
+            if callable(cancel):
+                try:
+                    cancel()
+                except Exception:
+                    pass
+            self._engine.unload()
+
+    def wait_until_unloaded(self, timeout: float = 600) -> bool:
+        """Wait for an in-flight load to notice cancellation and release VRAM."""
+        deadline = time.monotonic() + max(0.0, timeout)
+        while time.monotonic() < deadline:
+            with self._lock:
+                engine = self._engine
+                if not getattr(engine, "_loading", False):
+                    engine.unload()
+                    return True
+            time.sleep(0.1)
+        return False
 
     def status(self) -> dict:
         self._select_if_needed()

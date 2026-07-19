@@ -589,6 +589,7 @@ class TTSEngine:
         self._lock = threading.Lock()
         self._loading = False
         self._ready = False
+        self._cancel_load = threading.Event()
         self._error: str | None = None
         self._prompt_mem: dict[str, object] = {}
         # After CUDA OOM, never retry larger packs in this process (avoids
@@ -620,10 +621,12 @@ class TTSEngine:
     def load_async(self):
         if self._ready or self._loading:
             return
+        self._cancel_load.clear()
         threading.Thread(target=self._load, daemon=True).start()
 
     def load_sync(self) -> None:
         """Load the model in the current thread or raise its load error."""
+        self._cancel_load.clear()
         self._load()
         if not self._ready:
             raise RuntimeError(self._error or "TTS model failed to load")
@@ -640,6 +643,7 @@ class TTSEngine:
 
     def unload(self) -> None:
         """Release a replica model and its graph/cache allocations."""
+        self._cancel_load.set()
         if self.model is not None:
             wrapper = getattr(self.model, "_auris_cuda_graph", None)
             if wrapper is not None:
@@ -651,7 +655,8 @@ class TTSEngine:
         self._prompt_mem.clear()
         self.model = None
         self._ready = False
-        self._loading = False
+        # A concurrent from_pretrained() cannot be interrupted safely. Keep
+        # _loading true until it returns and observes _cancel_load.
         gc.collect()
         try:
             import torch
@@ -758,6 +763,12 @@ class TTSEngine:
                 )
                 self.model = OmniVoice.from_pretrained(self.model_path, **load_kwargs)
 
+            if self._cancel_load.is_set():
+                log.info("OmniVoice load cancelled for import-time LLM analysis.")
+                self.model = None
+                self._ready = False
+                return
+
             # Optional CUDA Graph / Triton acceleration (settings: tts_accel).
             self._accel_status = {"effective": "off", "message": "not applied"}
             if device == "cuda":
@@ -774,6 +785,11 @@ class TTSEngine:
                         "message": f"accel error: {accel_exc}",
                     }
 
+            if self._cancel_load.is_set():
+                log.info("OmniVoice load cancelled after acceleration setup.")
+                self.model = None
+                self._ready = False
+                return
             self._ready = True
             if device == "cuda":
                 try:

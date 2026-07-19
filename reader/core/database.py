@@ -43,7 +43,12 @@ def init_db():
             narrator_ref_text TEXT,
             added_at    TEXT DEFAULT (datetime('now')),
             last_read   TEXT,
-            total_chapters INTEGER DEFAULT 0
+            total_chapters INTEGER DEFAULT 0,
+            character_analysis_status TEXT DEFAULT 'pending',
+            character_analysis_message TEXT DEFAULT '',
+            character_analysis_provider TEXT,
+            character_analysis_model TEXT,
+            character_analysis_updated_at TEXT
         );
 
         CREATE TABLE IF NOT EXISTS chapters (
@@ -68,6 +73,17 @@ def init_db():
             ref_text       TEXT,
             color_hex     TEXT DEFAULT '#FFFFFF',
             UNIQUE(book_id, name)
+        );
+
+        CREATE TABLE IF NOT EXISTS speaker_annotations (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            book_id       INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+            chapter_id    INTEGER NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+            unit_index    INTEGER NOT NULL,
+            unit_text     TEXT NOT NULL,
+            speaker_name  TEXT NOT NULL,
+            confidence    REAL DEFAULT 0,
+            UNIQUE(chapter_id, unit_index)
         );
 
         CREATE TABLE IF NOT EXISTS reading_progress (
@@ -120,6 +136,20 @@ def init_db():
             conn.execute("ALTER TABLE books ADD COLUMN narrator_ref_audio_name TEXT")
         if "narrator_ref_text" not in cols:
             conn.execute("ALTER TABLE books ADD COLUMN narrator_ref_text TEXT")
+        if "character_analysis_status" not in cols:
+            conn.execute(
+                "ALTER TABLE books ADD COLUMN character_analysis_status TEXT DEFAULT 'pending'"
+            )
+        if "character_analysis_message" not in cols:
+            conn.execute(
+                "ALTER TABLE books ADD COLUMN character_analysis_message TEXT DEFAULT ''"
+            )
+        if "character_analysis_provider" not in cols:
+            conn.execute("ALTER TABLE books ADD COLUMN character_analysis_provider TEXT")
+        if "character_analysis_model" not in cols:
+            conn.execute("ALTER TABLE books ADD COLUMN character_analysis_model TEXT")
+        if "character_analysis_updated_at" not in cols:
+            conn.execute("ALTER TABLE books ADD COLUMN character_analysis_updated_at TEXT")
 
         char_cols = {
             row["name"]

@@ -25,6 +25,8 @@ Everything runs locally after setup. No API keys. No hosted TTS dependency.
 - Import EPUB, PDF, and TXT books.
 - Detect chapters, prologues, epilogues, forewords, appendices, and parts automatically.
 - Generate per-character voices with deterministic assignment.
+- Attribute dialogue to characters with a configurable local LM Studio, Ollama,
+  llama.cpp, or other OpenAI-compatible language-model endpoint.
 - Customize each detected character in Voice Studio.
 - Customize the narrator voice per book.
 - Preview voices before saving.
@@ -106,6 +108,21 @@ attribution, and voice cloning requires the speaker's consent. Review the
 4. Adjust character voices or the narrator voice, preview them, then save.
 5. Export the current chapter or select chapters with `all`, a range such as
    `2-6`, or a comma-separated expression such as `1,3,7-10`.
+
+### Local LLM character detection
+
+In Settings, select **Local LLM** under Character & Dialogue Speaker Detection,
+then enter an OpenAI-compatible base URL and the exact served model name.
+Typical local URLs are:
+
+- LM Studio: `http://127.0.0.1:1234/v1`
+- Ollama: `http://127.0.0.1:11434/v1`
+
+Auris sends numbered text units in chapter-sized batches and stores both the
+canonical character roster and each dialogue-to-speaker assignment. During this
+import-time analysis the selected TTS engine is unloaded to free VRAM. TTS is
+loaded lazily when the reader or Voice Studio next needs it. The legacy English
+spaCy/regex detector remains available as a fallback mode.
 
 Multi-chapter exports are saved beneath `reader/exports/<book_title>/` with
 numbered filenames, for example `01_Introduction.mp3`. When MP3 export succeeds,

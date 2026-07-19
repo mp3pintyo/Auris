@@ -12,8 +12,8 @@ import re
 _DOT = "<prd>"
 _ELLIPSIS = "<ell>"
 _SPLIT = "<split>"
-_QUOTE_CLASS = r'["\u201c\u201d]'
-_QUOTE_CONTENT_CLASS = r'"\u201c\u201d'
+_QUOTE_CLASS = r'["\u201c\u201d\u201e\u00ab\u00bb]'
+_QUOTE_CONTENT_CLASS = r'"\u201c\u201d\u201e\u00ab\u00bb'
 _NAME_PATTERN = r"[A-Z][A-Za-z'.-]+(?:\s+[A-Z][A-Za-z'.-]+){0,2}"
 
 _SECTION_HEADING_RE = re.compile(
@@ -146,7 +146,19 @@ _DIALOGUE_RE = re.compile(
     re.DOTALL,
 )
 
-_STANDALONE_QUOTE_RE = re.compile(rf'{_QUOTE_CLASS}([^"\u201c\u201d]{{2,}}){_QUOTE_CLASS}')
+_STANDALONE_QUOTE_RE = re.compile(
+    r'(?:"([^"]{2,})"|“([^”]{2,})”|„([^”]{2,})”|«([^»]{2,})»)'
+)
+_PAIRED_DIALOGUE_RE = re.compile(
+    r'"[^"]{2,}"|“[^”]{2,}”|„[^”]{2,}”|«[^»]{2,}»'
+)
+_DASH_SPLIT_RE = re.compile(r'(?=\s+[-\u2013\u2014]\s+)')
+_DASH_DIALOGUE_RE = re.compile(
+    r'^\s*[-\u2013\u2014]\s+[A-ZÁÉÍÓÖŐÚÜŰ0-9"\u201c\u201e\u00ab]'
+)
+_DASH_ATTRIBUTION_CONTINUATION_RE = re.compile(
+    r'^(\s*[-\u2013\u2014]\s+[a-záéíóöőúüű].*?\s+[-\u2013\u2014],)\s*(.+)$'
+)
 
 _ACTION_WORDS = re.compile(
     r"\b(ran|rushed|sprinted|struck|fell|crashed|burst|grabbed|pulled|pushed|"
@@ -286,8 +298,88 @@ def _split_paragraph_sentences(paragraph: str) -> list[str]:
     return [part for part in parts if part]
 
 
+def _quote_inner(match: re.Match | None) -> str:
+    if not match:
+        return ""
+    return next((group for group in match.groups() if group is not None), "")
+
+
+def _quote_inner_span(match: re.Match) -> tuple[int, int]:
+    for group_index, group in enumerate(match.groups(), start=1):
+        if group is not None:
+            return match.start(group_index), match.end(group_index)
+    return match.start(), match.end()
+
+
+def build_speaker_units(text: str) -> list[dict]:
+    """Split prose into stable, numbered units suitable for LLM attribution.
+
+    Quoted passages and dash-led Hungarian dialogue become isolated candidates;
+    narration remains available as context.  The same units are later consumed
+    by ``enrich_chapter`` so stored unit indexes stay deterministic.
+    """
+    units: list[dict] = []
+    paragraphs = _split_paragraphs(text)
+    for paragraph in paragraphs:
+        protected = _protect_sentence_boundaries(paragraph)
+        protected = re.sub(
+            r'([.!?\u2026]["\u201d\u00bb]?)\s+'
+            r'(?=(?:[-\u2013\u2014]\s+|["\u201c\u201e\u00ab]?[A-ZÁÉÍÓÖŐÚÜŰ0-9]))',
+            rf"\1{_SPLIT}",
+            protected,
+        )
+        sentences = [
+            _restore_sentence_boundaries(part).strip()
+            for part in protected.split(_SPLIT)
+            if _restore_sentence_boundaries(part).strip()
+        ]
+        for sentence in sentences:
+            quote_parts: list[tuple[str, bool]] = []
+            cursor = 0
+            for match in _PAIRED_DIALOGUE_RE.finditer(sentence):
+                prefix = sentence[cursor:match.start()].strip()
+                if prefix:
+                    quote_parts.append((prefix, False))
+                quote_parts.append((match.group(0).strip(), True))
+                cursor = match.end()
+            suffix = sentence[cursor:].strip()
+            if suffix:
+                quote_parts.append((suffix, False))
+            if not quote_parts:
+                quote_parts = [(sentence, False)]
+
+            for part, quoted in quote_parts:
+                dash_parts = [
+                    fragment.strip()
+                    for fragment in _DASH_SPLIT_RE.split(part)
+                    if fragment.strip()
+                ]
+                for fragment in dash_parts:
+                    attribution = (
+                        _DASH_ATTRIBUTION_CONTINUATION_RE.match(fragment)
+                        if not quoted else None
+                    )
+                    pieces = (
+                        [(attribution.group(1), False),
+                         (f"- {attribution.group(2)}", True)]
+                        if attribution else
+                        [(fragment, bool(quoted or _DASH_DIALOGUE_RE.match(fragment)))]
+                    )
+                    for piece_text, candidate in pieces:
+                        units.append(
+                            {
+                                "index": len(units),
+                                "text": piece_text.strip(),
+                                "dialogue_candidate": candidate,
+                            }
+                        )
+    return units
+
+
 def _has_dialogue(text: str) -> bool:
-    return bool(_STANDALONE_QUOTE_RE.search(text))
+    return bool(
+        _STANDALONE_QUOTE_RE.search(text) or _DASH_DIALOGUE_RE.match(text)
+    )
 
 
 def _should_merge_sentences(buffer: str, sentence: str) -> bool:
@@ -350,7 +442,7 @@ def _find_speaker(sentence: str, dialogue_map: dict, last_speaker: str | None) -
 
     inner = _STANDALONE_QUOTE_RE.search(sentence)
     if inner:
-        snippet = inner.group(1).strip()[:60]
+        snippet = _quote_inner(inner).strip()[:60]
         for key, name in dialogue_map.items():
             if key in snippet or snippet in key:
                 return name
@@ -364,7 +456,7 @@ def _explicit_tag_text(sentence: str) -> str:
     if not inner:
         return sentence
 
-    quoted = inner.group(1).strip()
+    quoted = _quote_inner(inner).strip()
     prefix = sentence[:inner.start()].strip(" ,.-")
     suffix = sentence[inner.end():].strip(" ,.-")
     parts = [part for part in (quoted, prefix, suffix) if part]
@@ -417,9 +509,10 @@ def _inject_tags(sentence: str, context: str, is_dialogue: bool) -> tuple[str, s
 
     inner = _STANDALONE_QUOTE_RE.search(sentence)
     if inner:
-        quoted = inner.group(1).strip()
+        quoted = _quote_inner(inner).strip()
         enriched_quoted = f"{tag} {quoted}".strip()
-        sentence = sentence[:inner.start(1)] + enriched_quoted + sentence[inner.end(1):]
+        start, end = _quote_inner_span(inner)
+        sentence = sentence[:start] + enriched_quoted + sentence[end:]
     else:
         sentence = f"{tag} {sentence}".strip()
 
@@ -452,24 +545,32 @@ def enrich_chapter(
     narrator_instruct: str = "male, elderly, low pitch, british accent",
     single_narrator_mode: bool = False,
     chapter_title: str | None = None,
+    speaker_annotations: dict[int, str] | None = None,
 ) -> list[dict]:
     """
     Return segment dicts used by playback and export.
     """
     cleaned_text = str(chapter_text or "").strip()
     dialogue_map = _build_dialogue_map(cleaned_text)
-    sentences = _split_sentences(cleaned_text, chapter_title=chapter_title)
+    if speaker_annotations is None:
+        sentences = _split_sentences(cleaned_text, chapter_title=chapter_title)
+    else:
+        sentences = [unit["text"] for unit in build_speaker_units(cleaned_text)]
     scene_speed = _scene_speed(cleaned_text)
 
     segments = []
     last_speaker = None
-    for sentence in sentences:
+    for unit_index, sentence in enumerate(sentences):
         sentence = sentence.strip()
         if not sentence:
             continue
 
-        is_dialogue = _has_dialogue(sentence)
-        speaker = _find_speaker(sentence, dialogue_map, last_speaker) if is_dialogue else None
+        if speaker_annotations is None:
+            is_dialogue = _has_dialogue(sentence)
+            speaker = _find_speaker(sentence, dialogue_map, last_speaker) if is_dialogue else None
+        else:
+            speaker = speaker_annotations.get(unit_index)
+            is_dialogue = bool(speaker)
         if speaker and speaker not in character_map:
             speaker = None
         if speaker:

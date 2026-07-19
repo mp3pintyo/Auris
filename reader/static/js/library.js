@@ -26,6 +26,16 @@ async function loadBooks() {
     const progressMeta = hasProgress
       ? `<div class="book-progress-hint">Continue from ${esc(b.progress_chapter_title || 'saved position')} &middot; seg ${progressPosition + 1}</div>`
       : '';
+    const analysisState = b.character_analysis_status || '';
+    const analysisMeta = ['queued', 'running'].includes(analysisState)
+      ? `<div class="book-progress-hint status-warn">${esc(b.character_analysis_message || 'Analyzing characters…')}</div>`
+      : analysisState === 'failed'
+        ? `<div class="book-progress-hint status-error">Character analysis failed: ${esc(b.character_analysis_message)}</div>`
+        : analysisState === 'complete'
+          ? `<div class="book-progress-hint status-ok">${esc(b.character_analysis_message || 'Character analysis complete.')}</div>`
+          : analysisState === 'partial'
+            ? `<div class="book-progress-hint status-warn">${esc(b.character_analysis_message || 'Character analysis partially complete.')}</div>`
+          : '';
 
     return `
     <div class="book-card" data-id="${b.id}">
@@ -38,6 +48,7 @@ async function loadBooks() {
           ${b.total_chapters} section${b.total_chapters !== 1 ? 's' : ''}
         </div>
         ${progressMeta}
+        ${analysisMeta}
       </div>
       <div class="book-actions">
         <a href="/reader/${b.id}">${actionLabel}</a>
@@ -67,14 +78,39 @@ document.getElementById('file-input').addEventListener('change', async function(
     const r = await fetch('/api/books/import', { method: 'POST', body: fd });
     const d = await r.json();
     if (d.error) throw new Error(d.error);
-    status.textContent = `“${d.title}” imported — ${d.chapters} sections. Detecting characters in background…`;
+    status.textContent = `“${d.title}” imported — ${d.chapters} sections. Analyzing characters and dialogue speakers…`;
     loadBooks();
+    pollCharacterAnalysis(d.book_id, status);
   } catch(e) {
     status.textContent = e.message;
     status.className = 'import-status error';
   }
   this.value = '';
 });
+
+async function pollCharacterAnalysis(bookId, statusEl) {
+  for (;;) {
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    try {
+      const d = await fetch(`/api/books/${bookId}/character-analysis`).then(r => r.json());
+      if (d.error) throw new Error(d.error);
+      statusEl.textContent = d.message || 'Analyzing characters and dialogue speakers…';
+      loadBooks();
+      if (d.status === 'complete') {
+        statusEl.className = 'import-status';
+        return;
+      }
+      if (d.status === 'failed') {
+        statusEl.className = 'import-status error';
+        return;
+      }
+    } catch (error) {
+      statusEl.textContent = `Character analysis status error: ${error.message}`;
+      statusEl.className = 'import-status error';
+      return;
+    }
+  }
+}
 
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');

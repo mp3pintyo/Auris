@@ -181,22 +181,74 @@
     </div>
   </section>
 
-  <!-- spaCy -->
+  <!-- Character detection -->
   <section class="settings-section">
-    <div class="settings-section-title">spaCy — Character Detection</div>
+    <div class="settings-section-title">Character &amp; Dialogue Speaker Detection</div>
     <p class="section-desc">
-      spaCy and the <code>en_core_web_sm</code> model are required for accurate character
-      detection and automatic voice assignment.
+      During book import Auris can ask a local language model who speaks each
+      dialogue unit. TTS is unloaded first, so the two models do not compete for VRAM.
     </p>
-    <div id="spacy-status-block" class="status-block">Checking…</div>
-    <div id="spacy-install-section" class="hidden">
+    <div class="setting-row">
+      <label>Detection mode</label>
+      <select id="character-detection-mode" class="select-input"
+              onchange="toggleCharacterDetection(this.value)">
+        <option value="llm">Local LLM — recommended</option>
+        <option value="legacy">Legacy spaCy / regex</option>
+      </select>
+    </div>
+    <div id="llm-character-settings" class="sub-panel">
       <div class="setting-row">
-        <button class="btn btn-primary" id="spacy-install-btn" onclick="installSpacy()">Install en_core_web_sm</button>
-        <span id="spacy-install-hint" class="status-hint"></span>
+        <label>OpenAI-compatible base URL</label>
+        <input type="text" id="llm-base-url" class="text-input"
+               placeholder="http://127.0.0.1:1234/v1">
+        <span class="muted" style="font-size:.78rem">
+          LM Studio default: <code>http://127.0.0.1:1234/v1</code>.
+          Ollama default: <code>http://127.0.0.1:11434/v1</code>.
+        </span>
       </div>
-      <p class="muted" style="margin-top:6px;font-size:.8rem">
-        Runs <code>python -m spacy download en_core_web_sm</code> — requires an internet connection once.
+      <div class="setting-row">
+        <label>Model name</label>
+        <input type="text" id="llm-model" class="text-input"
+               placeholder="unsloth/gemma-4-26b-a4b-it">
+      </div>
+      <div class="setting-row">
+        <label>API key <span class="muted">(optional)</span></label>
+        <input type="password" id="llm-api-key" class="text-input"
+               autocomplete="off" placeholder="Not needed for normal local servers">
+      </div>
+      <div class="setting-row">
+        <label>Request timeout (seconds)</label>
+        <input type="number" id="llm-timeout-sec" class="text-input"
+               min="15" max="3600" step="15">
+      </div>
+      <div class="setting-row">
+        <label>Maximum characters</label>
+        <input type="number" id="llm-max-characters" class="text-input"
+               min="1" max="200" step="1">
+      </div>
+      <div class="setting-row">
+        <button class="btn btn-ghost btn-sm" type="button" onclick="testLLMConnection()">
+          Test connection
+        </button>
+        <span id="llm-test-hint" class="status-hint"></span>
+      </div>
+      <div class="status-block">
+        LM Studio context length is configured in LM Studio itself. Auris sends
+        one chapter at a time and requests strict JSON speaker assignments.
+      </div>
+    </div>
+    <div id="legacy-character-settings" class="sub-panel hidden">
+      <p class="section-desc">
+        The legacy detector is English-oriented and does not reliably attribute
+        dialogue. It remains available as an offline fallback.
       </p>
+      <div id="spacy-status-block" class="status-block">Checking…</div>
+      <div id="spacy-install-section" class="hidden">
+        <div class="setting-row">
+          <button class="btn btn-primary" id="spacy-install-btn" onclick="installSpacy()">Install en_core_web_sm</button>
+          <span id="spacy-install-hint" class="status-hint"></span>
+        </div>
+      </div>
     </div>
   </section>
 

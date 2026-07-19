@@ -154,8 +154,13 @@ async function loadCharacters() {
   document.getElementById("char-count").textContent = `(${chars.length} detected)`;
 
   if (!chars.length) {
-    list.innerHTML =
-      '<div class="muted" style="padding:16px">No characters detected yet. Characters are detected in the background after import. Please wait or refresh.</div>';
+    const analysis = await fetch(`/api/books/${BOOK_ID}/character-analysis`)
+      .then((r) => r.json());
+    const message = analysis.message || "No characters were detected.";
+    list.innerHTML = `<div class="muted" style="padding:16px">${esc(message)}</div>`;
+    if (analysis.status === "queued" || analysis.status === "running") {
+      setTimeout(loadCharacters, 1500);
+    }
     return;
   }
 

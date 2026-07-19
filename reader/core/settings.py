@@ -54,6 +54,20 @@ DEFAULTS: dict = {
     'narrator_instruct': DEFAULT_NARRATOR_INSTRUCT,
     'single_narrator_mode': False,
 
+    # Character and dialogue-speaker detection. "llm" uses any local
+    # OpenAI-compatible server (LM Studio, Ollama, llama.cpp); "legacy" keeps
+    # the original English spaCy/regex detector.
+    'character_detection_mode': 'legacy',
+    'llm_base_url': 'http://127.0.0.1:1234/v1',
+    'llm_api_key': '',
+    'llm_model': '',
+    'llm_timeout_sec': 600,
+    'llm_max_output_tokens': 8192,
+    'llm_max_characters': 60,
+    # Keep both prompt and compact per-dialogue JSON comfortably inside the
+    # output budget. A normal novel is therefore analyzed one chapter/request.
+    'llm_batch_chars': 10000,
+
     # Playback defaults
     'default_speed': 1.0,
 

@@ -58,6 +58,17 @@ async function loadSettings() {
   toggleHiggsSource(higgsSrc);
   toggleHiggsPromptMode(_settings.higgs_prompt_mode || 'raw');
 
+  // Character / dialogue-speaker detection
+  const detectionMode = _settings.character_detection_mode || 'legacy';
+  document.getElementById('character-detection-mode').value = detectionMode;
+  document.getElementById('llm-base-url').value =
+    _settings.llm_base_url || 'http://127.0.0.1:1234/v1';
+  document.getElementById('llm-model').value = _settings.llm_model || '';
+  document.getElementById('llm-api-key').value = _settings.llm_api_key || '';
+  document.getElementById('llm-timeout-sec').value = _settings.llm_timeout_sec ?? 600;
+  document.getElementById('llm-max-characters').value = _settings.llm_max_characters ?? 60;
+  toggleCharacterDetection(detectionMode);
+
   // Narrator
   document.getElementById('narrator-instruct').value = _settings.narrator_instruct || '';
   document.getElementById('default-single-narrator-mode').checked = Boolean(_settings.single_narrator_mode);
@@ -175,6 +186,41 @@ document.querySelectorAll('input[name="model_source"]').forEach(el => {
 function toggleSource(src) {
   document.getElementById('panel-local').classList.toggle('hidden', src !== 'local');
   document.getElementById('panel-download').classList.toggle('hidden', src !== 'download');
+}
+
+function toggleCharacterDetection(mode) {
+  document.getElementById('llm-character-settings')
+    ?.classList.toggle('hidden', mode !== 'llm');
+  document.getElementById('legacy-character-settings')
+    ?.classList.toggle('hidden', mode !== 'legacy');
+}
+
+async function testLLMConnection() {
+  const hint = document.getElementById('llm-test-hint');
+  hint.textContent = 'Connecting…';
+  hint.className = 'status-hint status-warn';
+  try {
+    const r = await fetch('/api/settings/llm-test', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        base_url: document.getElementById('llm-base-url').value.trim(),
+        api_key: document.getElementById('llm-api-key').value,
+        model: document.getElementById('llm-model').value.trim(),
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    const selected = document.getElementById('llm-model').value.trim();
+    hint.textContent = d.selected_available
+      ? `Connected — “${selected}” is available.`
+      : `Connected — ${d.models.length} model(s), but the selected model was not listed.`;
+    hint.className = d.selected_available
+      ? 'status-hint status-ok' : 'status-hint status-warn';
+  } catch (error) {
+    hint.textContent = `Connection failed: ${error.message}`;
+    hint.className = 'status-hint status-error';
+  }
 }
 
 function toggleEngineSettings(engine) {
@@ -418,6 +464,12 @@ async function saveSettings() {
     higgs_default_emotion: document.getElementById('higgs-default-emotion').value,
     higgs_default_style: document.getElementById('higgs-default-style').value,
     higgs_default_expressive: document.getElementById('higgs-default-expressive').value,
+    character_detection_mode: document.getElementById('character-detection-mode').value,
+    llm_base_url:      document.getElementById('llm-base-url').value.trim(),
+    llm_model:         document.getElementById('llm-model').value.trim(),
+    llm_api_key:       document.getElementById('llm-api-key').value,
+    llm_timeout_sec:   parseInt(document.getElementById('llm-timeout-sec').value, 10) || 600,
+    llm_max_characters: parseInt(document.getElementById('llm-max-characters').value, 10) || 60,
     narrator_instruct: document.getElementById('narrator-instruct').value.trim(),
     single_narrator_mode: document.getElementById('default-single-narrator-mode').checked,
     normalize_text:    document.getElementById('normalize-text').checked,

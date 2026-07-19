@@ -14,6 +14,7 @@ from flask import (
 )
 
 from core.database import init_db, get_conn
+from core.tts_batcher import InteractiveTTSBatcher
 from core.tts_engine import TTSExportPool
 from core.tts_router import TTSEngineRouter
 from core import characters as char_module
@@ -80,6 +81,13 @@ def _get_chapter_build_lock(book_id: int, chapter_id: int) -> threading.Lock:
         if key not in _chapter_build_locks:
             _chapter_build_locks[key] = threading.Lock()
         return _chapter_build_locks[key]
+
+
+_interactive_tts_batcher = InteractiveTTSBatcher(
+    lambda items, on_item=None: tts.generate_many(items, on_item=on_item),
+    collect_ms=75,
+    blocked=_export_exclusive_active,
+)
 
 
 VOICE_PREVIEW_TEXT = (
@@ -1044,15 +1052,25 @@ def tts_generate():
     else:
         ref_audio, ref_text = _book_narrator_reference(book_id)
 
+    item = {
+        'text': seg['enriched_text'],
+        'instruct': seg['instruct'],
+        'ref_audio': ref_audio,
+        'ref_text': ref_text,
+        'speed': seg['speed'],
+        'language': language,
+    }
+    request_key = (
+        seg['id'],
+        seg['enriched_text'],
+        seg['instruct'],
+        ref_audio,
+        ref_text,
+        float(seg['speed']),
+        language,
+    )
     try:
-        result = tts.generate(
-            text=seg['enriched_text'],
-            instruct=seg['instruct'],
-            ref_audio=ref_audio,
-            ref_text=ref_text,
-            speed=seg['speed'],
-            language=language,
-        )
+        result = _interactive_tts_batcher.submit(request_key, item)
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 503
 

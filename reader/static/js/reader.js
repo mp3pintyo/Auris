@@ -42,6 +42,9 @@ let _playGen = 0;
 // Cancellation token for the background buffer loop — incremented on each
 // chapter open so the previous loop exits without touching the new chapter.
 let _bufferGenId = 0;
+let _prewarmFrontier = 0;
+const TTS_PREWARM_CHUNK = 12;
+const TTS_PREWARM_LOW_WATER = 5;
 // All in-flight interactive TTS requests. Stop aborts the HTTP wait and also
 // asks the server-side Higgs token loop to terminate.
 let _ttsAbortControllers = new Map();
@@ -230,6 +233,7 @@ async function openChapter(chapterId, options = {}) {
 
   stopPlayback();
   _segCache = new Map();
+  _prewarmFrontier = 0;
   segments = [];           // clear immediately so stale segments can't be played
   currentChapterId = chapterId;
   currentSegIdx    = 0;
@@ -321,9 +325,24 @@ async function _prewarmChapter() {
   const bufferId = _bufferGenId;
   const chapterId = currentChapterId;
   if (!await _waitForTtsReady(bufferId, chapterId)) return;
-  fetchSegmentData(0);
-  const frontier = segments.findIndex(s => !s.has_audio);
-  if (frontier > 0) fetchSegmentData(frontier);
+  _extendPrewarm(currentSegIdx);
+}
+
+// Keep a chunk of concurrent HTTP requests ahead of playback.  The server
+// coalesces requests arriving together into one OmniVoice generate_many()
+// call, so the configured GPU batch size is also used during reading.
+function _extendPrewarm(fromIdx) {
+  if (!segments.length) return;
+  const start = Math.max(0, fromIdx);
+  if (_prewarmFrontier < start) _prewarmFrontier = start;
+  const target = Math.min(
+    segments.length,
+    Math.max(_prewarmFrontier, start) + TTS_PREWARM_CHUNK,
+  );
+  for (let i = _prewarmFrontier; i < target; i++) {
+    fetchSegmentData(i);
+  }
+  _prewarmFrontier = target;
 }
 
 // Sequentially generates TTS audio for every segment from fromIdx onward.
@@ -406,12 +425,11 @@ async function _schedulePreload(playingIdx) {
   const nextIdx = playingIdx + 1;
   if (nextIdx >= segments.length) return;
 
-  // Fire N+1 first then N+2 so they arrive at the server TTS lock in the
-  // correct order (N+1 queued before N+2).  Two-deep pipeline means a slow
-  // TTS generation for N+1 overlaps with N-1's remaining play time *and*
-  // N's full play time rather than just N's play time.
-  fetchSegmentData(nextIdx);
-  if (nextIdx + 1 < segments.length) fetchSegmentData(nextIdx + 1);
+  // Refill in chunks instead of adding one isolated request per sentence.
+  // This keeps real GPU batches queued even for short, alternating dialogue.
+  if (nextIdx + TTS_PREWARM_LOW_WATER >= _prewarmFrontier) {
+    _extendPrewarm(nextIdx);
+  }
 
   try {
     const data = await fetchSegmentData(nextIdx);

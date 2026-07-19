@@ -387,6 +387,8 @@ class GenerateManyBatchTest(unittest.TestCase):
             self.assertEqual(model.batch_sizes, [4, 1])
             self.assertEqual(model.prompt_calls, 1)
             self.assertEqual(model.kwargs["num_step"], 16)
+            self.assertIn("voice_clone_prompt", model.kwargs)
+            self.assertNotIn("instruct", model.kwargs)
             self.assertIn(4, model.batch_sizes)
 
     def test_generate_many_reuses_disk_cache(self):

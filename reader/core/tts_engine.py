@@ -963,13 +963,15 @@ class TTSEngine:
         multi = len(synth_texts) > 1
         kwargs = {
             "text": synth_texts if multi else synth_texts[0],
-            "instruct": instruct,
             "speed": speeds if multi else speeds[0],
             "num_step": num_step,
             "language": language,
         }
 
         if ref_audio:
+            # OmniVoice's clone and design conditioning are mutually exclusive.
+            # A supplied reference always selects clone mode, even when the UI
+            # also holds a previously saved design instruction.
             try:
                 kwargs["voice_clone_prompt"] = self._get_voice_clone_prompt(
                     ref_audio, ref_text
@@ -981,6 +983,8 @@ class TTSEngine:
                 )
                 kwargs["ref_audio"] = ref_audio
                 kwargs["ref_text"] = ref_text
+        elif instruct:
+            kwargs["instruct"] = instruct
         return kwargs
 
     def _synthesize_batch(
@@ -1187,12 +1191,12 @@ class TTSEngine:
             num_step = _tts_num_step_from_settings()
         num_step = int(num_step)
 
-        effective_instruct = _stabilize_voice_design_instruct(instruct)
+        # OmniVoice supports either voice cloning or voice design for a
+        # generation. Reference audio takes precedence over any saved style
+        # instruction so a narrator/character clone stays a pure clone.
+        effective_instruct = None if ref_audio else _stabilize_voice_design_instruct(instruct)
         effective_ref_audio = ref_audio
         effective_ref_text = ref_text
-
-        if self._needs_voice_design_stabilization(text, effective_instruct, ref_audio):
-            effective_ref_audio, effective_ref_text = self._ensure_voice_design_reference(effective_instruct)
 
         key = self.cache_key(
             text,
@@ -1306,15 +1310,11 @@ class TTSEngine:
             else:
                 normalize_text = _normalize_text_enabled()
 
-            effective_instruct = _stabilize_voice_design_instruct(instruct)
+            # Keep cache identity and batch grouping aligned with the actual
+            # OmniVoice mode: a reference selects cloning, never design.
+            effective_instruct = None if ref_audio else _stabilize_voice_design_instruct(instruct)
             effective_ref_audio = ref_audio
             effective_ref_text = ref_text
-
-            if self._needs_voice_design_stabilization(text, effective_instruct, ref_audio):
-                # Resolve voice-design refs up front so batch groups stay stable.
-                effective_ref_audio, effective_ref_text = self._ensure_voice_design_reference(
-                    effective_instruct
-                )
 
             key = self.cache_key(
                 text,

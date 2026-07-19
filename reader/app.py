@@ -1566,18 +1566,24 @@ def save_settings():
     # Engine/model selection is applied on explicit Reload TTS. Keeping the
     # currently resident model alive makes Save Settings safe during playback.
 
-    # Persisted segment rows short-circuit the engine cache entirely. Any Higgs
-    # engine/sampling/control change therefore needs fresh segment records, or
-    # playback would silently continue serving audio made by the old engine.
+    # Persisted segment rows short-circuit the engine cache entirely. Any
+    # setting that changes synthesized audio therefore needs fresh segment
+    # records, or playback would silently continue serving audio made with the
+    # old settings. The engine-level cache keys still keep the distinct WAVs
+    # separate; this clears only the database pointers used by playback.
     higgs_audio_keys = {
         'tts_engine', 'higgs_model_source', 'higgs_model_path',
         'higgs_model_repo', 'higgs_temperature', 'higgs_top_p', 'higgs_top_k',
         'higgs_max_new_tokens', 'higgs_seed', 'higgs_default_emotion',
         'higgs_default_style', 'higgs_default_expressive', 'higgs_prompt_mode',
     }
+    omnivoice_audio_keys = {
+        'tts_num_step',
+        'normalize_text',
+    }
     if any(
         key in updates and updates[key] != previous.get(key)
-        for key in higgs_audio_keys
+        for key in higgs_audio_keys | omnivoice_audio_keys
     ):
         with get_conn() as conn:
             conn.execute('DELETE FROM tts_segments')

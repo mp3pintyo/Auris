@@ -767,6 +767,7 @@ code {
   border: 1px solid var(--border);
   border-radius: 5px;
 }
+.toc-close { display: none; }
 .chapter-selection small {
   display: block;
   margin-top: 4px;
@@ -1145,6 +1146,7 @@ code {
     border-right: 1px solid var(--border);
     transform: translateX(0);
   }
+  .toc-close { display: inline-flex; }
   .toc-sidebar.collapsed {
     width: min(82vw, 320px);
     transform: translateX(-100%);

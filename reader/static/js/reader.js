@@ -657,9 +657,12 @@ document.getElementById('speed-slider').oninput = function() {
 
 // ── Sidebar toggle ────────────────────────────────────────────────────────────
 
-document.getElementById('toc-toggle').onclick = () => {
+function toggleTOC() {
   document.getElementById('toc-sidebar').classList.toggle('collapsed');
-};
+}
+
+document.getElementById('toc-toggle').onclick = toggleTOC;
+document.getElementById('toc-close').onclick = toggleTOC;
 
 function toggleBookmarkPanel() {
   document.getElementById('bookmarks-panel').classList.toggle('collapsed');

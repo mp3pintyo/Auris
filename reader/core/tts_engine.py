@@ -728,12 +728,26 @@ class TTSEngine:
             import torch
             from omnivoice import OmniVoice
 
-            device = "cuda" if self._cuda_available() else "cpu"
+            if self._cuda_available():
+                device = "cuda"
+            elif self._mps_available():
+                device = "mps"
+            else:
+                device = "cpu"
             if device == "cuda":
                 _enable_cuda_fast_paths()
                 # bf16 is faster on Ampere+ and avoids some fp16 underflow issues.
                 bf16_ok = bool(getattr(torch.cuda, "is_bf16_supported", lambda: False)())
                 dtype = torch.bfloat16 if bf16_ok else torch.float16
+            elif device == "mps":
+                # Apple Silicon (Metal). float32 by default: bfloat16 audibly
+                # clips sentence onsets on MPS (verified on M-series hardware).
+                # Set AURIS_MPS_DTYPE=bf16 to trade quality for speed.
+                dtype = (
+                    torch.bfloat16
+                    if os.environ.get("AURIS_MPS_DTYPE", "").lower() in {"bf16", "bfloat16"}
+                    else torch.float32
+                )
             else:
                 dtype = torch.float32
             log.info(
@@ -805,7 +819,7 @@ class TTSEngine:
                 except Exception:
                     log.info("OmniVoice model ready.")
             else:
-                log.info("OmniVoice model ready (CPU — expect low throughput).")
+                log.info("OmniVoice model ready (%s).", device.upper())
         except Exception as exc:
             self._error = str(exc)
             log.error("Failed to load OmniVoice: %s", exc)
@@ -818,6 +832,17 @@ class TTSEngine:
             import torch
 
             return torch.cuda.is_available()
+        except ImportError:
+            return False
+
+    @staticmethod
+    def _mps_available() -> bool:
+        """Apple Silicon Metal backend (macOS)."""
+        try:
+            import torch
+
+            mps = getattr(torch.backends, "mps", None)
+            return bool(mps is not None and mps.is_available())
         except ImportError:
             return False
 

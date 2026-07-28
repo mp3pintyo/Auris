@@ -102,7 +102,12 @@ def looks_like_heading(line: str, allow_all_caps: bool = True) -> bool:
     return False
 
 
-def should_skip_section(title, content, started_story):
+def should_skip_section(title, content, started_story, *, title_is_declared_heading=False):
+    """title_is_declared_heading: the title came from a source-declared heading
+    (e.g. a DOCX Heading style), not a guessed boundary. When true, the
+    front-matter word-count guard below is skipped, since the boundary was
+    stated by the author rather than inferred from text. Defaults to False so
+    TXT (which never declares headings) is unaffected."""
     title = (title or '').strip()
     content = (content or '').strip()
     lowered = content.lower()
@@ -119,7 +124,12 @@ def should_skip_section(title, content, started_story):
         return True
     if 'tartalom' in lowered and len(TOC_CHAPTER_RE.findall(content)) >= 3:
         return True
-    if not started_story and len(content.split()) < 120 and not is_explicit_section(title):
+    if (
+        not title_is_declared_heading
+        and not started_story
+        and len(content.split()) < 120
+        and not is_explicit_section(title)
+    ):
         return True
     return False
 
@@ -146,6 +156,7 @@ def build_chapters(
     """
     chapters = []
     current_title = fallback_title
+    current_title_is_heading = False
     current_lines = []
     order = 0
     started_story = False
@@ -160,7 +171,10 @@ def build_chapters(
         if heading:
             content = '\n'.join(current_lines).strip()
             if len(content) > 100 and not should_skip_section(
-                current_title, content, started_story
+                current_title,
+                content,
+                started_story,
+                title_is_declared_heading=current_title_is_heading,
             ):
                 chapters.append({
                     'title': current_title,
@@ -171,6 +185,7 @@ def build_chapters(
                 order += 1
                 started_story = True
             current_title = stripped
+            current_title_is_heading = is_heading
             current_lines = []
         else:
             current_lines.append(text)
@@ -178,7 +193,10 @@ def build_chapters(
     if current_lines:
         content = '\n'.join(current_lines).strip()
         if len(content) > 50 and not should_skip_section(
-            current_title, content, started_story
+            current_title,
+            content,
+            started_story,
+            title_is_declared_heading=current_title_is_heading,
         ):
             chapters.append({
                 'title': current_title,

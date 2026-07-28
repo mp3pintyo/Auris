@@ -33,31 +33,72 @@ def _is_heading_style(style_name: str) -> bool:
     return name.startswith(_HEADING_STYLE_PREFIX) or name == _TITLE_STYLE
 
 
+def _walk_container(container, doc, units, in_table):
+    """Recursively collect (text, is_heading) pairs from a body-like element.
+
+    Descends into table cells (picking up nested tables too) and into
+    content-control (w:sdt) wrappers via their w:sdtContent, since both are
+    otherwise silently skipped by a body-level-only walk. in_table disables
+    heading detection for anything nested inside a table cell: a heading-
+    styled cell is a table header, not a chapter boundary.
+    """
+    from docx.oxml.ns import qn
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    for child in container.iterchildren():
+        if not isinstance(child.tag, str):
+            # lxml yields comments/processing instructions with a callable
+            # .tag rather than a string; they carry no book text.
+            continue
+        tag = child.tag.split('}')[-1]
+        if tag == 'p':
+            paragraph = Paragraph(child, doc)
+            if in_table and not paragraph.text.strip():
+                # Blank paragraphs inside a table cell are layout padding, not
+                # a narration break, so unlike top-level blanks they are
+                # dropped rather than kept as blank units.
+                continue
+            is_heading = (not in_table) and _is_heading_style(paragraph.style.name)
+            units.append((paragraph.text, is_heading))
+        elif tag == 'tbl':
+            # Table text is body content, gathered cell by cell in row order.
+            for row in Table(child, doc).rows:
+                for cell in row.cells:
+                    _walk_container(cell._tc, doc, units, True)
+        elif tag == 'sdt':
+            sdt_content = child.find(qn('w:sdtContent'))
+            if sdt_content is not None:
+                _walk_container(sdt_content, doc, units, in_table)
+        # Anything else (sectPr, bookmarks) carries no book text.
+
+
 def extract_units(doc):
     """Return ordered (text, is_heading) pairs for a python-docx Document.
 
     Walks the document body rather than doc.paragraphs, because
-    doc.paragraphs silently omits text inside tables.
+    doc.paragraphs silently omits text inside tables and content controls.
+    Top-level blank paragraphs are kept as blank units (they mark a narration
+    break), but blank paragraphs inside a table cell are filtered out, since
+    table layout padding is not a narration break.
     """
-    from docx.table import Table
-    from docx.text.paragraph import Paragraph
-
     units = []
-    for child in doc.element.body.iterchildren():
-        tag = child.tag.split('}')[-1]
-        if tag == 'p':
-            paragraph = Paragraph(child, doc)
-            units.append((paragraph.text, _is_heading_style(paragraph.style.name)))
-        elif tag == 'tbl':
-            # Table text is body content. Cells are never chapter boundaries:
-            # a heading-styled cell is a table header, not a chapter.
-            for row in Table(child, doc).rows:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        if paragraph.text.strip():
-                            units.append((paragraph.text, False))
-        # Anything else (sectPr, bookmarks) carries no book text.
+    _walk_container(doc.element.body, doc, units, False)
     return units
+
+
+def has_chapter_heading_styles(doc) -> bool:
+    """True when the document uses a real Heading style for structure.
+
+    Title alone does not count: a Title-styled title page is common in
+    documents whose chapter headings are plain text, and treating it as
+    declared structure would collapse the whole book into one chapter.
+    """
+    for paragraph in doc.paragraphs:
+        name = (paragraph.style.name or '').strip()
+        if name.startswith(_HEADING_STYLE_PREFIX):
+            return True
+    return False
 
 
 # Legacy .doc files are OLE containers and start with this signature. Renaming
@@ -138,8 +179,11 @@ def parse(file_path):
     title, author = _metadata(doc, units)
 
     # Either/or: real heading styles fully replace text-based detection, so an
-    # author's declared structure is never second-guessed by a regex.
-    has_style_headings = any(is_heading for _, is_heading in units)
+    # author's declared structure is never second-guessed by a regex. Title
+    # alone does not arm this: it still acts as a boundary (via is_heading in
+    # units), but a Title-styled title page must not switch off text-based
+    # detection for documents whose chapters are plain text.
+    has_style_headings = has_chapter_heading_styles(doc)
     if has_style_headings:
         chapters = build_chapters(
             units, title, allow_all_caps=False, text_headings=False

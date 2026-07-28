@@ -84,6 +84,56 @@ class ExtractUnitsTests(unittest.TestCase):
     def test_docx_import_error_is_a_runtime_error(self):
         self.assertTrue(issubclass(DocxImportError, RuntimeError))
 
+    def test_text_inside_a_content_control_is_included(self):
+        """Word's built-in cover pages and template/form-generated documents
+        wrap text in w:sdt/w:sdtContent blocks, which a body walk that only
+        handles w:p and w:tbl silently drops."""
+        from docx.oxml.ns import qn
+
+        def build(d):
+            d.add_paragraph('Before the control.')
+            d.add_paragraph('After the control.')
+
+        path = _docx(build)
+        document = _open(path)
+        body = document.element.body
+
+        # python-docx has no high-level API for content controls, so build
+        # the w:sdt/w:sdtContent XML directly.
+        sdt = body.makeelement(qn('w:sdt'), {})
+        sdt_content = body.makeelement(qn('w:sdtContent'), {})
+        p = body.makeelement(qn('w:p'), {})
+        r = body.makeelement(qn('w:r'), {})
+        t = body.makeelement(qn('w:t'), {})
+        t.text = 'Wrapped in a content control.'
+        r.append(t)
+        p.append(r)
+        sdt_content.append(p)
+        sdt.append(sdt_content)
+
+        # Insert the sdt between the two existing paragraphs.
+        body.insert(1, sdt)
+
+        texts = [text for text, _ in extract_units(document)]
+        self.assertEqual(
+            texts,
+            [
+                'Before the control.',
+                'Wrapped in a content control.',
+                'After the control.',
+            ],
+        )
+
+    def test_nested_table_text_is_included(self):
+        def build(d):
+            outer = d.add_table(rows=1, cols=1)
+            outer.cell(0, 0).text = 'Outer cell text.'
+            inner = outer.cell(0, 0).add_table(rows=1, cols=1)
+            inner.cell(0, 0).text = 'Nested cell text.'
+
+        texts = [text for text, _ in extract_units(_open(_docx(build)))]
+        self.assertIn('Nested cell text.', texts)
+
 
 LONG = (
     'This sentence exists to push the chapter body past the minimum length '
@@ -116,6 +166,38 @@ class DocxParseTests(unittest.TestCase):
         titles = [c['title'] for c in book['chapters']]
         self.assertEqual(titles, ['Chapter One'])
         self.assertIn('Chapter Five', book['chapters'][0]['content'])
+
+    def test_short_first_chapter_under_a_real_heading_style_is_kept(self):
+        """A section whose title came from a declared Heading style must not
+        be subject to the TXT front-matter word-count guard: the boundary was
+        declared by the author, not guessed from text."""
+        def build(d):
+            d.add_heading('The Arrival', level=1)
+            d.add_paragraph('A short first chapter, forty words or so, ' * 4)
+            d.add_heading('The Departure', level=1)
+            d.add_paragraph(LONG)
+
+        book = parse(_docx(build))
+        titles = [c['title'] for c in book['chapters']]
+        self.assertIn('The Arrival', titles)
+        self.assertIn('The Departure', titles)
+
+    def test_title_style_alone_does_not_arm_style_detection(self):
+        """A Title-styled title page is common in documents whose chapter
+        headings are plain text. Title must still act as a boundary, but must
+        not by itself switch off text-based detection."""
+        def build(d):
+            d.add_paragraph('My Great Novel', style='Title')
+            d.add_paragraph('by Jane Austen')
+            d.add_paragraph('Chapter One')
+            d.add_paragraph(LONG)
+            d.add_paragraph('Chapter Two')
+            d.add_paragraph(LONG)
+            d.add_paragraph('Chapter Three')
+            d.add_paragraph(LONG)
+
+        book = parse(_docx(build))
+        self.assertEqual(len(book['chapters']), 3)
 
     def test_falls_back_to_text_markers_without_styles(self):
         def build(d):
@@ -252,6 +334,36 @@ class DocxErrorTests(unittest.TestCase):
             parse(_docx(build))
         self.assertIn('no readable text', str(ctx.exception).lower())
 
+    def test_whitespace_only_document_is_rejected(self):
+        """An apparently-empty real document usually contains whitespace-only
+        paragraphs, not a truly empty string."""
+        def build(d):
+            d.add_paragraph('   ')
+            d.add_paragraph('\t')
+
+        with self.assertRaises(DocxImportError) as ctx:
+            parse(_docx(build))
+        self.assertIn('no readable text', str(ctx.exception).lower())
+
+    def test_xml_comment_in_body_does_not_crash_the_import(self):
+        """lxml yields comments/processing instructions with a callable .tag
+        rather than a string; child.tag.split(...) on one used to raise
+        AttributeError."""
+        from lxml import etree
+
+        def build(d):
+            d.add_heading('Chapter One', level=1)
+            d.add_paragraph(LONG)
+
+        path = _docx(build)
+        document = _open(path)
+        body = document.element.body
+        comment = etree.Comment('a stray XML comment')
+        body.insert(0, comment)
+
+        units = extract_units(document)
+        self.assertIn('Chapter One', [text for text, _ in units])
+
     def test_missing_dependency_message(self):
         """When python-docx is absent the user gets an install hint, not an
         ImportError traceback."""
@@ -294,6 +406,7 @@ class DocxImportRouteTests(unittest.TestCase):
             app_module.UPLOAD_DIR,
             app_module._startup_complete,
         )
+        self.addCleanup(self._restore_globals)
         database.DB_PATH = str(Path(self.tmp.name) / 'reader.db')
         app_settings.SETTINGS_FILE = Path(self.tmp.name) / 'settings.json'
         app_module.UPLOAD_DIR = self.tmp.name
@@ -302,13 +415,15 @@ class DocxImportRouteTests(unittest.TestCase):
         app_module.app.config['TESTING'] = True
         self.client = app_module.app.test_client()
 
-    def tearDown(self):
+    def _restore_globals(self):
         (
             self.database.DB_PATH,
             self.app_settings.SETTINGS_FILE,
             self.app_module.UPLOAD_DIR,
             self.app_module._startup_complete,
         ) = self._original
+
+    def tearDown(self):
         self.tmp.cleanup()
 
     def test_docx_upload_is_imported_and_stored_as_docx(self):

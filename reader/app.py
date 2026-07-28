@@ -411,6 +411,10 @@ def import_book():
         return jsonify({'error': 'Empty filename'}), 400
 
     ext = f.filename.rsplit('.', 1)[-1].lower()
+    if ext == 'doc':
+        return jsonify({
+            'error': 'This is a legacy .doc file. Open it in Word and save as .docx.'
+        }), 400
     if ext not in ('epub', 'pdf', 'docx', 'txt'):
         return jsonify({'error': f'Unsupported format: {ext}'}), 400
 

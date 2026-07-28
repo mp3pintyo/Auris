@@ -5,6 +5,7 @@ Offline Ebook Reader — Flask application.
 import base64
 import logging
 import os
+import re
 import threading
 import uuid
 
@@ -702,7 +703,7 @@ def _store_character_analysis(
 def list_books():
     with get_conn() as conn:
         rows = conn.execute(
-            'SELECT b.id, b.title, b.author, b.file_type, b.cover_b64, b.added_at, '
+            'SELECT b.id, b.title, b.author, b.language, b.file_type, b.cover_b64, b.added_at, '
             'b.last_read, b.total_chapters, b.character_analysis_status, '
             'b.character_analysis_message, b.character_analysis_provider, '
             'b.character_analysis_model, rp.chapter_id AS progress_chapter_id, '
@@ -762,6 +763,79 @@ def delete_book(book_id):
     with get_conn() as conn:
         conn.execute('DELETE FROM books WHERE id=?', (book_id,))
     return jsonify({'ok': True})
+
+
+# Language codes accepted for a book: "en", "hu", "ro", or a regional form
+# such as "zh-cn". Deliberately permissive, because the value is passed
+# through to the TTS engine and no whitelist of supported languages exists.
+_BOOK_LANGUAGE_RE = re.compile(r'^[a-z]{2}(-[a-z]{2,4})?$')
+
+
+@app.route('/api/books/<int:book_id>', methods=['PUT'])
+def update_book(book_id):
+    body = request.get_json(force=True) or {}
+    # A fixed-order tuple, not a set: iteration order feeds directly into the
+    # 400 error message below, and a set's order is not guaranteed, so which
+    # field got named would vary between runs when a body carries more than
+    # one non-string value.
+    allowed = ('title', 'author', 'language')
+    # The whitelist is a security boundary as well as a filter: file_path and
+    # file_type live in the same row and must not be settable from a request.
+    updates = {}
+    for key in allowed:
+        if key not in body:
+            continue
+        value = body[key]
+        # Reject non-string JSON types rather than coercing them. A number, a
+        # list or an object would otherwise be written into the column as its
+        # Python repr, and a numeric 0 would silently become an empty string.
+        if not isinstance(value, str):
+            return jsonify({'error': f'{key} must be text.'}), 400
+        updates[key] = value.strip()
+    if not updates:
+        return jsonify({'error': 'Nothing to update'}), 400
+
+    if 'title' in updates and not updates['title']:
+        return jsonify({'error': 'Title cannot be empty'}), 400
+    if 'author' in updates and not updates['author']:
+        updates['author'] = 'Unknown Author'
+    if 'language' in updates:
+        updates['language'] = updates['language'].lower()
+        if not _BOOK_LANGUAGE_RE.match(updates['language']):
+            return jsonify({
+                'error': 'Language must be a code such as en, hu, ro or zh-cn.'
+            }), 400
+
+    with get_conn() as conn:
+        book = conn.execute(
+            'SELECT language FROM books WHERE id=?', (book_id,)
+        ).fetchone()
+        if not book:
+            return jsonify({'error': 'Book not found'}), 404
+        # Language is part of the audio cache key, but an already-generated
+        # segment is served from disk without being re-keyed, so a language
+        # change has to discard the cached audio or the book keeps its old
+        # pronunciation forever. A title or author edit changes nothing audible.
+        #
+        # Compare normalized values. Stored languages are not guaranteed
+        # lowercase: the EPUB parser writes the raw dc:language prefix, so a
+        # book can hold "EN" while the submitted value is always lowercased.
+        # Without this, a title-only edit that echoes the language back would
+        # look like a change and would discard every generated segment.
+        stored_language = (book['language'] or '').strip().lower()
+        language_changed = (
+            'language' in updates and updates['language'] != stored_language
+        )
+        set_clause = ', '.join(f'{k}=?' for k in updates)
+        conn.execute(
+            f'UPDATE books SET {set_clause} WHERE id=?',
+            (*updates.values(), book_id),
+        )
+
+    if language_changed:
+        _clear_book_tts_segments(book_id)
+
+    return jsonify({'ok': True, 'segments_cleared': language_changed})
 
 
 # ════════════════════════════════════════════════════════════════════════════

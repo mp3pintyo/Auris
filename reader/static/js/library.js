@@ -41,7 +41,15 @@ async function loadBooks() {
 
     return `
     <div class="book-card" data-id="${b.id}">
-      <div class="book-cover">${coverHtml}</div>
+      <div class="book-cover">
+        ${coverHtml}
+        <button class="card-edit" title="Edit book details"
+                aria-label="Edit details for ${esc(b.title)}"
+                onclick="openEditDialog(event,${b.id})">&#9998;</button>
+        <button class="card-remove" title="Remove from library"
+                aria-label="Remove ${esc(b.title)} from library"
+                onclick="deleteBook(event,${b.id})">&times;</button>
+      </div>
       <span class="book-type-badge">${esc(b.file_type)}</span>
       <div class="book-info">
         <div class="book-title">${esc(b.title)}</div>
@@ -54,7 +62,6 @@ async function loadBooks() {
       </div>
       <div class="book-actions">
         <a href="/reader/${b.id}">${actionLabel}</a>
-        <button class="del-btn" onclick="deleteBook(event,${b.id})">Remove</button>
       </div>
     </div>`;
   }).join('');
@@ -65,6 +72,95 @@ async function deleteBook(e, id) {
   if (!confirm('Remove this book from the library?')) return;
   await fetch(`/api/books/${id}`, { method: 'DELETE' });
   loadBooks();
+}
+
+let editingBookId = null;
+let editingOriginalLanguage = '';
+
+async function openEditDialog(e, id) {
+  // The whole card is a link to the reader, so this click must not open it.
+  e.stopPropagation();
+  e.preventDefault();
+  const books = await fetch('/api/books').then(r => r.json());
+  const book = books.find(b => b.id === id);
+  if (!book) {
+    // The book was removed elsewhere (another tab, another device) between
+    // the grid rendering and this click. Refresh instead of silently doing
+    // nothing, so the grid stops showing a card whose edit button is dead.
+    alert('This book was removed. Refreshing the library.');
+    loadBooks();
+    return;
+  }
+
+  editingBookId = id;
+  // Normalized the same way the server compares it: stored languages are not
+  // guaranteed lowercase (the EPUB parser writes the raw dc:language prefix),
+  // so without this a book stored as "EN" would make an unrelated edit look
+  // like a language change and warn about discarding audio that never moved.
+  editingOriginalLanguage = (book.language || '').trim().toLowerCase();
+  document.getElementById('edit-title').value = book.title || '';
+  document.getElementById('edit-author').value = book.author || '';
+  document.getElementById('edit-language').value = book.language || '';
+  const status = document.getElementById('edit-status');
+  status.textContent = '';
+  status.className = 'import-status hidden';
+  document.getElementById('edit-dialog').classList.remove('hidden');
+  document.getElementById('edit-title').focus();
+}
+
+function closeEditDialog() {
+  document.getElementById('edit-dialog').classList.add('hidden');
+  editingBookId = null;
+}
+
+async function saveBookEdits() {
+  if (editingBookId === null) return;
+  const title = document.getElementById('edit-title').value.trim();
+  const author = document.getElementById('edit-author').value.trim();
+  const language = document.getElementById('edit-language').value.trim().toLowerCase();
+  const status = document.getElementById('edit-status');
+  const button = document.getElementById('save-edit-btn');
+
+  if (!title) {
+    status.textContent = 'Title cannot be empty.';
+    status.className = 'import-status error';
+    return;
+  }
+  // Only warn when the language actually changed, since that is the only
+  // edit that discards generated audio.
+  if (language !== editingOriginalLanguage &&
+      !confirm('Changing the language discards this book’s generated audio '
+               + 'so it can be read again with the new pronunciation. Continue?')) {
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    // Omit language entirely when there is nothing meaningful to send: a
+    // book with no stored language opens the dialog with an empty language
+    // field, and always sending it would fail the endpoint's format check
+    // for a field the user never touched, blocking even a title-only fix.
+    const payload = { title, author };
+    if (language || editingOriginalLanguage) payload.language = language;
+    const r = await fetch(`/api/books/${editingBookId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Save failed');
+    if (d.segments_cleared) {
+      alert('Language changed. This book’s generated audio was cleared and '
+            + 'will be regenerated with the new pronunciation.');
+    }
+    closeEditDialog();
+    loadBooks();
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = 'import-status error';
+  } finally {
+    button.disabled = false;
+  }
 }
 
 let pendingImportFile = null;

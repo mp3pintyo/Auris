@@ -83,13 +83,24 @@ async function openEditDialog(e, id) {
   e.preventDefault();
   const books = await fetch('/api/books').then(r => r.json());
   const book = books.find(b => b.id === id);
-  if (!book) return;
+  if (!book) {
+    // The book was removed elsewhere (another tab, another device) between
+    // the grid rendering and this click. Refresh instead of silently doing
+    // nothing, so the grid stops showing a card whose edit button is dead.
+    alert('This book was removed. Refreshing the library.');
+    loadBooks();
+    return;
+  }
 
   editingBookId = id;
-  editingOriginalLanguage = book.language || '';
+  // Normalized the same way the server compares it: stored languages are not
+  // guaranteed lowercase (the EPUB parser writes the raw dc:language prefix),
+  // so without this a book stored as "EN" would make an unrelated edit look
+  // like a language change and warn about discarding audio that never moved.
+  editingOriginalLanguage = (book.language || '').trim().toLowerCase();
   document.getElementById('edit-title').value = book.title || '';
   document.getElementById('edit-author').value = book.author || '';
-  document.getElementById('edit-language').value = editingOriginalLanguage;
+  document.getElementById('edit-language').value = book.language || '';
   const status = document.getElementById('edit-status');
   status.textContent = '';
   status.className = 'import-status hidden';
@@ -125,13 +136,23 @@ async function saveBookEdits() {
 
   button.disabled = true;
   try {
+    // Omit language entirely when there is nothing meaningful to send: a
+    // book with no stored language opens the dialog with an empty language
+    // field, and always sending it would fail the endpoint's format check
+    // for a field the user never touched, blocking even a title-only fix.
+    const payload = { title, author };
+    if (language || editingOriginalLanguage) payload.language = language;
     const r = await fetch(`/api/books/${editingBookId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, author, language }),
+      body: JSON.stringify(payload),
     });
     const d = await r.json();
     if (!r.ok || d.error) throw new Error(d.error || 'Save failed');
+    if (d.segments_cleared) {
+      alert('Language changed. This book’s generated audio was cleared and '
+            + 'will be regenerated with the new pronunciation.');
+    }
     closeEditDialog();
     loadBooks();
   } catch (err) {

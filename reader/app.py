@@ -774,7 +774,11 @@ _BOOK_LANGUAGE_RE = re.compile(r'^[a-z]{2}(-[a-z]{2,4})?$')
 @app.route('/api/books/<int:book_id>', methods=['PUT'])
 def update_book(book_id):
     body = request.get_json(force=True) or {}
-    allowed = {'title', 'author', 'language'}
+    # A fixed-order tuple, not a set: iteration order feeds directly into the
+    # 400 error message below, and a set's order is not guaranteed, so which
+    # field got named would vary between runs when a body carries more than
+    # one non-string value.
+    allowed = ('title', 'author', 'language')
     # The whitelist is a security boundary as well as a filter: file_path and
     # file_type live in the same row and must not be settable from a request.
     updates = {}
@@ -812,9 +816,15 @@ def update_book(book_id):
         # segment is served from disk without being re-keyed, so a language
         # change has to discard the cached audio or the book keeps its old
         # pronunciation forever. A title or author edit changes nothing audible.
+        #
+        # Compare normalized values. Stored languages are not guaranteed
+        # lowercase: the EPUB parser writes the raw dc:language prefix, so a
+        # book can hold "EN" while the submitted value is always lowercased.
+        # Without this, a title-only edit that echoes the language back would
+        # look like a change and would discard every generated segment.
+        stored_language = (book['language'] or '').strip().lower()
         language_changed = (
-            'language' in updates
-            and updates['language'] != (book['language'] or '')
+            'language' in updates and updates['language'] != stored_language
         )
         set_clause = ', '.join(f'{k}=?' for k in updates)
         conn.execute(

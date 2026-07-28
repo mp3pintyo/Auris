@@ -90,6 +90,34 @@ class BookMetadataApiTest(unittest.TestCase):
         self.assertEqual(self._segment_count(), 0)
         self.assertEqual(self._book()['language'], 'ro')
 
+    def test_uppercase_stored_language_is_not_seen_as_changed(self):
+        """The EPUB parser stores the raw dc:language prefix uncased, so a
+        book can hold 'EN'. Submitting the lowercased equivalent alongside an
+        unrelated title edit must not look like a language change."""
+        with database.get_conn() as conn:
+            conn.execute("UPDATE books SET language='EN' WHERE id=1")
+
+        response = self.client.put(
+            '/api/books/1', json={'title': 'Fixed Title', 'author': 'A', 'language': 'en'}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.get_json()['segments_cleared'])
+        self.assertEqual(self._segment_count(), 1)
+        self.assertEqual(self._book()['title'], 'Fixed Title')
+
+    def test_null_language_accepts_title_only_update(self):
+        """A book with no stored language cannot echo one back, so the field
+        must be optional: this must succeed rather than fail the language
+        format check on an empty string."""
+        with database.get_conn() as conn:
+            conn.execute("UPDATE books SET language=NULL WHERE id=1")
+
+        response = self.client.put('/api/books/1', json={'title': 'Fixed Title'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._book()['title'], 'Fixed Title')
+
     def test_unchanged_language_does_not_clear_audio(self):
         response = self.client.put(
             '/api/books/1', json={'title': 'Renamed', 'language': 'en'}
@@ -149,11 +177,18 @@ class BookMetadataApiTest(unittest.TestCase):
         self.assertEqual(self._book()['title'], 'Unknown Title')
 
     def test_list_author_is_rejected(self):
+        # Seeded to a value distinct from 'Unknown Author', the default the
+        # server would fall back to for an empty string, so this assertion
+        # can actually tell "rejected" apart from "wrote the normalized
+        # default" instead of passing either way.
+        with database.get_conn() as conn:
+            conn.execute("UPDATE books SET author='Original Author' WHERE id=1")
+
         response = self.client.put('/api/books/1', json={'author': [1, 2]})
 
         self.assertEqual(response.status_code, 400)
         self.assertIn('author', response.get_json()['error'])
-        self.assertEqual(self._book()['author'], 'Unknown Author')
+        self.assertEqual(self._book()['author'], 'Original Author')
 
     def test_zero_title_is_not_coerced_to_empty(self):
         response = self.client.put('/api/books/1', json={'title': 0})

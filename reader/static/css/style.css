@@ -1632,7 +1632,11 @@ code {
   border-color: #b45050;
 }
 
-.field-label {
+/* Scoped under #edit-dialog (rather than left as bare .field-* classes) so
+   these generic names cannot collide with unrelated markup elsewhere; the
+   project already has .text-input for the same purpose on other pages, but
+   renaming the classes in library.html is outside this change's scope. */
+#edit-dialog .field-label {
   display: block;
   margin: 10px 0 4px;
   font-size: 0.72rem;
@@ -1640,7 +1644,7 @@ code {
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
-.field-input {
+#edit-dialog .field-input {
   width: 100%;
   padding: 7px 10px;
   border-radius: 4px;
@@ -1650,11 +1654,11 @@ code {
   font-family: var(--ui-font);
   font-size: 0.86rem;
 }
-.field-input:focus {
+#edit-dialog .field-input:focus {
   outline: none;
   border-color: var(--accent);
 }
-.field-hint {
+#edit-dialog .field-hint {
   margin-top: 8px;
   font-size: 0.72rem;
   color: var(--text3);

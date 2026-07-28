@@ -3,9 +3,11 @@
 Fixtures are built with python-docx in a temp directory so no binary
 artifact is committed and the tests exercise a real round trip.
 """
+import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core.parser.docx_parser import DocxImportError, extract_units, parse
 
@@ -272,6 +274,65 @@ class DocxErrorTests(unittest.TestCase):
         finally:
             builtins.__import__ = real_import
         self.assertIn('pip install python-docx', str(ctx.exception))
+
+
+class DocxImportRouteTests(unittest.TestCase):
+    """End to end: POST a real .docx to /api/books/import and check the row."""
+
+    def setUp(self):
+        import app as app_module
+        from core import database
+        from core import settings as app_settings
+
+        self.app_module = app_module
+        self.database = database
+        self.app_settings = app_settings
+        self.tmp = tempfile.TemporaryDirectory()
+        self._original = (
+            database.DB_PATH,
+            app_settings.SETTINGS_FILE,
+            app_module.UPLOAD_DIR,
+            app_module._startup_complete,
+        )
+        database.DB_PATH = str(Path(self.tmp.name) / 'reader.db')
+        app_settings.SETTINGS_FILE = Path(self.tmp.name) / 'settings.json'
+        app_module.UPLOAD_DIR = self.tmp.name
+        app_module._startup_complete = True
+        database.init_db()
+        app_module.app.config['TESTING'] = True
+        self.client = app_module.app.test_client()
+
+    def tearDown(self):
+        (
+            self.database.DB_PATH,
+            self.app_settings.SETTINGS_FILE,
+            self.app_module.UPLOAD_DIR,
+            self.app_module._startup_complete,
+        ) = self._original
+        self.tmp.cleanup()
+
+    def test_docx_upload_is_imported_and_stored_as_docx(self):
+        def build(d):
+            d.core_properties.author = ''
+            d.add_heading('Chapter One', level=1)
+            d.add_paragraph(LONG)
+
+        payload = io.BytesIO(Path(_docx(build)).read_bytes())
+
+        # narration_mode=single avoids needing an LLM endpoint configured.
+        with patch.object(self.app_module.threading, 'Thread'):
+            response = self.client.post(
+                '/api/books/import',
+                data={'file': (payload, 'book.docx'), 'narration_mode': 'single'},
+                content_type='multipart/form-data',
+            )
+
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        with self.database.get_conn() as conn:
+            book = conn.execute('SELECT * FROM books').fetchone()
+        self.assertEqual(book['file_type'], 'docx')
+        self.assertEqual(book['total_chapters'], 1)
+        self.assertEqual(book['title'], 'Chapter One')
 
 
 if __name__ == '__main__':

@@ -1597,9 +1597,10 @@ code {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: rgba(0,0,0,.55);
-  backdrop-filter: blur(4px);
-  color: var(--text2);
+  background: #9c5252;
+  color: #fff;
+  /* Opaque, so legibility does not depend on the cover behind it, and red,
+     so Remove is never mistaken for the edit button beside it. */
   font-size: 0.95rem;
   line-height: 1;
   cursor: pointer;
@@ -1626,7 +1627,7 @@ code {
 }
 
 .card-remove:hover {
-  background: rgba(180,80,80,.85);
+  background: #b45050;
   color: #fff;
-  border-color: rgba(180,80,80,.9);
+  border-color: #b45050;
 }

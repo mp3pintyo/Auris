@@ -474,6 +474,7 @@ code {
   background: var(--bg3);
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
+  position: relative;
 }
 .book-cover-placeholder {
   width: 100%; height: 100%;
@@ -530,14 +531,6 @@ code {
   border: 1px solid var(--border);
 }
 .book-actions a:hover { background: var(--accent); color: var(--bg); text-decoration: none; }
-.book-actions .del-btn {
-  background: transparent; color: var(--text3);
-  border: 1px solid var(--border);
-}
-.book-actions .del-btn:hover {
-  background: rgba(180,80,80,.1); color: #c88080;
-  border-color: rgba(180,80,80,.3);
-}
 
 .empty-library {
   text-align: center; padding: 80px 20px; color: var(--text2);
@@ -1583,4 +1576,58 @@ code {
   .font-controls .btn {
     flex: 1 0 auto;
   }
+}
+
+/* The whole card opens the book. Stretching the existing anchor keeps keyboard
+   activation, right-click and open-in-new-tab working, which a click handler on
+   the card div would not. .book-card is already position: relative. */
+.book-actions a::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+/* Remove sits top-left because .book-type-badge already owns top-right. */
+.card-remove {
+  position: absolute;
+  top: 8px; left: 8px;
+  z-index: 2;
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #9c5252;
+  color: #fff;
+  /* Opaque, so legibility does not depend on the cover behind it, and red,
+     so Remove is never mistaken for the edit button beside it. */
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s, background .15s, color .15s, border-color .15s,
+    pointer-events 0s .15s allow-discrete;
+  /* allow-discrete is required, not optional. pointer-events is a discrete
+     property, so it is not transitionable under CSS Transitions Level 1 and
+     the familiar `transition: visibility 0s .15s` trick does not carry over:
+     visibility is explicitly animatable, pointer-events is not. Without
+     allow-discrete the delay is ignored entirely and pointer-events flips to
+     auto the instant :hover matches, so a fast click into the corner hits
+     Remove instead of the link beneath. Measured in Chromium 151. */
+}
+
+/* pointer-events matters as much as opacity here: an element at opacity 0 still
+   receives clicks, so without this the corner of every cover would be an
+   invisible delete button sitting where the user clicks to open the book. */
+.book-card:hover .card-remove,
+.card-remove:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.card-remove:hover {
+  background: #b45050;
+  color: #fff;
+  border-color: #b45050;
 }

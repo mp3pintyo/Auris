@@ -1590,7 +1590,7 @@ code {
 /* Remove sits top-left because .book-type-badge already owns top-right. */
 .card-remove {
   position: absolute;
-  top: 8px; left: 8px;
+  top: 8px; left: 40px;
   z-index: 2;
   width: 24px; height: 24px;
   display: flex; align-items: center; justify-content: center;
@@ -1630,4 +1630,65 @@ code {
   background: #b45050;
   color: #fff;
   border-color: #b45050;
+}
+
+.field-label {
+  display: block;
+  margin: 10px 0 4px;
+  font-size: 0.72rem;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.field-input {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text);
+  font-family: var(--ui-font);
+  font-size: 0.86rem;
+}
+.field-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.field-hint {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  color: var(--text3);
+  line-height: 1.4;
+}
+
+/* Sits beside .card-remove on the cover, sharing its reveal behavior. */
+.card-edit {
+  position: absolute;
+  top: 8px; left: 8px;
+  z-index: 2;
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(4px);
+  color: var(--text2);
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .15s, background .15s, color .15s, border-color .15s,
+    pointer-events 0s .15s allow-discrete;
+}
+.book-card:hover .card-edit,
+.card-edit:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.card-edit:hover {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
 }

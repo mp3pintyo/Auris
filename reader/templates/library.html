@@ -52,6 +52,46 @@
     </div>
   </div>
 </div>
+
+<div class="modal-overlay hidden" id="edit-dialog" onclick="closeEditDialog()">
+  <div class="modal" role="dialog" aria-modal="true"
+       aria-labelledby="edit-dialog-title" onclick="event.stopPropagation()">
+    <div class="modal-title" id="edit-dialog-title">Edit book details</div>
+
+    <label class="field-label" for="edit-title">Title</label>
+    <input class="field-input" id="edit-title" type="text" autocomplete="off">
+
+    <label class="field-label" for="edit-author">Author</label>
+    <input class="field-input" id="edit-author" type="text" autocomplete="off"
+           placeholder="Unknown Author">
+
+    <label class="field-label" for="edit-language">Language</label>
+    <input class="field-input" id="edit-language" type="text" autocomplete="off"
+           list="edit-language-options" placeholder="en">
+    <datalist id="edit-language-options">
+      <option value="en">English</option>
+      <option value="hu">Hungarian</option>
+      <option value="ro">Romanian</option>
+      <option value="de">German</option>
+      <option value="fr">French</option>
+      <option value="es">Spanish</option>
+      <option value="it">Italian</option>
+      <option value="zh">Chinese</option>
+      <option value="ja">Japanese</option>
+    </datalist>
+    <div class="field-hint">
+      Language affects pronunciation. Changing it discards this book's
+      generated audio so it can be read again with the new pronunciation.
+    </div>
+
+    <div class="import-status hidden" id="edit-status"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" type="button" onclick="closeEditDialog()">Cancel</button>
+      <button class="btn btn-primary" type="button" id="save-edit-btn"
+              onclick="saveBookEdits()">Save</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/library.js"></script>

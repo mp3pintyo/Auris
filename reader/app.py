@@ -703,7 +703,7 @@ def _store_character_analysis(
 def list_books():
     with get_conn() as conn:
         rows = conn.execute(
-            'SELECT b.id, b.title, b.author, b.file_type, b.cover_b64, b.added_at, '
+            'SELECT b.id, b.title, b.author, b.language, b.file_type, b.cover_b64, b.added_at, '
             'b.last_read, b.total_chapters, b.character_analysis_status, '
             'b.character_analysis_message, b.character_analysis_provider, '
             'b.character_analysis_model, rp.chapter_id AS progress_chapter_id, '

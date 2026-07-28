@@ -43,6 +43,9 @@ async function loadBooks() {
     <div class="book-card" data-id="${b.id}">
       <div class="book-cover">
         ${coverHtml}
+        <button class="card-edit" title="Edit book details"
+                aria-label="Edit details for ${esc(b.title)}"
+                onclick="openEditDialog(event,${b.id})">&#9998;</button>
         <button class="card-remove" title="Remove from library"
                 aria-label="Remove ${esc(b.title)} from library"
                 onclick="deleteBook(event,${b.id})">&times;</button>
@@ -69,6 +72,74 @@ async function deleteBook(e, id) {
   if (!confirm('Remove this book from the library?')) return;
   await fetch(`/api/books/${id}`, { method: 'DELETE' });
   loadBooks();
+}
+
+let editingBookId = null;
+let editingOriginalLanguage = '';
+
+async function openEditDialog(e, id) {
+  // The whole card is a link to the reader, so this click must not open it.
+  e.stopPropagation();
+  e.preventDefault();
+  const books = await fetch('/api/books').then(r => r.json());
+  const book = books.find(b => b.id === id);
+  if (!book) return;
+
+  editingBookId = id;
+  editingOriginalLanguage = book.language || '';
+  document.getElementById('edit-title').value = book.title || '';
+  document.getElementById('edit-author').value = book.author || '';
+  document.getElementById('edit-language').value = editingOriginalLanguage;
+  const status = document.getElementById('edit-status');
+  status.textContent = '';
+  status.className = 'import-status hidden';
+  document.getElementById('edit-dialog').classList.remove('hidden');
+  document.getElementById('edit-title').focus();
+}
+
+function closeEditDialog() {
+  document.getElementById('edit-dialog').classList.add('hidden');
+  editingBookId = null;
+}
+
+async function saveBookEdits() {
+  if (editingBookId === null) return;
+  const title = document.getElementById('edit-title').value.trim();
+  const author = document.getElementById('edit-author').value.trim();
+  const language = document.getElementById('edit-language').value.trim().toLowerCase();
+  const status = document.getElementById('edit-status');
+  const button = document.getElementById('save-edit-btn');
+
+  if (!title) {
+    status.textContent = 'Title cannot be empty.';
+    status.className = 'import-status error';
+    return;
+  }
+  // Only warn when the language actually changed, since that is the only
+  // edit that discards generated audio.
+  if (language !== editingOriginalLanguage &&
+      !confirm('Changing the language discards this book’s generated audio '
+               + 'so it can be read again with the new pronunciation. Continue?')) {
+    return;
+  }
+
+  button.disabled = true;
+  try {
+    const r = await fetch(`/api/books/${editingBookId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, author, language }),
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'Save failed');
+    closeEditDialog();
+    loadBooks();
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = 'import-status error';
+  } finally {
+    button.disabled = false;
+  }
 }
 
 let pendingImportFile = null;

@@ -1,6 +1,6 @@
 # Auris
 
-Offline audiobook reader for EPUB, PDF, and TXT with selectable local
+Offline audiobook reader for EPUB, PDF, DOCX, and TXT with selectable local
 OmniVoice or Higgs TTS 3 speech, character-aware voices, per-book narrator
 control, and synced text highlighting.
 
@@ -22,7 +22,8 @@ Everything runs locally after setup. No API keys. No hosted TTS dependency.
 
 ## Highlights
 
-- Import EPUB, PDF, and TXT books.
+- Import EPUB, PDF, DOCX, and TXT books. DOCX chapters split on Word heading
+  styles when the document has them.
 - Detect chapters, prologues, epilogues, forewords, appendices, and parts automatically.
 - Generate per-character voices with deterministic assignment.
 - Attribute dialogue to characters with OpenAI or a configurable local LM
@@ -256,6 +257,7 @@ Auris/
 - Flask
 - ebooklib
 - PyMuPDF
+- python-docx
 - spaCy
 - pydub
 - soundfile

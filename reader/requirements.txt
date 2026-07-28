@@ -48,6 +48,7 @@ num2words>=0.5.13        # integer → spoken form for non-EN/ZH (and TN fallbac
 flask>=3.0
 ebooklib>=0.18
 pymupdf>=1.24            # PyMuPDF — imported as: import fitz
+python-docx>=1.1         # DOCX import (imported as: import docx)
 spacy>=3.7               # NLP / character detection
 
 # After installing, download the English spaCy model (requires internet once):

@@ -9,7 +9,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core.parser.docx_parser import DocxImportError, extract_units, parse
+from core.parser.docx_parser import (
+    DocxImportError,
+    extract_units,
+    has_chapter_heading_styles,
+    parse,
+)
 
 
 def _docx(build, name='book.docx'):
@@ -166,6 +171,51 @@ class DocxParseTests(unittest.TestCase):
         titles = [c['title'] for c in book['chapters']]
         self.assertEqual(titles, ['Chapter One'])
         self.assertIn('Chapter Five', book['chapters'][0]['content'])
+
+    def test_heading_style_inside_a_content_control_arms_style_detection(self):
+        """Word's built-in cover pages and template/form-generated documents
+        wrap paragraphs in w:sdt/w:sdtContent blocks. has_chapter_heading_styles
+        must see a Heading-styled paragraph in there the same way extract_units
+        does, otherwise the either/or rule wrongly falls back to text markers
+        and a plain paragraph reading 'Chapter Five' would split the book."""
+        from docx.oxml.ns import qn
+
+        def build(d):
+            d.add_paragraph(LONG)
+            d.add_paragraph('Chapter Five')
+            d.add_paragraph(LONG)
+
+        path = _docx(build)
+        document = _open(path)
+        body = document.element.body
+
+        # python-docx has no high-level API for content controls, so build
+        # the w:sdt/w:sdtContent XML directly.
+        sdt = body.makeelement(qn('w:sdt'), {})
+        sdt_content = body.makeelement(qn('w:sdtContent'), {})
+        p = body.makeelement(qn('w:p'), {})
+        p_pr = body.makeelement(qn('w:pPr'), {})
+        p_style = body.makeelement(qn('w:pStyle'), {})
+        p_style.set(qn('w:val'), 'Heading1')
+        p_pr.append(p_style)
+        p.append(p_pr)
+        r = body.makeelement(qn('w:r'), {})
+        t = body.makeelement(qn('w:t'), {})
+        t.text = 'Real Heading In SDT'
+        r.append(t)
+        p.append(r)
+        sdt_content.append(p)
+        sdt.append(sdt_content)
+
+        # Put the sdt-wrapped heading first, ahead of the plain paragraphs.
+        body.insert(0, sdt)
+
+        self.assertTrue(has_chapter_heading_styles(document))
+
+        document.save(path)
+        book = parse(path)
+        titles = [c['title'] for c in book['chapters']]
+        self.assertNotIn('Chapter Five', titles)
 
     def test_short_first_chapter_under_a_real_heading_style_is_kept(self):
         """A section whose title came from a declared Heading style must not

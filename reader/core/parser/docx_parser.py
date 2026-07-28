@@ -33,14 +33,16 @@ def _is_heading_style(style_name: str) -> bool:
     return name.startswith(_HEADING_STYLE_PREFIX) or name == _TITLE_STYLE
 
 
-def _walk_container(container, doc, units, in_table):
-    """Recursively collect (text, is_heading) pairs from a body-like element.
+def _iter_document_text(container, doc, in_table):
+    """Recursively yield (text, style_name, in_table) for a body-like element.
 
     Descends into table cells (picking up nested tables too) and into
     content-control (w:sdt) wrappers via their w:sdtContent, since both are
-    otherwise silently skipped by a body-level-only walk. in_table disables
-    heading detection for anything nested inside a table cell: a heading-
-    styled cell is a table header, not a chapter boundary.
+    otherwise silently skipped by a body-level-only walk. in_table is passed
+    through so callers can tell a heading-styled table cell (a table header,
+    not a chapter boundary) apart from a real top-level heading. This is the
+    single traversal shared by extract_units and has_chapter_heading_styles,
+    so the two cannot silently disagree about what the document contains.
     """
     from docx.oxml.ns import qn
     from docx.table import Table
@@ -59,17 +61,16 @@ def _walk_container(container, doc, units, in_table):
                 # a narration break, so unlike top-level blanks they are
                 # dropped rather than kept as blank units.
                 continue
-            is_heading = (not in_table) and _is_heading_style(paragraph.style.name)
-            units.append((paragraph.text, is_heading))
+            yield paragraph.text, paragraph.style.name, in_table
         elif tag == 'tbl':
             # Table text is body content, gathered cell by cell in row order.
             for row in Table(child, doc).rows:
                 for cell in row.cells:
-                    _walk_container(cell._tc, doc, units, True)
+                    yield from _iter_document_text(cell._tc, doc, True)
         elif tag == 'sdt':
             sdt_content = child.find(qn('w:sdtContent'))
             if sdt_content is not None:
-                _walk_container(sdt_content, doc, units, in_table)
+                yield from _iter_document_text(sdt_content, doc, in_table)
         # Anything else (sectPr, bookmarks) carries no book text.
 
 
@@ -82,9 +83,12 @@ def extract_units(doc):
     break), but blank paragraphs inside a table cell are filtered out, since
     table layout padding is not a narration break.
     """
-    units = []
-    _walk_container(doc.element.body, doc, units, False)
-    return units
+    return [
+        (text, (not in_table) and _is_heading_style(style_name))
+        for text, style_name, in_table in _iter_document_text(
+            doc.element.body, doc, False
+        )
+    ]
 
 
 def has_chapter_heading_styles(doc) -> bool:
@@ -93,9 +97,15 @@ def has_chapter_heading_styles(doc) -> bool:
     Title alone does not count: a Title-styled title page is common in
     documents whose chapter headings are plain text, and treating it as
     declared structure would collapse the whole book into one chapter.
+
+    Shares the same traversal as extract_units, so a Heading-styled
+    paragraph wrapped in a content control (w:sdt) is seen here too, rather
+    than being missed the way doc.paragraphs would miss it.
     """
-    for paragraph in doc.paragraphs:
-        name = (paragraph.style.name or '').strip()
+    for _, style_name, in_table in _iter_document_text(doc.element.body, doc, False):
+        if in_table:
+            continue
+        name = (style_name or '').strip()
         if name.startswith(_HEADING_STYLE_PREFIX):
             return True
     return False

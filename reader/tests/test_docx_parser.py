@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core.parser.docx_parser import DocxImportError, extract_units
+from core.parser.docx_parser import DocxImportError, extract_units, parse
 
 
 def _docx(build, name='book.docx'):
@@ -81,6 +81,197 @@ class ExtractUnitsTests(unittest.TestCase):
 
     def test_docx_import_error_is_a_runtime_error(self):
         self.assertTrue(issubclass(DocxImportError, RuntimeError))
+
+
+LONG = (
+    'This sentence exists to push the chapter body past the minimum length '
+    'that the shared chapter builder requires before it will emit a chapter. '
+) * 6
+
+
+class DocxParseTests(unittest.TestCase):
+    def test_splits_on_heading_styles(self):
+        def build(d):
+            d.add_heading('Chapter One', level=1)
+            d.add_paragraph(LONG)
+            d.add_heading('Chapter Two', level=1)
+            d.add_paragraph(LONG)
+
+        book = parse(_docx(build))
+        self.assertEqual([c['title'] for c in book['chapters']],
+                         ['Chapter One', 'Chapter Two'])
+
+    def test_style_headings_win_and_text_markers_are_ignored(self):
+        """Either/or rule: with real styles present, a plain paragraph reading
+        'Chapter Five' is prose, not a boundary."""
+        def build(d):
+            d.add_heading('Chapter One', level=1)
+            d.add_paragraph(LONG)
+            d.add_paragraph('Chapter Five')
+            d.add_paragraph(LONG)
+
+        book = parse(_docx(build))
+        titles = [c['title'] for c in book['chapters']]
+        self.assertEqual(titles, ['Chapter One'])
+        self.assertIn('Chapter Five', book['chapters'][0]['content'])
+
+    def test_falls_back_to_text_markers_without_styles(self):
+        def build(d):
+            d.add_paragraph('Chapter One')
+            d.add_paragraph(LONG)
+            d.add_paragraph('Chapter Two')
+            d.add_paragraph(LONG)
+
+        book = parse(_docx(build))
+        self.assertEqual([c['title'] for c in book['chapters']],
+                         ['Chapter One', 'Chapter Two'])
+
+    def test_core_properties_supply_title_and_author(self):
+        def build(d):
+            d.core_properties.title = 'The Fourteen Carat Car'
+            d.core_properties.author = 'Jeno Rejto'
+            d.add_heading('Chapter One', level=1)
+            d.add_paragraph(LONG)
+
+        book = parse(_docx(build))
+        self.assertEqual(book['title'], 'The Fourteen Carat Car')
+        self.assertEqual(book['author'], 'Jeno Rejto')
+
+    def test_metadata_falls_back_to_text_when_properties_empty(self):
+        def build(d):
+            # python-docx stamps author='python-docx' on every document it
+            # creates, so clear it to exercise the text fallback.
+            d.core_properties.author = ''
+            d.add_paragraph('A Quiet Book')
+            d.add_paragraph('by Jane Austen')
+            d.add_paragraph('Chapter One')
+            d.add_paragraph(LONG)
+
+        book = parse(_docx(build))
+        self.assertEqual(book['title'], 'A Quiet Book')
+        self.assertEqual(book['author'], 'Jane Austen')
+
+    def test_generator_author_is_not_treated_as_the_book_author(self):
+        """python-docx writes author='python-docx' by default. A file produced
+        by a script must not import as written by python-docx."""
+        def build(d):
+            d.add_paragraph('A Quiet Book')
+            d.add_paragraph('by Jane Austen')
+            d.add_paragraph('Chapter One')
+            d.add_paragraph(LONG)
+
+        # Deliberately left at the python-docx default.
+        book = parse(_docx(build))
+        self.assertNotEqual(book['author'], 'python-docx')
+        self.assertEqual(book['author'], 'Jane Austen')
+
+    def test_table_text_reaches_chapter_content(self):
+        def build(d):
+            d.add_heading('Chapter One', level=1)
+            d.add_paragraph(LONG)
+            table = d.add_table(rows=1, cols=1)
+            table.cell(0, 0).text = 'Smuggled in a table cell.'
+
+        book = parse(_docx(build))
+        joined = '\n'.join(c['content'] for c in book['chapters'])
+        self.assertIn('Smuggled in a table cell.', joined)
+
+    def test_returns_the_parser_contract(self):
+        def build(d):
+            d.add_heading('Chapter One', level=1)
+            d.add_paragraph(LONG)
+
+        book = parse(_docx(build))
+        self.assertEqual(
+            set(book), {'title', 'author', 'language', 'cover_b64', 'chapters'}
+        )
+        self.assertIsNone(book['cover_b64'])
+        self.assertEqual(book['language'], 'en')
+        for chapter in book['chapters']:
+            self.assertEqual(
+                set(chapter), {'title', 'order_num', 'content', 'word_count'}
+            )
+            self.assertEqual(chapter['word_count'], len(chapter['content'].split()))
+
+    def test_single_chapter_fallback_for_unstructured_text(self):
+        def build(d):
+            d.add_paragraph(LONG)
+
+        book = parse(_docx(build))
+        self.assertEqual(len(book['chapters']), 1)
+        self.assertIn('shared chapter builder', book['chapters'][0]['content'])
+
+    def test_matches_txt_chapter_count_for_the_same_content(self):
+        """Pins the shared builder: a styleless DOCX and the same text as TXT
+        must split identically."""
+        from core.parser import txt_parser
+
+        lines = ['Chapter One', LONG, 'Chapter Two', LONG]
+
+        def build(d):
+            for line in lines:
+                d.add_paragraph(line)
+
+        txt_path = Path(tempfile.mkdtemp()) / 'book.txt'
+        txt_path.write_text('\n'.join(lines), encoding='utf-8')
+
+        from_docx = parse(_docx(build))
+        from_txt = txt_parser.parse(txt_path)
+
+        self.assertEqual(
+            [c['title'] for c in from_docx['chapters']],
+            [c['title'] for c in from_txt['chapters']],
+        )
+
+
+class DocxErrorTests(unittest.TestCase):
+    def test_legacy_doc_is_named_explicitly(self):
+        path = Path(tempfile.mkdtemp()) / 'legacy.docx'
+        path.write_bytes(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1' + b'\x00' * 64)
+
+        with self.assertRaises(DocxImportError) as ctx:
+            parse(path)
+        self.assertIn('.docx', str(ctx.exception))
+        self.assertIn('legacy', str(ctx.exception).lower())
+
+    def test_corrupt_file_reports_unreadable(self):
+        path = Path(tempfile.mkdtemp()) / 'bad.docx'
+        path.write_bytes(b'this is not a zip archive')
+
+        with self.assertRaises(DocxImportError) as ctx:
+            parse(path)
+        self.assertIn('corrupt', str(ctx.exception).lower())
+
+    def test_document_without_text_is_rejected(self):
+        def build(d):
+            d.add_paragraph('')
+
+        with self.assertRaises(DocxImportError) as ctx:
+            parse(_docx(build))
+        self.assertIn('no readable text', str(ctx.exception).lower())
+
+    def test_missing_dependency_message(self):
+        """When python-docx is absent the user gets an install hint, not an
+        ImportError traceback."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == 'docx' or name.startswith('docx.'):
+                raise ImportError('No module named docx')
+            return real_import(name, *args, **kwargs)
+
+        path = Path(tempfile.mkdtemp()) / 'x.docx'
+        path.write_bytes(b'PK\x03\x04' + b'\x00' * 64)
+
+        builtins.__import__ = fake_import
+        try:
+            with self.assertRaises(DocxImportError) as ctx:
+                parse(path)
+        finally:
+            builtins.__import__ = real_import
+        self.assertIn('pip install python-docx', str(ctx.exception))
 
 
 if __name__ == '__main__':

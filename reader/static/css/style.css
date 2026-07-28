@@ -1675,9 +1675,10 @@ code {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: rgba(0,0,0,.55);
-  backdrop-filter: blur(4px);
-  color: var(--text2);
+  /* Opaque accent, so legibility does not depend on the cover behind it and
+     Edit is never mistaken for the red Remove button beside it. */
+  background: var(--accent);
+  color: var(--bg);
   font-size: 0.7rem;
   line-height: 1;
   cursor: pointer;
@@ -1692,7 +1693,9 @@ code {
   pointer-events: auto;
 }
 .card-edit:hover {
-  background: var(--accent);
+  /* Brightens rather than darkening to --accent2: that token gives only
+     4.34:1 against the glyph, below the 4.5 bar every other value here meets. */
+  background: #d8b47e;
   color: var(--bg);
-  border-color: var(--accent);
+  border-color: #d8b47e;
 }

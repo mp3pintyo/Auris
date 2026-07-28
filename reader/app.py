@@ -777,7 +777,17 @@ def update_book(book_id):
     allowed = {'title', 'author', 'language'}
     # The whitelist is a security boundary as well as a filter: file_path and
     # file_type live in the same row and must not be settable from a request.
-    updates = {k: str(body[k] or '').strip() for k in allowed if k in body}
+    updates = {}
+    for key in allowed:
+        if key not in body:
+            continue
+        value = body[key]
+        # Reject non-string JSON types rather than coercing them. A number, a
+        # list or an object would otherwise be written into the column as its
+        # Python repr, and a numeric 0 would silently become an empty string.
+        if not isinstance(value, str):
+            return jsonify({'error': f'{key} must be text.'}), 400
+        updates[key] = value.strip()
     if not updates:
         return jsonify({'error': 'Nothing to update'}), 400
 

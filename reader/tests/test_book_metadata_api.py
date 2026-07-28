@@ -141,6 +141,27 @@ class BookMetadataApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_numeric_title_is_rejected(self):
+        response = self.client.put('/api/books/1', json={'title': 42})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('title', response.get_json()['error'])
+        self.assertEqual(self._book()['title'], 'Unknown Title')
+
+    def test_list_author_is_rejected(self):
+        response = self.client.put('/api/books/1', json={'author': [1, 2]})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('author', response.get_json()['error'])
+        self.assertEqual(self._book()['author'], 'Unknown Author')
+
+    def test_zero_title_is_not_coerced_to_empty(self):
+        response = self.client.put('/api/books/1', json={'title': 0})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('title', response.get_json()['error'])
+        self.assertNotIn('Title cannot be empty', response.get_json()['error'])
+
     def test_file_path_cannot_be_changed(self):
         """The allowed whitelist is a security boundary: file_path and
         file_type live in the same row as the editable fields."""

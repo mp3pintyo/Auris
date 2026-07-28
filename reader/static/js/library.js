@@ -11,7 +11,7 @@ async function loadBooks() {
     grid.innerHTML = `
       <div class="empty-library">
         <p>Your library is empty.</p>
-        <p class="sub">Import an EPUB, PDF, or TXT file to get started.</p>
+        <p class="sub">Import an EPUB, PDF, DOCX, or TXT file to get started.</p>
       </div>`;
     return;
   }

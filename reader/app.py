@@ -5,6 +5,7 @@ Offline Ebook Reader — Flask application.
 import base64
 import logging
 import os
+import re
 import threading
 import uuid
 
@@ -762,6 +763,59 @@ def delete_book(book_id):
     with get_conn() as conn:
         conn.execute('DELETE FROM books WHERE id=?', (book_id,))
     return jsonify({'ok': True})
+
+
+# Language codes accepted for a book: "en", "hu", "ro", or a regional form
+# such as "zh-cn". Deliberately permissive, because the value is passed
+# through to the TTS engine and no whitelist of supported languages exists.
+_BOOK_LANGUAGE_RE = re.compile(r'^[a-z]{2}(-[a-z]{2,4})?$')
+
+
+@app.route('/api/books/<int:book_id>', methods=['PUT'])
+def update_book(book_id):
+    body = request.get_json(force=True) or {}
+    allowed = {'title', 'author', 'language'}
+    # The whitelist is a security boundary as well as a filter: file_path and
+    # file_type live in the same row and must not be settable from a request.
+    updates = {k: str(body[k] or '').strip() for k in allowed if k in body}
+    if not updates:
+        return jsonify({'error': 'Nothing to update'}), 400
+
+    if 'title' in updates and not updates['title']:
+        return jsonify({'error': 'Title cannot be empty'}), 400
+    if 'author' in updates and not updates['author']:
+        updates['author'] = 'Unknown Author'
+    if 'language' in updates:
+        updates['language'] = updates['language'].lower()
+        if not _BOOK_LANGUAGE_RE.match(updates['language']):
+            return jsonify({
+                'error': 'Language must be a code such as en, hu, ro or zh-cn.'
+            }), 400
+
+    with get_conn() as conn:
+        book = conn.execute(
+            'SELECT language FROM books WHERE id=?', (book_id,)
+        ).fetchone()
+        if not book:
+            return jsonify({'error': 'Book not found'}), 404
+        # Language is part of the audio cache key, but an already-generated
+        # segment is served from disk without being re-keyed, so a language
+        # change has to discard the cached audio or the book keeps its old
+        # pronunciation forever. A title or author edit changes nothing audible.
+        language_changed = (
+            'language' in updates
+            and updates['language'] != (book['language'] or '')
+        )
+        set_clause = ', '.join(f'{k}=?' for k in updates)
+        conn.execute(
+            f'UPDATE books SET {set_clause} WHERE id=?',
+            (*updates.values(), book_id),
+        )
+
+    if language_changed:
+        _clear_book_tts_segments(book_id)
+
+    return jsonify({'ok': True, 'segments_cleared': language_changed})
 
 
 # ════════════════════════════════════════════════════════════════════════════

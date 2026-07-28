@@ -531,14 +531,6 @@ code {
   border: 1px solid var(--border);
 }
 .book-actions a:hover { background: var(--accent); color: var(--bg); text-decoration: none; }
-.book-actions .del-btn {
-  background: transparent; color: var(--text3);
-  border: 1px solid var(--border);
-}
-.book-actions .del-btn:hover {
-  background: rgba(180,80,80,.1); color: #c88080;
-  border-color: rgba(180,80,80,.3);
-}
 
 .empty-library {
   text-align: center; padding: 80px 20px; color: var(--text2);

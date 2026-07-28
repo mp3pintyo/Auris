@@ -41,7 +41,12 @@ async function loadBooks() {
 
     return `
     <div class="book-card" data-id="${b.id}">
-      <div class="book-cover">${coverHtml}</div>
+      <div class="book-cover">
+        ${coverHtml}
+        <button class="card-remove" title="Remove from library"
+                aria-label="Remove ${esc(b.title)} from library"
+                onclick="deleteBook(event,${b.id})">&times;</button>
+      </div>
       <span class="book-type-badge">${esc(b.file_type)}</span>
       <div class="book-info">
         <div class="book-title">${esc(b.title)}</div>
@@ -54,7 +59,6 @@ async function loadBooks() {
       </div>
       <div class="book-actions">
         <a href="/reader/${b.id}">${actionLabel}</a>
-        <button class="del-btn" onclick="deleteBook(event,${b.id})">Remove</button>
       </div>
     </div>`;
   }).join('');

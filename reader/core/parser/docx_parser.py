@@ -33,6 +33,20 @@ def _is_heading_style(style_name: str) -> bool:
     return name.startswith(_HEADING_STYLE_PREFIX) or name == _TITLE_STYLE
 
 
+def _style_name(paragraph) -> str:
+    """Paragraph style name, or an empty string when the document has none.
+
+    python-docx returns None from Paragraph.style when styles.xml declares no
+    default paragraph style, which documents produced outside Word (Google
+    Docs, LibreOffice and Pages exports) can lack. An unstyled paragraph is
+    simply not a heading.
+    """
+    style = paragraph.style
+    if style is None:
+        return ''
+    return style.name or ''
+
+
 def _iter_document_text(container, doc, in_table):
     """Recursively yield (text, style_name, in_table) for a body-like element.
 
@@ -61,7 +75,7 @@ def _iter_document_text(container, doc, in_table):
                 # a narration break, so unlike top-level blanks they are
                 # dropped rather than kept as blank units.
                 continue
-            yield paragraph.text, paragraph.style.name, in_table
+            yield paragraph.text, _style_name(paragraph), in_table
         elif tag == 'tbl':
             # Table text is body content, gathered cell by cell in row order.
             for row in Table(child, doc).rows:

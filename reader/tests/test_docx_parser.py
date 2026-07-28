@@ -4,8 +4,10 @@ Fixtures are built with python-docx in a temp directory so no binary
 artifact is committed and the tests exercise a real round trip.
 """
 import io
+import re
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,6 +28,25 @@ def _docx(build, name='book.docx'):
     path = Path(tempfile.mkdtemp()) / name
     document.save(path)
     return path
+
+
+def _docx_without_default_paragraph_style(build, name='book.docx'):
+    """Build a .docx, then strip styles.xml's w:default="1" flag.
+
+    Simulates a document produced outside Word (Google Docs, LibreOffice and
+    Pages exports, and various generators can all omit this), where
+    python-docx returns None from Paragraph.style for every paragraph rather
+    than falling back to some implicit default style object.
+    """
+    src = _docx(build, name='src-' + name)
+    out = src.with_name(name)
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == 'word/styles.xml':
+                data = re.sub(rb'\sw:default="1"', b'', data)
+            zout.writestr(item, data)
+    return out
 
 
 def _open(path):
@@ -138,6 +159,23 @@ class ExtractUnitsTests(unittest.TestCase):
 
         texts = [text for text, _ in extract_units(_open(_docx(build)))]
         self.assertIn('Nested cell text.', texts)
+
+    def test_paragraphs_are_not_headings_when_document_has_no_default_style(self):
+        """python-docx returns None from Paragraph.style when styles.xml
+        declares no default paragraph style. Every paragraph must be treated
+        as unstyled (not a heading) rather than crashing."""
+        def build(d):
+            d.add_paragraph(LONG)
+            d.add_paragraph('Chapter Five')
+
+        path = _docx_without_default_paragraph_style(build)
+        document = _open(path)
+        self.assertIsNone(document.paragraphs[0].style)
+
+        units = extract_units(document)
+        self.assertTrue(units)
+        self.assertTrue(all(not is_heading for _, is_heading in units))
+        self.assertFalse(has_chapter_heading_styles(document))
 
 
 LONG = (
@@ -332,6 +370,19 @@ class DocxParseTests(unittest.TestCase):
             d.add_paragraph(LONG)
 
         book = parse(_docx(build))
+        self.assertEqual(len(book['chapters']), 1)
+        self.assertIn('shared chapter builder', book['chapters'][0]['content'])
+
+    def test_parses_a_document_with_no_default_paragraph_style(self):
+        """A document whose styles.xml declares no default paragraph style
+        used to crash with AttributeError on paragraph.style.name. It should
+        import normally, with the text heuristics applying since no style
+        is available to declare structure."""
+        def build(d):
+            d.add_paragraph(LONG)
+
+        path = _docx_without_default_paragraph_style(build)
+        book = parse(path)
         self.assertEqual(len(book['chapters']), 1)
         self.assertIn('shared chapter builder', book['chapters'][0]['content'])
 

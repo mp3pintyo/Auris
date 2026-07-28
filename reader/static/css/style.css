@@ -1607,6 +1607,13 @@ code {
   pointer-events: none;
   transition: opacity .15s, background .15s, color .15s, border-color .15s,
     pointer-events 0s .15s allow-discrete;
+  /* allow-discrete is required, not optional. pointer-events is a discrete
+     property, so it is not transitionable under CSS Transitions Level 1 and
+     the familiar `transition: visibility 0s .15s` trick does not carry over:
+     visibility is explicitly animatable, pointer-events is not. Without
+     allow-discrete the delay is ignored entirely and pointer-events flips to
+     auto the instant :hover matches, so a fast click into the corner hits
+     Remove instead of the link beneath. Measured in Chromium 151. */
 }
 
 /* pointer-events matters as much as opacity here: an element at opacity 0 still

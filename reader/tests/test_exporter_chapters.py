@@ -1,4 +1,7 @@
+import json
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -29,6 +32,89 @@ class ChapterSelectionTests(unittest.TestCase):
 
 
 class ChapterFolderExportTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'ffmpeg required')
+    def test_real_m4b_contains_seekable_ffmpeg_chapters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = os.path.join(tmp, 'first.wav')
+            second = os.path.join(tmp, 'second.wav')
+            sf.write(first, np.zeros(exporter.SAMPLE_RATE, dtype=np.float32), exporter.SAMPLE_RATE)
+            sf.write(second, np.zeros(exporter.SAMPLE_RATE * 2, dtype=np.float32), exporter.SAMPLE_RATE)
+            chapters = [
+                {'chapter_number': 1, 'chapter_title': 'Első', 'segments': [
+                    {'audio_path': first, 'duration_sec': 1.0, 'text': 'Első.'},
+                ]},
+                {'chapter_number': 2, 'chapter_title': 'Második', 'segments': [
+                    {'audio_path': second, 'duration_sec': 2.0, 'text': 'Második.'},
+                ]},
+            ]
+            with patch.object(exporter, 'EXPORTS_DIR', tmp):
+                result = exporter.export_m4b(
+                    'Tesztkönyv', chapters, book_author='Szerző', sub_fmt='none'
+                )
+
+            probe = subprocess.run(
+                ['ffprobe', '-v', 'error', '-show_chapters', '-of', 'json', result['audio_path']],
+                capture_output=True, check=True,
+            )
+            parsed = json.loads(probe.stdout.decode('utf-8'))
+            self.assertEqual(
+                [chapter['tags']['title'] for chapter in parsed['chapters']],
+                ['Első', 'Második'],
+            )
+            self.assertGreater(os.path.getsize(result['audio_path']), 0)
+
+    def test_subtitle_none_does_not_create_subtitle_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = os.path.join(tmp, 'source.wav')
+            sf.write(source, np.zeros(100, dtype=np.float32), exporter.SAMPLE_RATE)
+            with patch.object(exporter, 'EXPORTS_DIR', tmp):
+                result = exporter.export_single_chapter(
+                    'Chapter', 'Book',
+                    [{'audio_path': source, 'duration_sec': 0.1, 'text': 'Text'}],
+                    {}, audio_fmt='wav', sub_fmt='none', book_author='Writer',
+                )
+
+            self.assertIsNone(result['subtitle_path'])
+            self.assertEqual(result['sub_fmt'], 'none')
+            self.assertEqual(
+                sorted(os.listdir(os.path.dirname(result['audio_path']))),
+                ['Chapter.wav'],
+            )
+
+    def test_m4b_export_uses_ffmpeg_chapter_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = os.path.join(tmp, 'first.wav')
+            second = os.path.join(tmp, 'second.wav')
+            sf.write(first, np.zeros(exporter.SAMPLE_RATE, dtype=np.float32), exporter.SAMPLE_RATE)
+            sf.write(second, np.zeros(exporter.SAMPLE_RATE * 2, dtype=np.float32), exporter.SAMPLE_RATE)
+            chapters = [
+                {'chapter_number': 1, 'chapter_title': 'Opening', 'segments': [
+                    {'audio_path': first, 'duration_sec': 1.0, 'text': 'Hello.'},
+                ]},
+                {'chapter_number': 2, 'chapter_title': 'Finish', 'segments': [
+                    {'audio_path': second, 'duration_sec': 2.0, 'text': 'Goodbye.'},
+                ]},
+            ]
+            completed = unittest.mock.Mock(returncode=0, stderr='')
+            with (
+                patch.object(exporter, 'EXPORTS_DIR', tmp),
+                patch.object(exporter, '_ffmpeg_available', return_value=True),
+                patch.object(exporter.subprocess, 'run', return_value=completed) as run,
+            ):
+                result = exporter.export_m4b(
+                    'Book', chapters, book_author='Writer', sub_fmt='none'
+                )
+
+            command = run.call_args.args[0]
+            self.assertIn('-map_metadata', command)
+            self.assertIn('-c:a', command)
+            self.assertEqual(result['audio_fmt'], 'm4b')
+            self.assertTrue(result['audio_path'].endswith('.m4b'))
+            metadata = run.call_args.kwargs['input']
+            self.assertIn('[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1350', metadata)
+            self.assertIn('title=Opening', metadata)
+            self.assertIn('title=Finish', metadata)
+
     def test_mastering_falls_back_to_unprocessed_wav_without_ffmpeg(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = os.path.join(tmp, 'source.wav')

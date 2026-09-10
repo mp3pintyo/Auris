@@ -1,73 +1,84 @@
 {% extends "base.html" %}
-{% block title %}Settings — Auris{% endblock %}
+{% block title %}Beállítások — Auris{% endblock %}
 {% block content %}
 <div class="settings-page">
-  <h1 class="settings-page-title">Settings</h1>
+  <h1 class="settings-page-title">Beállítások</h1>
   <div class="settings-layout">
-    <nav class="settings-nav" aria-label="Settings categories" role="tablist">
+    <nav class="settings-nav" aria-label="Beállítási kategóriák" role="tablist">
+      <button class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-setup" data-settings-target="setup" onclick="showSettingsCategory('setup')">Gyors beállítás</button>
+      <button class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-dictionary" data-settings-target="dictionary" onclick="showSettingsCategory('dictionary')">Kiejtési szótár</button>
+      <button class="settings-nav-item" type="button" role="tab" aria-selected="false" aria-controls="settings-storage" data-settings-target="storage" onclick="showSettingsCategory('storage')">Tárhely és mentés</button>
       <button class="settings-nav-item active" type="button" role="tab"
               aria-selected="true" aria-controls="settings-speech"
-              data-settings-target="speech" onclick="showSettingsCategory('speech')">
-        Speech engines
-      </button>
+              data-settings-target="speech" onclick="showSettingsCategory('speech')">Beszédmotorok</button>
       <button class="settings-nav-item" type="button" role="tab"
               aria-selected="false" aria-controls="settings-characters"
-              data-settings-target="characters" onclick="showSettingsCategory('characters')">
-        Characters &amp; narrator
-      </button>
+              data-settings-target="characters" onclick="showSettingsCategory('characters')">Szereplők és narrátor</button>
       <button class="settings-nav-item" type="button" role="tab"
               aria-selected="false" aria-controls="settings-output"
-              data-settings-target="output" onclick="showSettingsCategory('output')">
-        Generation &amp; export
-      </button>
+              data-settings-target="output" onclick="showSettingsCategory('output')">Generálás és export</button>
       <button class="settings-nav-item" type="button" role="tab"
               aria-selected="false" aria-controls="settings-reading"
-              data-settings-target="reading" onclick="showSettingsCategory('reading')">
-        Reading interface
-      </button>
+              data-settings-target="reading" onclick="showSettingsCategory('reading')">Olvasási felület</button>
     </nav>
     <div class="settings-panels">
+      <div class="settings-category" id="settings-setup" data-settings-category="setup" role="tabpanel" hidden>
+        <section class="settings-section setup-steps"><h2>Kezdj egy magyar próbahanggal</h2><p>Az elsődleges beszédmotor az OmniVoice. A minőségprofil a generálás részletességét állítja; a tényleges sebesség a gépedtől és a szövegtől függ.</p>
+          <div id="setup-hardware" role="status">Gép ellenőrzése…</div>
+          <div class="experience-form"><label>Minőségprofil<select id="setup-profile"><option value="fast">Gyors — 8 lépés</option><option value="balanced" selected>Kiegyensúlyozott — 16 lépés</option><option value="detailed">Részletes — 32 lépés</option></select></label><div class="actions"><button class="btn btn-primary" type="button" onclick="applySetupProfile(false)">Profil alkalmazása</button><button class="btn btn-ghost" type="button" onclick="showSettingsCategory('speech')">Modell beállítása / letöltése</button></div><p>Ha még nincs modell, a beszédmotor beállításainál válaszd a letöltést. Meglévő modell esetén az útvonalat ellenőrizd, majd töltsd be a motort.</p><div class="actions"><button class="btn btn-ghost" type="button" onclick="loadSetupEngine()">Beszédmotor betöltése</button><button class="btn btn-ghost" type="button" id="setup-preview" onclick="previewSetupVoice()">Magyar próbahang</button><button class="btn btn-primary" type="button" onclick="applySetupProfile(true)">Beállítás befejezése</button></div></div><p id="setup-message" class="experience-message" role="status" aria-live="polite"></p><audio id="setup-audio" controls class="hidden"></audio>
+        </section>
+      </div>
+      <div class="settings-category" id="settings-dictionary" data-settings-category="dictionary" role="tabpanel" hidden>
+        <section class="settings-section"><h2>Magyar kiejtési szótár</h2><p>Az eredeti szöveg megmarad. A felolvasás a megadott alakot használja, teljes szavakra és kifejezésekre, kis- és nagybetűt megkülönböztetve. A könyv saját szabálya elsőbbséget élvez.</p>
+          <form class="experience-form" onsubmit="event.preventDefault();savePronunciation()"><label>Érvényesség<select id="dictionary-book"><option value="">Minden könyv</option></select></label><div class="form-grid"><label>A szövegben<input id="dictionary-source" placeholder="Gorcsev" required maxlength="200"></label><label>Így olvassa<input id="dictionary-replacement" placeholder="Gorcsef" required maxlength="200"></label></div><button class="btn btn-primary" type="submit">Szabály mentése</button></form>
+          <p class="muted">Mentés vagy törlés után az érintett könyvek felolvasása újragenerálódik. Az exportált fájlok megmaradnak.</p><p id="dictionary-message" role="status"></p><div id="dictionary-list"></div>
+          <div class="experience-form"><label>Próbamondat<textarea id="dictionary-preview-input" rows="3">Gorcsev belépett a szobába.</textarea></label><button class="btn btn-ghost" onclick="previewPronunciation()">Felolvasandó szöveg ellenőrzése</button><p id="dictionary-preview-output" aria-live="polite"></p></div>
+        </section>
+      </div>
+      <div class="settings-category" id="settings-storage" data-settings-category="storage" role="tabpanel" hidden>
+        <section class="settings-section"><h2>Tárhely és könyvtármentés</h2><div id="storage-areas"></div><button class="btn btn-ghost" onclick="loadStorage()">Tárhely frissítése</button>
+          <h3>Mentés</h3><p>A ZIP tartalmazza a könyvtárat, könyvjelzőket, kiejtési szabályokat, forrásfájlokat és referenciahangokat. Az API-kulcsokat nem exportáljuk.</p><label><input type="checkbox" id="backup-audio"> Generált hangcache is (jelentősen nagyobb fájl)</label><p><button class="btn btn-primary" id="backup-btn" onclick="downloadBackup()">Könyvtár mentése</button></p>
+          <h3>Visszaállítás</h3><p>A mentés lecseréli a jelenlegi könyvtáradatokat. Előtte automatikusan biztonsági mentés készül. A jelenlegi API-kulcsok és modellútvonalak megmaradnak. Legfeljebb 500 MB-os ZIP, 4 GB kibontott tartalom támogatott.</p><div class="experience-form"><label>Auris ZIP-mentés<input id="restore-file" type="file" accept=".zip"></label><label>Megerősítés: írd be, hogy VISSZAÁLLÍTÁS<input id="restore-confirm" autocomplete="off"></label><button class="btn btn-ghost" id="restore-btn" onclick="restoreBackup()">Könyvtár visszaállítása</button></div><p id="storage-message" role="status" aria-live="polite"></p>
+        </section>
+      </div>
       <div class="settings-category active" id="settings-speech"
            data-settings-category="speech" role="tabpanel">
 
   <!-- Active engine -->
   <section class="settings-section">
-    <div class="settings-section-title">Text-to-Speech Engine</div>
+    <div class="settings-section-title">Beszédmotor</div>
     <div class="setting-row">
-      <label>Active engine</label>
+      <label>Kiválasztott motor</label>
       <select id="tts-engine" class="select-input" onchange="toggleEngineSettings(this.value)">
         <option value="omnivoice">OmniVoice</option>
         <option value="higgs">Higgs TTS 3 — 4B</option>
       </select>
-      <span class="muted" style="font-size:.78rem">
-        Save, then use <strong>Reload TTS engine</strong>. Switching unloads the
-        previous model before loading the selected engine.
-      </span>
+      <span class="muted" style="font-size:.78rem">Mentés után használd a <strong>Beszédmotor újratöltése</strong> gombot. Motorváltáskor az előző modell felszabadul az új betöltése előtt.</span>
     </div>
     <div class="setting-row" style="margin-top:12px">
-      <button class="btn btn-ghost btn-sm" onclick="reloadTTS()">Reload TTS engine</button>
+      <button class="btn btn-ghost btn-sm" onclick="reloadTTS().catch(e => { document.getElementById('tts-reload-hint').textContent = e.message; })">Beszédmotor újratöltése</button>
       <span id="tts-reload-hint" class="status-hint"></span>
     </div>
   </section>
 
   <!-- OmniVoice Model -->
   <section class="settings-section engine-settings omnivoice-settings">
-    <div class="settings-section-title">OmniVoice Model</div>
+    <div class="settings-section-title">OmniVoice modell</div>
 
     <div class="setting-row">
-      <label>Model Source</label>
+      <label>Modell forrása</label>
       <div class="radio-group">
-        <label><input type="radio" name="model_source" value="local" id="src-local"> Local path</label>
-        <label><input type="radio" name="model_source" value="download" id="src-download"> Download from HuggingFace</label>
+        <label><input type="radio" name="model_source" value="local" id="src-local">Helyi mappa</label>
+        <label><input type="radio" name="model_source" value="download" id="src-download">Letöltés a HuggingFace-ről</label>
       </div>
     </div>
 
     <div id="panel-local" class="sub-panel">
       <div class="setting-row">
-        <label>Model directory path</label>
+        <label>Modellmappa útvonala</label>
         <div class="input-group">
           <input type="text" id="model-path" class="text-input" placeholder="/path/to/OmniVoice">
-          <button class="btn btn-ghost btn-sm" onclick="checkPath()">Check</button>
+          <button class="btn btn-ghost btn-sm" onclick="checkPath()">Ellenőrzés</button>
         </div>
         <span id="path-status" class="status-hint"></span>
       </div>
@@ -75,19 +86,19 @@
 
     <div id="panel-download" class="sub-panel hidden">
       <div class="setting-row">
-        <label>HuggingFace repository</label>
+        <label>HuggingFace-modelltár</label>
         <input type="text" id="model-repo" class="text-input" value="k2-fsa/OmniVoice">
       </div>
       <div class="setting-row">
-        <label>Download destination</label>
+        <label>Letöltési mappa</label>
         <input type="text" id="dl-dest" class="text-input" placeholder="Absolute path to save model files">
       </div>
       <div class="setting-row">
-        <label>HF mirror endpoint <span class="muted">(optional)</span></label>
+        <label>HuggingFace-tükör címe<span class="muted">(nem kötelező)</span></label>
         <input type="text" id="hf-endpoint" class="text-input" placeholder="e.g. https://hf-mirror.com">
       </div>
       <div class="setting-row">
-        <button class="btn btn-primary" id="dl-btn" onclick="startDownload()">Start Download</button>
+        <button class="btn btn-primary" id="dl-btn" onclick="startDownload()">Letöltés indítása</button>
       </div>
       <div id="dl-progress-wrap" class="progress-wrap hidden">
         <div class="progress-bar-outer"><div class="progress-bar-inner" id="dl-bar"></div></div>
@@ -100,39 +111,35 @@
   <!-- Higgs TTS -->
   <section class="settings-section engine-settings higgs-settings hidden">
     <div class="settings-section-title">Higgs TTS 3 — 4B</div>
-    <p class="section-desc">
-      Direct local inference uses the Transformers-compatible
-      <code>multimodalart/higgs-audio-v3-tts-4b-transformers</code> adapter for the
-      official <code>bosonai/higgs-tts-3-4b</code> weights and capabilities.
-    </p>
+    <p class="section-desc">A helyi generálás a Transformers-kompatibilis <code>multimodalart/higgs-audio-v3-tts-4b-transformers</code> adaptert és a hivatalos <code>bosonai/higgs-tts-3-4b</code> modellsúlyait használja.</p>
     <div class="setting-row">
-      <label>Model source</label>
+      <label>Modell forrása</label>
       <div class="radio-group">
-        <label><input type="radio" name="higgs_model_source" value="download" id="higgs-src-download"> HuggingFace cache</label>
-        <label><input type="radio" name="higgs_model_source" value="local" id="higgs-src-local"> Local snapshot</label>
+        <label><input type="radio" name="higgs_model_source" value="download" id="higgs-src-download">HuggingFace-gyorsítótár</label>
+        <label><input type="radio" name="higgs_model_source" value="local" id="higgs-src-local">Helyi modellmásolat</label>
       </div>
     </div>
     <div id="higgs-panel-download" class="sub-panel">
       <div class="setting-row">
-        <label>Transformers repository</label>
+        <label>Transformers-modelltár</label>
         <input type="text" id="higgs-model-repo" class="text-input"
                value="multimodalart/higgs-audio-v3-tts-4b-transformers">
-        <span class="muted" style="font-size:.78rem">Downloaded into the normal HuggingFace cache on first load.</span>
+        <span class="muted" style="font-size:.78rem">Az első betöltéskor a HuggingFace-gyorsítótárba töltődik le.</span>
       </div>
     </div>
     <div id="higgs-panel-local" class="sub-panel hidden">
       <div class="setting-row">
-        <label>Local model directory</label>
+        <label>Helyi modellmappa</label>
         <div class="input-group">
           <input type="text" id="higgs-model-path" class="text-input" placeholder="/path/to/higgs-transformers-snapshot">
-          <button class="btn btn-ghost btn-sm" onclick="checkHiggsPath()">Check</button>
+          <button class="btn btn-ghost btn-sm" onclick="checkHiggsPath()">Ellenőrzés</button>
         </div>
         <span id="higgs-path-status" class="status-hint"></span>
       </div>
     </div>
 
     <div class="setting-row">
-      <label>Temperature</label>
+      <label>Változatosság (temperature)</label>
       <input type="number" id="higgs-temperature" class="text-input" min="0" max="2" step="0.05">
     </div>
     <div class="setting-row">
@@ -144,67 +151,57 @@
       <input type="number" id="higgs-top-k" class="text-input" min="0" max="200" step="1">
     </div>
     <div class="setting-row">
-      <label>Maximum new tokens</label>
+      <label>Legfeljebb ennyi új token</label>
       <input type="number" id="higgs-max-new-tokens" class="text-input" min="128" max="4096" step="32">
     </div>
     <div class="setting-row">
-      <label>Seed</label>
+      <label>Véletlenmag (seed)</label>
       <input type="number" id="higgs-seed" class="text-input" min="-1" step="1">
-      <span class="muted" style="font-size:.78rem"><code>-1</code> = random; use a fixed seed for repeatable comparisons.</span>
+      <span class="muted" style="font-size:.78rem"><code>-1</code>= véletlen; összehasonlításhoz használj rögzített értéket.</span>
     </div>
     <div class="setting-row">
-      <label>Prompt mode</label>
+      <label>Szövegelőkészítés módja</label>
       <select id="higgs-prompt-mode" class="select-input" onchange="toggleHiggsPromptMode(this.value)">
-        <option value="raw">Raw — friend app compatible (recommended for Hungarian)</option>
-        <option value="expressive">Auris expressive — automatic controls</option>
+        <option value="raw">Nyers — magyarhoz ajánlott</option>
+        <option value="expressive">Kifejező — automatikus Auris-vezérlés</option>
       </select>
-      <span class="muted" style="font-size:.78rem">
-        Raw sends clean text exactly like the local Gradio implementation.
-        Expressive adds number normalization, narrator pitch/whisper, scene speed
-        and Auris expression tags.
-      </span>
+      <span class="muted" style="font-size:.78rem">A Nyers mód tiszta szöveget küld. A Kifejező mód számnormalizálást, hangmagasságot/suttogást, jelenetsebességet és kifejezési címkéket alkalmaz.</span>
     </div>
     <div class="setting-row higgs-expressive-control">
-      <label>Default emotion</label>
+      <label>Alapérzelem</label>
       <select id="higgs-default-emotion" class="select-input">
-        <option value="none">None</option>
-        <option value="contentment">Contentment</option>
-        <option value="affection">Affection</option>
-        <option value="contemplation">Contemplation</option>
-        <option value="amusement">Amusement</option>
-        <option value="enthusiasm">Enthusiasm</option>
-        <option value="awe">Awe</option>
-        <option value="anger">Anger</option>
-        <option value="fear">Fear</option>
-        <option value="sadness">Sadness</option>
+        <option value="none">Nincs</option>
+        <option value="contentment">Elégedettség</option>
+        <option value="affection">Szeretet</option>
+        <option value="contemplation">Elgondolkodás</option>
+        <option value="amusement">Derű</option>
+        <option value="enthusiasm">Lelkesedés</option>
+        <option value="awe">Ámulat</option>
+        <option value="anger">Harag</option>
+        <option value="fear">Félelem</option>
+        <option value="sadness">Szomorúság</option>
       </select>
     </div>
     <div class="setting-row higgs-expressive-control">
-      <label>Default style</label>
+      <label>Alapstílus</label>
       <select id="higgs-default-style" class="select-input">
-        <option value="none">None</option>
-        <option value="whispering">Whispering</option>
-        <option value="shouting">Shouting</option>
-        <option value="singing">Singing</option>
+        <option value="none">Nincs</option>
+        <option value="whispering">Suttogás</option>
+        <option value="shouting">Kiabálás</option>
+        <option value="singing">Éneklés</option>
       </select>
     </div>
     <div class="setting-row higgs-expressive-control">
-      <label>Expressiveness</label>
+      <label>Kifejezőerő</label>
       <select id="higgs-default-expressive" class="select-input">
-        <option value="none">Model default</option>
-        <option value="expressive_low">Low</option>
-        <option value="expressive_high">High</option>
+        <option value="none">Modell alapértéke</option>
+        <option value="expressive_low">Alacsony</option>
+        <option value="expressive_high">Magas</option>
       </select>
-      <span class="muted" style="font-size:.78rem">
-        Auris also maps scene speed, whisper/pitch instructions, pauses and its
-        existing non-verbal tags to Higgs inline control tokens.
-      </span>
+      <span class="muted" style="font-size:.78rem">Az Auris a jelenetsebességet, suttogást, hangmagasságot, szüneteket és nem verbális jelzéseket is Higgs-vezérlőkre képezi.</span>
     </div>
     <div class="status-block">
-      <strong>License:</strong> research/non-commercial, plus creator use for
-      audiobooks and similar media with prominent Boson AI Higgs Audio attribution.
-      Voice cloning requires the speaker's consent.
-    </div>
+      <strong>Licenc:</strong> Kutatási/nem kereskedelmi használat, valamint alkotói felhasználás hangoskönyvekhez és hasonló tartalomhoz, jól látható Boson AI Higgs Audio megjelöléssel. A hangklónozáshoz a beszélő hozzájárulása szükséges.</div>
   </section>
 
       </div>
@@ -212,108 +209,90 @@
            data-settings-category="characters" role="tabpanel" hidden>
   <!-- Character detection -->
   <section class="settings-section">
-    <div class="settings-section-title">Character &amp; Dialogue Speaker Detection</div>
-    <p class="section-desc">
-      During book import Auris can ask either a local language model or OpenAI
-      who speaks each dialogue unit. TTS is unloaded only for local analysis.
-    </p>
+    <div class="settings-section-title">Szereplők és beszélők felismerése</div>
+    <p class="section-desc">A szereplőelemzés helyi nyelvi modellel vagy az OpenAI-val azonosítja a beszélőket. A beszédmotor csak helyi elemzéshez szabadul fel.</p>
     <div class="setting-row">
-      <label>Detection mode</label>
+      <label>Felismerés módja</label>
       <select id="character-detection-mode" class="select-input"
               onchange="toggleCharacterDetection(this.value)">
-        <option value="llm">Language model — recommended</option>
-        <option value="legacy">Legacy spaCy / regex</option>
+        <option value="llm">Nyelvi modell — ajánlott</option>
+        <option value="legacy">Korábbi spaCy / szabálykészlet</option>
       </select>
     </div>
     <div id="llm-character-settings" class="sub-panel">
       <div class="setting-row">
-        <label>Language-model provider</label>
+        <label>Nyelvi modell szolgáltatója</label>
         <select id="llm-provider" class="select-input"
                 onchange="toggleLLMProvider(this.value)">
-          <option value="local">Local server — LM Studio, Ollama, llama.cpp</option>
+          <option value="local">Helyi szerver — LM Studio, Ollama, llama.cpp</option>
           <option value="openai">OpenAI API</option>
         </select>
       </div>
       <div id="local-llm-settings" class="provider-panel">
       <div class="setting-row">
-        <label>OpenAI-compatible base URL</label>
+        <label>OpenAI-kompatibilis szerver címe</label>
         <input type="text" id="llm-base-url" class="text-input"
                placeholder="http://127.0.0.1:1234/v1">
-        <span class="muted" style="font-size:.78rem">
-          LM Studio default: <code>http://127.0.0.1:1234/v1</code>.
-          Ollama default: <code>http://127.0.0.1:11434/v1</code>.
+        <span class="muted" style="font-size:.78rem">LM Studio alapcím:<code>http://127.0.0.1:1234/v1</code>. Ollama alapcím:<code>http://127.0.0.1:11434/v1</code>.
         </span>
       </div>
       <div class="setting-row">
-        <label>Model name</label>
+        <label>Modell neve</label>
         <div class="input-group">
           <select id="llm-model" class="select-input model-select">
-            <option value="">Load the available models…</option>
+            <option value="">Elérhető modellek betöltése…</option>
           </select>
           <button class="btn btn-ghost btn-sm" type="button"
-                  onclick="loadLLMModels('local')">Load models</button>
+                  onclick="loadLLMModels('local')">Modellek listázása</button>
         </div>
       </div>
       <div class="setting-row">
-        <label>API key <span class="muted">(optional)</span></label>
+        <label>API-kulcs<span class="muted">(nem kötelező)</span></label>
         <input type="password" id="llm-api-key" class="text-input"
                autocomplete="off" placeholder="Not needed for normal local servers">
       </div>
       </div>
       <div id="openai-llm-settings" class="provider-panel hidden">
         <div class="setting-row">
-          <label>OpenAI API key</label>
+          <label>OpenAI API-kulcs</label>
           <input type="password" id="openai-api-key" class="text-input"
                  autocomplete="off" placeholder="sk-…">
-          <span class="muted" style="font-size:.78rem">
-            Stored only in Auris's local settings file. A ChatGPT subscription
-            does not include API usage; OpenAI API billing is separate.
-          </span>
+          <span class="muted" style="font-size:.78rem">Az Auris helyi beállításfájljában tároljuk. A ChatGPT-előfizetés nem tartalmazza az API-használatot; az külön díjazású.</span>
         </div>
         <div class="setting-row">
-          <label>OpenAI model</label>
+          <label>OpenAI-modell</label>
           <div class="input-group">
             <select id="openai-model" class="select-input model-select">
-              <option value="">Load the models available to this API key…</option>
+              <option value="">Az API-kulccsal elérhető modellek betöltése…</option>
             </select>
             <button class="btn btn-ghost btn-sm" type="button"
-                    onclick="loadLLMModels('openai')">Load models</button>
+                    onclick="loadLLMModels('openai')">Modellek listázása</button>
           </div>
-          <span class="muted" style="font-size:.78rem">
-            The list comes directly from your OpenAI account.
-          </span>
+          <span class="muted" style="font-size:.78rem">A lista közvetlenül az OpenAI-fiókodból érkezik.</span>
         </div>
       </div>
       <div class="setting-row">
-        <label>Request timeout (seconds)</label>
+        <label>Kérés időkorlátja (másodperc)</label>
         <input type="number" id="llm-timeout-sec" class="text-input"
                min="15" max="3600" step="15">
       </div>
       <div class="setting-row">
-        <label>Maximum characters</label>
+        <label>Legfeljebb ennyi szereplő</label>
         <input type="number" id="llm-max-characters" class="text-input"
                min="1" max="200" step="1">
       </div>
       <div class="setting-row">
-        <button class="btn btn-ghost btn-sm" type="button" onclick="testLLMConnection()">
-          Test connection
-        </button>
+        <button class="btn btn-ghost btn-sm" type="button" onclick="testLLMConnection()">Kapcsolat ellenőrzése</button>
         <span id="llm-test-hint" class="status-hint"></span>
       </div>
-      <div class="status-block">
-        Auris sends one chapter at a time and requests strict JSON speaker
-        assignments. Local context length is configured in the local server.
-      </div>
+      <div class="status-block">Az Auris fejezetenként kér beszélő-hozzárendelést. A kontextusméretet a helyi szerveren állíthatod be.</div>
     </div>
     <div id="legacy-character-settings" class="sub-panel hidden">
-      <p class="section-desc">
-        The legacy detector is English-oriented and does not reliably attribute
-        dialogue. It remains available as an offline fallback.
-      </p>
-      <div id="spacy-status-block" class="status-block">Checking…</div>
+      <p class="section-desc">A korábbi felismerő angolra készült, a párbeszédek hozzárendelése korlátozott. Helyi tartalékként elérhető.</p>
+      <div id="spacy-status-block" class="status-block">Ellenőrzés…</div>
       <div id="spacy-install-section" class="hidden">
         <div class="setting-row">
-          <button class="btn btn-primary" id="spacy-install-btn" onclick="installSpacy()">Install en_core_web_sm</button>
+          <button class="btn btn-primary" id="spacy-install-btn" onclick="installSpacy()">en_core_web_sm telepítése</button>
           <span id="spacy-install-hint" class="status-hint"></span>
         </div>
       </div>
@@ -322,22 +301,19 @@
 
   <!-- Narrator Voice -->
   <section class="settings-section">
-    <div class="settings-section-title">Default Narrator Voice</div>
+    <div class="settings-section-title">Alapértelmezett narrátorhang</div>
     <div class="setting-row">
-      <label>Voice instruct string</label>
+      <label>Hang leírása a modell számára</label>
       <input type="text" id="narrator-instruct" class="text-input"
              placeholder="female, middle-aged, moderate pitch, american accent">
-      <span class="muted" style="font-size:.78rem">
-        OmniVoice uses all voice-design attributes. Higgs uses reference audio for
-        speaker identity and maps whisper / pitch attributes to control tokens.
-      </span>
+      <span class="muted" style="font-size:.78rem">Az OmniVoice hangtervezési attribútumokat használ. A Higgs a hangazonosságot referenciahangból veszi, a suttogást és hangmagasságot vezérlőkkel kezeli.</span>
     </div>
     <div class="setting-row">
       <label class="narrator-mode-row">
         <input type="checkbox" id="default-single-narrator-mode">
-        <span>Use narrator only for newly imported books</span>
+        <span>Új könyvekhez csak narrátor használata</span>
       </label>
-      <span class="muted" style="font-size:.78rem">Existing books can still be changed per book in Voice Studio.</span>
+      <span class="muted" style="font-size:.78rem">A meglévő könyvek hangja külön módosítható a Hangműhelyben.</span>
     </div>
   </section>
 
@@ -346,125 +322,92 @@
            data-settings-category="output" role="tabpanel" hidden>
   <!-- TTS text processing -->
   <section class="settings-section">
-    <div class="settings-section-title">Speech Text Processing</div>
+    <div class="settings-section-title">Felolvasandó szöveg előkészítése</div>
     <div class="setting-row">
       <label class="narrator-mode-row">
         <input type="checkbox" id="normalize-text">
-        <span>Normalize numbers before speech</span>
+        <span>Számok átalakítása felolvasás előtt</span>
       </label>
-      <span class="muted" style="font-size:.78rem">
-        Converts digits, dates, and currency into spoken form (e.g. “2345” → “two thousand three hundred forty-five”).
-        English/Chinese/Japanese: install <code>wetext</code> on Windows (or WeTextProcessing on Linux/macOS).
-        Other languages (including Hungarian) use num2words for integers.
-        Changing this creates new audio cache entries for affected segments.
-      </span>
+      <span class="muted" style="font-size:.78rem">A számokat felolvasandó alakra hozza. Az elérhető átalakítások nyelvfüggők. Angol/kínai/japán támogatáshoz telepíthető a <code>wetext</code> Windowsra (vagy WeTextProcessing Linux/macOS rendszerre). Magyarul az egész számokhoz num2words használható. Változtatáskor az érintett hangok újragenerálódnak.</span>
     </div>
   </section>
 
   <!-- Export Defaults -->
   <section class="settings-section engine-settings omnivoice-settings">
-    <div class="settings-section-title">OmniVoice Generation &amp; Export</div>
+    <div class="settings-section-title">OmniVoice generálás és export</div>
     <div class="setting-row">
-      <label>Speech quality (diffusion steps)</label>
+      <label>Beszéd részletessége (diffúziós lépések)</label>
       <select id="tts-num-step" class="select-input">
-        <option value="12">12 — fastest, lower quality</option>
-        <option value="16">16 — recommended (good quality)</option>
-        <option value="24">24 — higher quality</option>
-        <option value="32">32 — max quality, slowest</option>
+        <option value="8">8 — gyors</option>
+        <option value="16">16 — kiegyensúlyozott, ajánlott</option>
+        <option value="24">24 — részletesebb</option>
+        <option value="32">32 — legrészletesebb, lassabb</option>
       </select>
-      <span class="muted" style="font-size:.78rem">
-        Used for playback and export. Lower steps are much faster; 16 is usually enough.
-        Changing this creates new audio cache entries (existing files are kept).
-      </span>
+      <span class="muted" style="font-size:.78rem">A lejátszásra és exportra is érvényes. Kevesebb lépés gyorsabb generálást adhat. Változtatáskor új hangcache készül; a régi fájlok megmaradnak.</span>
     </div>
     <div class="setting-row">
-      <label>GPU batch size</label>
+      <label>GPU kötegméret</label>
       <select id="tts-batch-size" class="select-input">
-        <option value="0">Auto — by GPU class (recommended)</option>
-        <option value="8">8 — low VRAM</option>
-        <option value="12">12</option>
-        <option value="16">16 — 12 GB class</option>
-        <option value="24">24 — 24 GB + voice clone</option>
-        <option value="32">32 — max throughput</option>
-        <option value="40">40 — very high VRAM</option>
+        <option value="0">Automatikus — videomemória alapján</option>
+        <option value="8">8</option>
+        <option value="8">12</option>
+        <option value="16">16</option>
+        <option value="24">24</option>
+        <option value="32">32</option>
+        <option value="40">40</option>
       </select>
-      <span class="muted" style="font-size:.78rem">
-        How many <em>coalesced utterances</em> go into one OmniVoice.generate() call.
-        OmniVoice is only ~0.6B params — even batch 24 often uses just a few GB and
-        Task Manager “3D” load stays low. Check the terminal for
-        <code>GPU generate done: batch=… peak_alloc=…</code> (that is the truth).
-        Prefer nvidia-smi / Task Manager “CUDA” engine, not “3D”.
-      </span>
+      <span class="muted" style="font-size:.78rem">Ennyi <em>önálló szövegegység</em> kerül egy generálási kötegbe. Túl nagy értéknél csökkenhet a sebesség vagy elfogyhat a memória. A tényleges felhasználást a terminálban ellenőrizheted:<code>GPU generate done: batch=… peak_alloc=…</code> A GPU terheléséhez az nvidia-smi vagy a Feladatkezelő CUDA nézetét figyeld.</span>
     </div>
     <div class="setting-row">
-      <label>Exact spoken-line boundaries</label>
+      <label>Pontos mondathatárok</label>
       <input type="hidden" id="tts-coalesce-chars" value="0">
-      <span class="muted" style="font-size:.78rem">
-        Enabled. Every text segment receives its own waveform, so short replies
-        cannot contain words cut from a neighboring line. GPU batching remains active.
-      </span>
+      <span class="muted" style="font-size:.78rem">Bekapcsolva. Minden szövegegység önálló hangot kap; a GPU kötegelt generálás aktív marad.</span>
     </div>
     <div class="setting-row">
-      <label>GPU acceleration</label>
+      <label>GPU-gyorsítás</label>
       <select id="tts-accel" class="select-input">
-        <option value="auto">Auto — best available</option>
-        <option value="cuda_graph">CUDA Graph — experimental on Windows</option>
-        <option value="hybrid">Hybrid — Triton + CUDA Graph (WSL/Linux best)</option>
-        <option value="triton">Triton kernels only</option>
-        <option value="off">Off — plain PyTorch</option>
+        <option value="auto">Automatikus</option>
+        <option value="cuda_graph">CUDA Graph — Windows alatt kísérleti</option>
+        <option value="hybrid">Hibrid — Triton + CUDA Graph (WSL/Linux)</option>
+        <option value="triton">Csak Triton</option>
+        <option value="off">Kikapcsolva — PyTorch</option>
       </select>
-      <span class="muted" style="font-size:.78rem" id="tts-accel-hint">
-        On the tested RTX 3090 + Windows 11 setup, plain PyTorch was slightly
-        faster, so use <strong>Off</strong> unless your own benchmark proves otherwise.
-        Full Triton/hybrid needs <code>omnivoice-triton</code> (officially WSL2/Linux;
-        on native Windows try <code>pip install triton-windows</code> then
-        <code>pip install omnivoice-triton</code>). After changing this, click
-        <strong>Reload TTS model</strong> below.
-      </span>
+      <span class="muted" style="font-size:.78rem" id="tts-accel-hint">A mért RTX 3090 + Windows 11 konfiguráción a PyTorch kissé gyorsabb volt. Javasolt:<strong>Kikapcsolva</strong> amíg saját mérés mást nem indokol. A teljes Triton/hibrid módhoz szükséges:<code>omnivoice-triton</code>(hivatalosan WSL2/Linux; natív Windowson:<code>pip install triton-windows</code> majd <code>pip install omnivoice-triton</code>). Módosítás után használd a <strong>Beszédmotor újratöltése</strong> gombot.</span>
       <div id="tts-accel-status" class="muted" style="font-size:.78rem;margin-top:.35rem"></div>
     </div>
     <div class="setting-row">
-      <label>Parallel export workers</label>
+      <label>Párhuzamos exportmunkások</label>
       <select id="tts-export-workers" class="select-input">
-        <option value="0">Auto — 2 workers on 20 GB+ GPU</option>
-        <option value="1">1 — single model</option>
-        <option value="2">2 — dual model / dual CUDA stream</option>
+        <option value="0">Automatikus — 20 GB felett 2 munkás</option>
+        <option value="1">1 — egy modell</option>
+        <option value="2">2 — két modell / két CUDA-folyam</option>
       </select>
-      <span class="muted" style="font-size:.78rem">
-        Loads a second OmniVoice model only while exporting. On an RTX 3090,
-        two workers can overlap GPU-heavy generation with lower-load decoding.
-        Automatically falls back to one worker when VRAM is insufficient or a
-        worker fails.
-      </span>
+      <span class="muted" style="font-size:.78rem">Csak export közben tölt be második OmniVoice-modellt. Ha nincs elég memória vagy egy munkás hibázik, egy munkással folytatja.</span>
     </div>
   </section>
 
   <!-- Shared output defaults -->
   <section class="settings-section">
-    <div class="settings-section-title">Output Defaults</div>
+    <div class="settings-section-title">Kimeneti alapértékek</div>
     <div class="setting-row">
       <label class="checkbox-label">
-        <input type="checkbox" id="audio-mastering">
-        Studio mastering for exports
-      </label>
-      <span class="muted" style="font-size:.78rem">
-        Uses FFmpeg on each completed chapter: gentle tonal shaping and compression,
-        followed by two-pass loudness normalization to −19 LUFS, 9 LU LRA and
-        −3 dB true peak. This evens out narrator and cloned-character volume.
-      </span>
+        <input type="checkbox" id="audio-mastering">Export hangjának utófeldolgozása</label>
+      <span class="muted" style="font-size:.78rem">Az FFmpeg fejezetenként finom hangszínszabályozást, kompressziót és kétmenetes hangerő-kiegyenlítést végez: −19 LUFS, 9 LU LRA és −3 dB true peak.</span>
     </div>
     <div class="setting-row">
-      <label>Audio format</label>
+      <label>Hangformátum</label>
       <select id="audio-format" class="select-input">
-        <option value="wav">WAV — lossless, always available</option>
-        <option value="mp3">MP3 — requires ffmpeg on PATH</option>
+        <option value="wav">WAV — veszteségmentes</option>
+        <option value="mp3">MP3 — ffmpeg szükséges</option>
+        <option value="m4b">M4B — fejezetes hangoskönyv, ffmpeg szükséges</option>
       </select>
     </div>
     <div class="setting-row">
-      <label>Subtitle format</label>
+      <label>Felirat formátuma</label>
       <select id="subtitle-format" class="select-input">
-        <option value="ass">ASS — styled, per-character colours</option>
-        <option value="srt">SRT — plain, universally supported</option>
+        <option value="none">Felirat nélkül</option>
+        <option value="ass">ASS — szereplőnként színezett</option>
+        <option value="srt">SRT — egyszerű felirat</option>
       </select>
     </div>
   </section>
@@ -474,31 +417,31 @@
            data-settings-category="reading" role="tabpanel" hidden>
   <!-- Reading Interface -->
   <section class="settings-section">
-    <div class="settings-section-title">Reading Interface</div>
+    <div class="settings-section-title">Olvasási felület</div>
 
     <div class="setting-row">
-      <label>Theme</label>
+      <label>Téma</label>
       <div class="theme-swatches">
-        <div class="theme-swatch theme-swatch-night" data-theme="night" title="Night" onclick="selectTheme('night')"></div>
-        <div class="theme-swatch theme-swatch-sepia" data-theme="sepia" title="Sepia" onclick="selectTheme('sepia')"></div>
-        <div class="theme-swatch theme-swatch-paper" data-theme="paper" title="Paper" onclick="selectTheme('paper')"></div>
-        <div class="theme-swatch theme-swatch-amoled" data-theme="amoled" title="AMOLED" onclick="selectTheme('amoled')"></div>
+        <button type="button" class="theme-swatch theme-swatch-night" data-theme="night" title="Night" onclick="selectTheme('night')"></button>
+        <button type="button" class="theme-swatch theme-swatch-sepia" data-theme="sepia" title="Sepia" onclick="selectTheme('sepia')"></button>
+        <button type="button" class="theme-swatch theme-swatch-paper" data-theme="paper" title="Paper" onclick="selectTheme('paper')"></button>
+        <button type="button" class="theme-swatch theme-swatch-amoled" data-theme="amoled" title="AMOLED" onclick="selectTheme('amoled')"></button>
       </div>
       <input type="hidden" id="theme-select" value="night">
     </div>
 
     <div class="setting-row">
-      <label>Font family</label>
+      <label>Betűtípus</label>
       <div class="font-family-options">
-        <div class="font-option serif" data-ff="serif" onclick="selectFontFamily('serif')">Serif</div>
-        <div class="font-option sans"  data-ff="sans"  onclick="selectFontFamily('sans')">Sans-serif</div>
-        <div class="font-option mono"  data-ff="mono"  onclick="selectFontFamily('mono')">Monospace</div>
+        <button type="button" class="font-option serif" data-ff="serif" onclick="selectFontFamily('serif')">Talpas</button>
+        <button type="button" class="font-option sans"  data-ff="sans"  onclick="selectFontFamily('sans')">Talpatlan</button>
+        <button type="button" class="font-option mono"  data-ff="mono"  onclick="selectFontFamily('mono')">Azonos szélességű</button>
       </div>
       <input type="hidden" id="font-family" value="serif">
     </div>
 
     <div class="setting-row">
-      <label>Font size</label>
+      <label>Betűméret</label>
       <div class="range-row">
         <input type="range" id="font-size" min="13" max="30" step="1" value="18"
                oninput="document.getElementById('font-size-val').textContent=this.value+'px'">
@@ -507,7 +450,7 @@
     </div>
 
     <div class="setting-row">
-      <label>Line height</label>
+      <label>Sorköz</label>
       <div class="range-row">
         <input type="range" id="line-height" min="1.4" max="2.2" step="0.1" value="1.9"
                oninput="document.getElementById('line-height-val').textContent=parseFloat(this.value).toFixed(1)">
@@ -520,16 +463,18 @@
   </div>
 
   <div class="settings-footer">
-    <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+    <button class="btn btn-primary" onclick="saveSettings(true)">Mentés és motor alkalmazása</button>
+    <button class="btn btn-primary" onclick="saveSettings()">Beállítások mentése</button>
     <span id="save-hint" class="status-hint"></span>
   </div>
 </div>
 
 <div id="settings-unsaved-banner" class="settings-unsaved-banner hidden" role="status" aria-live="polite">
-  <span><strong>Unsaved changes.</strong> Save Settings before leaving this page.</span>
-  <button class="btn btn-primary btn-sm" type="button" onclick="saveSettings()">Save Settings</button>
+  <span><strong>Nem mentett módosítások.</strong> Az oldal elhagyása előtt mentsd a beállításokat.</span>
+  <button class="btn btn-primary btn-sm" type="button" onclick="saveSettings()">Beállítások mentése</button>
 </div>
 {% endblock %}
 {% block scripts %}
 <script src="/static/js/settings.js"></script>
+<script src="/static/js/settings-experience.js"></script>
 {% endblock %}

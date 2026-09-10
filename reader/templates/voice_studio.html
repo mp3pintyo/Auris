@@ -1,117 +1,148 @@
 {% extends "base.html" %}
-{% block title %}Voice Studio - {{ book.title }}{% endblock %}
+{% block title %}Hangstúdió – {{ book.title }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/static/css/voice-experience.css">
+{% endblock %}
 {% block content %}
-<div class="studio-page">
-  <div class="studio-header">
-    <a href="/reader/{{ book.id }}" class="btn btn-sm btn-ghost">&#8592; Reader</a>
-    <h1>Voice Studio &mdash; <em>{{ book.title }}</em></h1>
-  </div>
+<main class="studio-page voice-studio-page">
+  <header class="studio-header">
+    <a href="/reader/{{ book.id }}" class="btn btn-sm btn-ghost">&#8592; Vissza az olvasóhoz</a>
+    <div>
+      <p class="voice-eyebrow">Hangstúdió</p>
+      <h1>{{ book.title }}</h1>
+      <p class="voice-intro">Válassz mentett hangot, vagy állíts be külön narrátort és szereplőhangokat.</p>
+    </div>
+  </header>
 
-  <div class="studio-narrator">
-    <div class="studio-section-title">Narrator</div>
-    <div class="char-list">
-      <div class="character-card narrator-card">
-        <div class="char-avatar narrator-avatar">N</div>
-        <div class="char-details">
-          <span class="char-name">Narrator</span>
-          <div class="voice-controls">
-            <select id="narrator-gender" class="vc-select">
-              <option value="female">Female</option>
-              <option value="male" selected>Male</option>
+  <section class="studio-narrator" aria-labelledby="narrator-title">
+    <h2 id="narrator-title" class="studio-section-title">Narrátor</h2>
+    <article class="character-card narrator-card">
+      <div class="char-avatar narrator-avatar" aria-hidden="true">N</div>
+      <div class="char-details">
+        <h3 class="char-name">Narrátor</h3>
+
+        <section class="profile-controls" aria-label="Narrátor mentett hangprofilja">
+          <label for="profile-narrator">Mentett hangprofil</label>
+          <div class="profile-apply-row">
+            <select id="profile-narrator" class="vc-select voice-profile-select" aria-label="Mentett narrátorhang">
+              <option value="">Válassz mentett hangot…</option>
             </select>
-            <select id="narrator-age" class="vc-select">
-              <option value="child">Child</option>
-              <option value="teenager">Teenager</option>
-              <option value="young adult">Young adult</option>
-              <option value="middle-aged">Middle-aged</option>
-              <option value="elderly" selected>Elderly</option>
-            </select>
-            <select id="narrator-pitch" class="vc-select">
-              <option value="very low pitch">Very low pitch</option>
-              <option value="low pitch" selected>Low pitch</option>
-              <option value="moderate pitch">Moderate pitch</option>
-              <option value="high pitch">High pitch</option>
-              <option value="very high pitch">Very high pitch</option>
-            </select>
-            <select id="narrator-accent" class="vc-select">
-              <option value="american accent">American</option>
-              <option value="british accent" selected>British</option>
-              <option value="australian accent">Australian</option>
-              <option value="canadian accent">Canadian</option>
-              <option value="indian accent">Indian</option>
-              <option value="chinese accent">Chinese</option>
-              <option value="korean accent">Korean</option>
-              <option value="japanese accent">Japanese</option>
-            </select>
+            <button type="button" class="btn btn-sm btn-primary" onclick="applySelectedProfile(null)">Alkalmazás</button>
+            <button type="button" class="btn btn-sm btn-ghost" onclick="deleteSelectedProfile(null)">Törlés</button>
           </div>
-          <label class="narrator-mode-row">
-            <input type="checkbox" id="single-narrator-mode">
-            <span>Use this narrator for the whole book</span>
-          </label>
-          <div class="studio-note">
-            When enabled, playback and export use the narrator voice for every line.
+          <div class="profile-save-row">
+            <label class="sr-only" for="profile-name-narrator">Új narrátorprofil neve</label>
+            <input id="profile-name-narrator" maxlength="100" placeholder="Új hangprofil neve">
+            <button type="button" class="btn btn-sm btn-ghost" onclick="saveCurrentAsProfile(null)">Jelenlegi hang mentése</button>
+          </div>
+        </section>
+
+        <section class="clone-section clone-prominent" aria-labelledby="narrator-reference-title">
+          <h4 id="narrator-reference-title">Referenciahang</h4>
+          <div id="narrator-ref-status" class="reference-status{% if not book.narrator_ref_audio_path %} hidden{% endif %}">
+            <span class="reference-status-label">Aktív referencia:</span>
+            <span id="narrator-ref-name">{{ book.narrator_ref_audio_name or 'Korábban feltöltött WAV' }}</span>
+          </div>
+          <label for="narrator-ref-text">Referenciahang pontos átirata</label>
+          <textarea id="narrator-ref-text" class="reference-text" rows="3" placeholder="Pontosan azt írd ide, ami a hangfelvételen elhangzik.">{{ book.narrator_ref_text or '' }}</textarea>
+          <div class="reference-actions">
+            <label class="btn btn-sm btn-ghost file-picker">
+              <span>Átirat betöltése TXT-ből</span>
+              <input id="narrator-ref-text-file" type="file" accept=".txt,text/plain" onchange="loadNarratorRefText(event)">
+            </label>
+            <label class="btn btn-sm btn-primary file-picker">
+              <span>Referencia WAV kiválasztása</span>
+              <input id="narrator-ref-file" type="file" accept=".wav,audio/wav" onchange="uploadNarratorRef(event)">
+            </label>
+            <button id="remove-narrator-ref-btn" class="btn btn-sm btn-ghost" type="button" onclick="removeNarratorRef()">Referencia törlése</button>
+          </div>
+          <p class="studio-note">Tiszta, egyetlen beszélőt tartalmazó, 3–10 másodperces magyar felvétel ajánlott. A pontos átirat javítja a hangklónozás minőségét.</p>
+        </section>
+
+        <label class="narrator-mode-row">
+          <input type="checkbox" id="single-narrator-mode">
+          <span>Ez a narrátor olvassa fel a teljes könyvet</span>
+        </label>
+        <p class="studio-note">Bekapcsolva a párbeszédek is a narrátor hangján szólalnak meg.</p>
+
+        <details class="technical-panel">
+          <summary>Hang finomhangolása</summary>
+          <div class="voice-controls">
+            <label>Nemi karakter
+              <select id="narrator-gender" class="vc-select">
+                <option value="female">Női</option>
+                <option value="male" selected>Férfi</option>
+              </select>
+            </label>
+            <label>Életkor
+              <select id="narrator-age" class="vc-select">
+                <option value="child">Gyermek</option>
+                <option value="teenager">Tinédzser</option>
+                <option value="young adult">Fiatal felnőtt</option>
+                <option value="middle-aged">Középkorú</option>
+                <option value="elderly" selected>Idős</option>
+              </select>
+            </label>
+            <label>Hangmagasság
+              <select id="narrator-pitch" class="vc-select">
+                <option value="very low pitch">Nagyon mély</option>
+                <option value="low pitch" selected>Mély</option>
+                <option value="moderate pitch">Közepes</option>
+                <option value="high pitch">Magas</option>
+                <option value="very high pitch">Nagyon magas</option>
+              </select>
+            </label>
+            <label>Akcentus
+              <select id="narrator-accent" class="vc-select">
+                <option value="">Semleges / nincs akcentus</option>
+                <option value="american accent">Amerikai</option>
+                <option value="british accent" selected>Brit</option>
+                <option value="australian accent">Ausztrál</option>
+                <option value="canadian accent">Kanadai</option>
+                <option value="indian accent">Indiai</option>
+                <option value="chinese accent">Kínai</option>
+                <option value="korean accent">Koreai</option>
+                <option value="japanese accent">Japán</option>
+              </select>
+            </label>
           </div>
           <div class="char-card-footer">
             <span class="instruct-preview" id="narrator-instruct-preview"></span>
-            <button class="btn btn-sm btn-ghost preview-btn" data-char-id="narrator">&#9654; Preview</button>
-            <button class="btn btn-sm btn-primary" onclick="saveNarrator()">Save</button>
+            <button id="narrator-preview-btn" class="btn btn-sm btn-ghost" type="button">▶ Magyar próba</button>
+            <button class="btn btn-sm btn-primary" type="button" onclick="saveNarrator()">Mentés</button>
           </div>
-          <div id="narrator-ref-status" class="reference-status{% if not book.narrator_ref_audio_path %} hidden{% endif %}">
-            <span class="reference-status-label">Active reference:</span>
-            <span id="narrator-ref-name">{{ book.narrator_ref_audio_name or 'Previously uploaded WAV' }}</span>
-          </div>
-          <div class="clone-section">
-            <label for="narrator-ref-text">Reference audio transcript</label>
-            <textarea id="narrator-ref-text" class="reference-text" rows="3" placeholder="Type exactly what is spoken in the reference audio.">{{ book.narrator_ref_text or '' }}</textarea>
-            <div class="reference-actions">
-              <label class="btn btn-sm btn-ghost file-picker">
-                <span>Load transcript TXT</span>
-                <input id="narrator-ref-text-file" type="file" accept=".txt,text/plain" onchange="loadNarratorRefText(event)">
-              </label>
-            </div>
-            <div class="studio-note">A matching transcript gives OmniVoice the best cloning quality. The TXT content is loaded into this field; save it or upload the audio to persist it. If left empty, OmniVoice can auto-transcribe with Whisper.</div>
-            <div class="reference-actions">
-              <label class="btn btn-sm btn-ghost file-picker">
-                <span>Choose reference WAV</span>
-                <input id="narrator-ref-file" type="file" accept=".wav,audio/wav" onchange="uploadNarratorRef(event)">
-              </label>
-              <button
-                id="remove-narrator-ref-btn"
-                class="btn btn-sm btn-ghost"
-                type="button"
-                onclick="removeNarratorRef()"
-              >Remove reference</button>
-            </div>
-            <div class="studio-note">Best results: a clean, single-speaker, 3–10 second clip in the target language.</div>
-          </div>
-        </div>
+        </details>
       </div>
-    </div>
-  </div>
+    </article>
+  </section>
 
-  <div class="studio-characters">
-    <div class="studio-section-title">
-      Characters <span id="char-count" class="muted"></span>
+  <section class="studio-characters" aria-labelledby="characters-title">
+    <div class="studio-section-title character-heading-row">
+      <h2 id="characters-title">Szereplők <span id="char-count" class="muted"></span></h2>
+      <label class="character-search-label" for="character-search">
+        <span>Szereplő keresése</span>
+        <input id="character-search" type="search" autocomplete="off" placeholder="Keresés név alapján…">
+      </label>
     </div>
     <label class="character-filter-row{% if not current_chapter %} disabled{% endif %}">
       <input type="checkbox" id="chapter-character-filter"{% if not current_chapter %} disabled{% endif %}>
       <span>
-        Only characters in this chapter
+        Csak az aktuális fejezet szereplői
         {% if current_chapter %}
         <small>{{ current_chapter.title }}</small>
         {% else %}
-        <small>No chapter is available</small>
+        <small>Nincs kiválasztott fejezet</small>
         {% endif %}
       </span>
     </label>
-    <div id="character-voice-note" class="studio-note hidden"></div>
-    <div id="char-list" class="char-list">
-      <div class="loading-spinner">Detecting characters...</div>
+    <div id="character-voice-note" class="studio-note hidden" role="status"></div>
+    <div id="char-list" class="char-list" aria-live="polite">
+      <div class="loading-spinner">Szereplők betöltése…</div>
     </div>
-  </div>
-</div>
+  </section>
+</main>
 
-<audio id="preview-audio" style="display:none"></audio>
+<audio id="preview-audio" class="hidden" aria-hidden="true"></audio>
 {% endblock %}
 {% block scripts %}
 <script>window.BOOK_ID = {{ book.id }};</script>

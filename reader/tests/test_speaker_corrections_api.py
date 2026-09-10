@@ -340,11 +340,11 @@ class SpeakerCorrectionsApiTest(unittest.TestCase):
             reader_script,
         )
         self.assertIn(
-            "showNarrationLabel ? 'Narration / no speaker' : 'Assign speaker'",
+            "showNarrationLabel ? 'Narráció / nincs beszélő' : 'Beszélő megadása'",
             reader_script,
         )
         self.assertNotIn("speaker-editor-turn-scope", reader_script)
-        self.assertIn(b"Who speaks this line?", response.data)
+        self.assertIn("Ki mondja ezt?".encode('utf-8'), response.data)
 
 
 if __name__ == "__main__":

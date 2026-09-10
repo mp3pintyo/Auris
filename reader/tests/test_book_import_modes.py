@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import app as app_module
-from core import database
+from core import database, jobs
 from core import settings as app_settings
 
 
@@ -102,6 +102,10 @@ class BookImportModesTest(unittest.TestCase):
             book = conn.execute("SELECT * FROM books").fetchone()
         self.assertEqual(book["single_narrator_mode"], 0)
         self.assertEqual(book["character_analysis_provider"], "llm")
+        analysis_jobs = jobs.list_jobs(book_id=book["id"])
+        self.assertEqual(len(analysis_jobs), 1)
+        self.assertEqual(analysis_jobs[0]["type"], "initial_analysis")
+        self.assertNotIn("api_key", analysis_jobs[0]["input"])
 
     def test_openai_character_analysis_does_not_unload_local_tts(self):
         app_settings.save({
@@ -129,11 +133,54 @@ class BookImportModesTest(unittest.TestCase):
             book = conn.execute("SELECT * FROM books").fetchone()
         self.assertEqual(book["character_analysis_model"], "gpt-test")
 
+    def test_same_filename_imports_use_distinct_managed_paths(self):
+        for content in (b"First book text.", b"Second book text."):
+            response = self.client.post(
+                "/api/books/import",
+                data={
+                    "file": (io.BytesIO(content), "same-name.txt"),
+                    "narration_mode": "single",
+                },
+                content_type="multipart/form-data",
+            )
+            self.assertEqual(response.status_code, 200)
+
+        with database.get_conn() as conn:
+            paths = [
+                row["file_path"]
+                for row in conn.execute("SELECT file_path FROM books ORDER BY id")
+            ]
+        self.assertEqual(len(set(paths)), 2)
+        self.assertTrue(all(os.path.isfile(path) for path in paths))
+
+    def test_empty_parsed_document_is_rejected_before_book_insert(self):
+        with patch.object(
+            app_module.txt_parser,
+            "parse",
+            return_value={
+                "title": "Empty", "author": "", "language": "hu",
+                "chapters": [{"title": "Page", "content": "  \n"}],
+            },
+        ):
+            response = self.client.post(
+                "/api/books/import",
+                data={
+                    "file": (io.BytesIO(b"blank"), "empty.txt"),
+                    "narration_mode": "single",
+                },
+                content_type="multipart/form-data",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("OCR", response.get_json()["error"])
+        with database.get_conn() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) FROM books").fetchone()[0], 0)
+
     def test_library_uses_pre_import_dialog(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'id="import-dialog"', response.data)
-        self.assertIn(b"How should this book be narrated?", response.data)
+        self.assertIn("Hogyan szólaljon meg?".encode("utf-8"), response.data)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ Audio formats:
 Subtitle formats:
   - ass  (Advanced SubStation Alpha — per-character colours/styles)
   - srt  (plain SubRip — universal)
+  - none (audio only)
 """
 
 import io
@@ -389,15 +390,18 @@ def export_single_chapter(
             actual_fmt = 'mp3'
             os.remove(wav_path)
 
-    sub_content = (
-        build_ass(timeline, character_colors, f'{book_title} — {chapter_title}')
-        if sub_fmt == 'ass'
-        else build_srt(timeline)
-    )
-    sub_ext = 'ass' if sub_fmt == 'ass' else 'srt'
-    sub_path = os.path.join(output_dir, f'{safe_title}.{sub_ext}')
-    with open(sub_path, 'w', encoding='utf-8') as f:
-        f.write(sub_content)
+    sub_path = None
+    sub_ext = 'none'
+    if sub_fmt != 'none':
+        sub_content = (
+            build_ass(timeline, character_colors, f'{book_title} — {chapter_title}')
+            if sub_fmt == 'ass'
+            else build_srt(timeline)
+        )
+        sub_ext = 'ass' if sub_fmt == 'ass' else 'srt'
+        sub_path = os.path.join(output_dir, f'{safe_title}.{sub_ext}')
+        with open(sub_path, 'w', encoding='utf-8') as f:
+            f.write(sub_content)
 
     return {
         'audio_path': out_audio,
@@ -437,7 +441,8 @@ def export_chapter_zip(
             ch_safe = _safe_name(ch['chapter_title'])
             ext = result['audio_fmt']
             zf.write(result['audio_path'], f'{ch_safe}.{ext}')
-            zf.write(result['subtitle_path'], f'{ch_safe}.{result["sub_fmt"]}')
+            if result['subtitle_path']:
+                zf.write(result['subtitle_path'], f'{ch_safe}.{result["sub_fmt"]}')
 
     return zip_path
 
@@ -480,6 +485,105 @@ def export_chapter_folder(
         ))
 
     return {'directory_path': output_dir, 'chapters': files}
+
+
+def _ffmetadata_value(value: str) -> str:
+    return str(value or '').replace('\\', '\\\\').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#').replace('\n', ' ')
+
+
+def export_m4b(
+    book_title: str,
+    chapters_data: list[dict],
+    character_colors: dict | None = None,
+    *,
+    sub_fmt: str = 'none',
+    book_author: str = 'Unknown',
+) -> dict:
+    """Create one AAC M4B with seekable ffmpeg chapter metadata."""
+    if not chapters_data:
+        raise ValueError('This book has no chapters to export.')
+    if not _ffmpeg_available():
+        raise RuntimeError('FFmpeg is required for M4B export.')
+
+    output_dir = _book_export_dir(book_author, book_title)
+    os.makedirs(output_dir, exist_ok=True)
+    safe_book = _safe_name(book_title)
+    input_wav = os.path.join(output_dir, f'.{safe_book}.m4b-source.wav')
+    output_path = os.path.join(output_dir, f'{safe_book}.m4b')
+
+    arrays: list[np.ndarray] = []
+    metadata = [';FFMETADATA1', f'title={_ffmetadata_value(book_title)}', f'artist={_ffmetadata_value(book_author)}']
+    cursor_ms = 0
+    combined_segments: list[dict] = []
+    timeline_offset = 0.0
+    for index, chapter in enumerate(chapters_data):
+        chapter_timeline = build_timeline(chapter.get('segments') or [])
+        chapter_audio = _merge_wavs(chapter_timeline)
+        arrays.append(chapter_audio)
+        duration_ms = round(len(chapter_audio) / SAMPLE_RATE * 1000)
+        # The same short pause used between ordinary segments separates chapters.
+        pause_ms = round(DEFAULT_SEGMENT_PAUSE_SEC * 1000) if index + 1 < len(chapters_data) else 0
+        metadata.extend([
+            '[CHAPTER]',
+            'TIMEBASE=1/1000',
+            f'START={cursor_ms}',
+            f'END={cursor_ms + duration_ms + pause_ms}',
+            f'title={_ffmetadata_value(chapter.get("chapter_title") or f"Chapter {index + 1}")}',
+        ])
+        for segment in chapter_timeline:
+            combined_segments.append({
+                **segment,
+                't_start': segment['t_start'] + timeline_offset,
+                't_end': segment['t_end'] + timeline_offset,
+            })
+        cursor_ms += duration_ms + pause_ms
+        timeline_offset = cursor_ms / 1000
+        if pause_ms:
+            arrays.append(np.zeros(round(SAMPLE_RATE * pause_ms / 1000), dtype=np.float32))
+
+    sf.write(input_wav, np.concatenate(arrays), SAMPLE_RATE)
+    try:
+        completed = subprocess.run(
+            [
+                'ffmpeg', '-hide_banner', '-nostats', '-y',
+                '-i', input_wav,
+                '-f', 'ffmetadata', '-i', 'pipe:0',
+                '-map', '0:a', '-map_metadata', '1', '-map_chapters', '1',
+                '-c:a', 'aac', '-b:a', '192k', output_path,
+            ],
+            input='\n'.join(metadata) + '\n',
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip().splitlines()[-1] if completed.stderr else 'unknown error'
+            raise RuntimeError(f'FFmpeg M4B export failed: {detail}')
+    finally:
+        if os.path.exists(input_wav):
+            os.remove(input_wav)
+
+    subtitle_path = None
+    actual_sub_fmt = 'none'
+    if sub_fmt != 'none':
+        actual_sub_fmt = 'ass' if sub_fmt == 'ass' else 'srt'
+        subtitle_path = os.path.join(output_dir, f'{safe_book}.{actual_sub_fmt}')
+        content = (
+            build_ass(combined_segments, character_colors or {}, book_title)
+            if actual_sub_fmt == 'ass'
+            else build_srt(combined_segments)
+        )
+        with open(subtitle_path, 'w', encoding='utf-8') as subtitle_file:
+            subtitle_file.write(content)
+
+    return {
+        'audio_path': output_path,
+        'subtitle_path': subtitle_path,
+        'audio_fmt': 'm4b',
+        'sub_fmt': actual_sub_fmt,
+        'chapter_count': len(chapters_data),
+    }
 
 
 def parse_chapter_selection(selection: str | None, chapter_count: int) -> list[int]:

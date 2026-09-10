@@ -1,21 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="hu">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{% block title %}Auris{% endblock %}</title>
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/experience.css">
 {% block head %}{% endblock %}
 </head>
 <body>
 <nav class="topnav">
   <a class="brand" href="/">Auris<span class="brand-sub">Reader</span></a>
   <span class="nav-links">
-    <a href="/" id="nav-library"{% if request.path == '/' %} class="active"{% endif %}>Library</a>
-    <a href="/settings" id="nav-settings"{% if request.path == '/settings' %} class="active"{% endif %}>Settings</a>
-    <a href="/docs" id="nav-docs"{% if request.path == '/docs' %} class="active"{% endif %}>Docs</a>
-    <span id="model-badge" class="badge badge-loading">Loading</span>
+    <a href="/" id="nav-library"{% if request.path == '/' %} class="active"{% endif %}>Könyvtár</a>
+    <a href="/jobs"{% if request.path == '/jobs' %} class="active"{% endif %}>Feladatok</a>
+    <a href="/settings" id="nav-settings"{% if request.path == '/settings' %} class="active"{% endif %}>Beállítások</a>
+    <a href="/docs" id="nav-docs"{% if request.path == '/docs' %} class="active"{% endif %}>Súgó</a>
+    <span id="model-badge" class="badge badge-loading" role="status" aria-live="polite">Ellenőrzés…</span>
   </span>
 </nav>
 {% block content %}{% endblock %}
@@ -33,19 +35,17 @@ async function pollModelStatus() {
     const s = await r.json();
     badge.className = 'badge';
     if (s.state === 'ready') {
-      badge.textContent = 'TTS Ready';
+      badge.textContent = 'Hang kész';
       badge.classList.add('badge-ready');
-      return;
     } else if (s.state === 'loading') {
-      badge.textContent = 'TTS Loading';
+      badge.textContent = 'Modell betöltése';
       badge.classList.add('badge-loading');
     } else if (s.state === 'error') {
-      badge.textContent = 'TTS Error';
+      badge.textContent = 'Hanghiba';
       badge.classList.add('badge-error');
       badge.title = s.message || '';
-      return;
     } else {
-      badge.textContent = s.model_exists ? 'TTS Idle' : 'Model Missing';
+      badge.textContent = s.model_exists ? 'Hang készenlétben' : 'Modell hiányzik';
       badge.classList.add(s.model_exists ? 'badge-idle' : 'badge-error');
     }
   } catch(e) { /* ignore */ }

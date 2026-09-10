@@ -1,58 +1,22 @@
 {% extends "base.html" %}
-{% block title %}Library — Auris{% endblock %}
+{% block title %}Könyvtár — Auris{% endblock %}
 {% block content %}
-<div class="library-page">
-  <div class="library-header">
-    <h1>Library</h1>
-    <span id="library-count" class="library-count"></span>
-    <label class="btn btn-primary" for="file-input">Import Book</label>
-    <input id="file-input" type="file" accept=".epub,.pdf,.txt" style="display:none">
-  </div>
-  <div id="import-status" class="import-status hidden"></div>
-  <div id="book-grid" class="book-grid">
-    <div class="loading-spinner">Loading library…</div>
-  </div>
-</div>
-
-<div class="modal-overlay hidden" id="import-dialog" onclick="closeImportDialog()">
-  <div class="modal import-dialog" role="dialog" aria-modal="true"
-       aria-labelledby="import-dialog-title" onclick="event.stopPropagation()">
-    <div class="modal-title" id="import-dialog-title">Import book</div>
-    <div class="import-file-summary">
-      <div class="import-file-icon" id="import-file-type">BOOK</div>
-      <div>
-        <strong id="import-file-name"></strong>
-        <span id="import-file-size"></span>
-      </div>
-    </div>
-
-    <fieldset class="narration-choice">
-      <legend>How should this book be narrated?</legend>
-      <label class="narration-option">
-        <input type="radio" name="narration-mode" value="single" checked>
-        <span>
-          <strong>One narrator</strong>
-          <small>Use one voice for the whole book. No character analysis.</small>
-        </span>
-      </label>
-      <label class="narration-option">
-        <input type="radio" name="narration-mode" value="multi">
-        <span>
-          <strong>Character voices</strong>
-          <small>Analyze dialogue with your configured language-model provider, then review and correct speakers.</small>
-        </span>
-      </label>
-    </fieldset>
-
-    <div class="import-model-note" id="import-model-note"></div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" type="button" onclick="closeImportDialog()">Cancel</button>
-      <button class="btn btn-primary" type="button" id="confirm-import-btn"
-              onclick="confirmImport()">Import book</button>
-    </div>
-  </div>
-</div>
+<main class="library-page">
+ <div class="library-header"><h1>Könyvtár</h1><span id="library-count" class="library-count"></span><button class="btn btn-primary" onclick="document.getElementById('file-input').click()">Könyv hozzáadása</button><button class="btn btn-ghost" onclick="openUrlDialog()">Webcikk hozzáadása</button><input id="file-input" type="file" accept=".epub,.pdf,.txt" hidden></div>
+ <section id="welcome-card" class="experience-card hidden"><h2>Magyar történetek, a saját hangjaiddal</h2><p>Ellenőrizd a beszédmotort, és hallgass meg egy magyar próbamondatot.</p><a class="btn btn-primary" href="/settings#setup">Első beállítás</a></section>
+ <div id="import-status" class="import-status hidden" role="status" aria-live="polite"></div>
+ <section id="continue-card" class="experience-card hidden" aria-label="Legutóbbi könyv"></section>
+ <div class="library-tools"><label>Keresés<input id="library-search" type="search" placeholder="Cím, szerző, sorozat…"></label><label>Állapot<select id="library-state"><option value="all">Mindegyik</option><option value="new">Még nem kezdtem</option><option value="reading">Folyamatban</option><option value="finished">Befejeztem</option></select></label><label>Gyűjtemény<select id="library-collection"><option value="">Mindegyik</option></select></label><label>Rendezés<select id="library-sort"><option value="recent">Legutóbb olvasott</option><option value="added">Legújabb</option><option value="title">Cím</option><option value="author">Szerző</option></select></label></div>
+ <div id="book-grid" class="book-grid"><div class="loading-spinner">Könyvtár betöltése…</div></div>
+</main>
+<dialog id="url-dialog" class="experience-dialog" aria-labelledby="url-title"><form onsubmit="event.preventDefault();previewUrl()"><h2 id="url-title">Webcikk hozzáadása</h2><p>Illeszd be egy nyilvános cikk címét. Az elmentett szöveget később helyben olvashatod és hallgathatod.</p><label>Cikk webcíme<input id="article-url" type="url" placeholder="https://…" required></label><p id="url-error" class="status-error" role="alert"></p><div class="modal-footer"><button class="btn btn-ghost" type="button" onclick="this.closest('dialog').close()">Mégse</button><button class="btn btn-primary" id="url-preview-btn">Előnézet</button></div></form></dialog>
+<dialog id="import-dialog" class="experience-dialog" aria-labelledby="import-dialog-title"><form onsubmit="event.preventDefault();confirmImport()">
+ <h2 id="import-dialog-title">Import ellenőrzése</h2><div class="form-grid"><label>Cím<input id="import-title" required maxlength="300"></label><label>Szerző<input id="import-author" maxlength="300"></label><label>Szöveg nyelve<select id="import-language"><option value="hu">Magyar</option><option value="en">Angol</option><option value="de">Német</option><option value="fr">Francia</option><option value="es">Spanyol</option></select></label></div>
+ <p id="import-source"></p><p id="import-duplicate" class="status-warn"></p><details><summary id="import-chapters-summary">Fejezetek</summary><ol id="import-chapters"></ol></details><details open><summary>Szövegminta</summary><p id="import-sample" class="import-sample"></p></details>
+ <fieldset class="narration-choice"><legend>Hogyan szólaljon meg?</legend><label class="narration-option"><input type="radio" name="narration-mode" value="single" checked><span><strong>Egy narrátor</strong><small>Az egész szöveg ugyanazzal a hanggal szól. Gyors indulás, szereplőelemzés nélkül.</small></span></label><label class="narration-option"><input type="radio" name="narration-mode" value="multi"><span><strong>Szereplőhangok</strong><small>A beállított nyelvi modell azonosítja a beszélőket. Az eredmény később javítható.</small></span></label></fieldset>
+ <p id="import-model-note" class="import-model-note"></p><p id="import-error" class="status-error" role="alert"></p><div class="modal-footer"><button type="button" class="btn btn-ghost" onclick="this.closest('dialog').close()">Mégse</button><button class="btn btn-primary" id="confirm-import-btn">Hozzáadás</button></div>
+</form></dialog>
+<dialog id="book-details" class="experience-dialog" aria-labelledby="details-title"><form onsubmit="event.preventDefault();saveBookDetails()"><h2 id="details-title">Könyv adatai</h2><input id="details-id" type="hidden"><div class="form-grid"><label>Cím<input id="details-book-title" required maxlength="300"></label><label>Szerző<input id="details-author" maxlength="300"></label><label>Sorozat<input id="details-series" maxlength="300"></label><label>Gyűjtemény<input id="details-collection" maxlength="300"></label><label>Állapot<select id="details-state"><option value="new">Még nem kezdtem</option><option value="reading">Folyamatban</option><option value="finished">Befejeztem</option></select></label></div><p id="details-analysis" class="muted"></p><a id="details-source" target="_blank" rel="noopener noreferrer" class="hidden">Eredeti webcikk megnyitása</a><div class="reference-actions"><button type="button" class="btn btn-ghost" onclick="reanalyzeBook(false)">Szereplők újraelemzése</button><button type="button" class="btn btn-ghost" onclick="reanalyzeBook(true)">Hibás fejezetek újrapróbálása</button></div><details id="details-chapter-picker"><summary>Csak kijelölt fejezetek újraelemzése</summary><div id="details-chapters" class="reanalysis-chapters"></div><button type="button" id="reanalyze-selected" class="btn btn-ghost" disabled onclick="reanalyzeBook(false, true)">Kijelölt fejezetek újraelemzése</button></details><p class="muted">Az elemzés a beállított szolgáltatót használja. OpenAI esetén a szöveg a szolgáltatóhoz kerül, API-költséggel. A kézi javítások megmaradnak.</p><p id="details-error" class="status-error" role="alert"></p><div class="modal-footer"><button class="btn btn-ghost" type="button" onclick="this.closest('dialog').close()">Bezárás</button><button class="btn btn-primary">Mentés</button></div></form></dialog>
+<dialog id="delete-dialog" class="experience-dialog" aria-labelledby="delete-title"><h2 id="delete-title">Könyv eltávolítása</h2><p id="delete-book-name"></p><p>A könyvjelzők, a haladás és a könyvhöz tartozó javítások törlődnek.</p><label class="check-row"><input type="checkbox" id="delete-source"> A feltöltött forrásfájlt is törlöm</label><label class="check-row"><input type="checkbox" id="delete-audio"> A könyv kizárólagosan használt generált hangjait is törlöm</label><p id="delete-error" role="alert" class="status-error"></p><div class="modal-footer"><button class="btn btn-ghost" onclick="this.closest('dialog').close()">Mégse</button><button class="btn btn-primary" onclick="confirmDelete()">Eltávolítás</button></div></dialog>
 {% endblock %}
-{% block scripts %}
-<script src="/static/js/library.js"></script>
-{% endblock %}
+{% block scripts %}<script src="/static/js/library.js"></script>{% endblock %}

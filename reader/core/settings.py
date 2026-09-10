@@ -16,6 +16,7 @@ _APP_DIR   = Path(__file__).resolve().parent.parent
 _REPO_ROOT = _APP_DIR.parent
 
 SETTINGS_FILE = _APP_DIR / 'data' / 'settings.json'
+_settings_write_lock = threading.RLock()
 
 # Default model path = <repo_root>/model_backup/OmniVoice
 _DEFAULT_MODEL_PATH = str(_REPO_ROOT / 'model_backup' / 'OmniVoice')
@@ -139,11 +140,17 @@ def load() -> dict:
 
 
 def save(updates: dict) -> dict:
-    current = load()
-    current.update(updates)
-    with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
-        json.dump(current, f, indent=2)
-    return current
+    with _settings_write_lock:
+        current = load()
+        current.update(updates)
+        temporary = SETTINGS_FILE.with_suffix('.json.tmp')
+        try:
+            with open(temporary, 'w', encoding='utf-8') as f:
+                json.dump(current, f, indent=2)
+            os.replace(temporary, SETTINGS_FILE)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return current
 
 
 def migrate_tts_expression_policy_version() -> bool:

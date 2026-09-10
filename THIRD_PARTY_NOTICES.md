@@ -28,3 +28,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Trafilatura
+
+Auris uses Trafilatura to extract article text and metadata from downloaded
+HTML pages:
+
+https://trafilatura.readthedocs.io/
+
+Copyright 2019-2026 Adrien Barbaresi and contributors.
+
+Licensed under the Apache License, Version 2.0:
+
+https://www.apache.org/licenses/LICENSE-2.0

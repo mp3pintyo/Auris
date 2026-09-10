@@ -242,3 +242,6 @@ def init_db():
                 "ALTER TABLE tts_segments "
                 "ADD COLUMN ends_paragraph INTEGER DEFAULT 0"
             )
+
+    from core.experience import initialize
+    initialize()

@@ -1,195 +1,342 @@
+let libraryBooks = [],
+  importPreview = null,
+  importSettings = null,
+  deletingBook = null;
+const $ = (id) => document.getElementById(id);
+function esc(value) {
+  return String(value ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ],
+  );
+}
+async function api(url, options) {
+  const r = await fetch(url, options);
+  let d;
+  try {
+    d = await r.json();
+  } catch {
+    throw new Error("A szerver válasza nem olvasható. Próbáld újra.");
+  }
+  if (!r.ok) throw new Error(d.error || "A művelet nem sikerült.");
+  return d;
+}
+function post(url, data) {
+  return api(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+}
+function status(message, error = false) {
+  $("import-status").textContent = message;
+  $("import-status").className = "import-status" + (error ? " error" : "");
+}
+function effectiveState(b) {
+  return (
+    b.reading_state ||
+    (b.last_read || b.progress_chapter_id ? "reading" : "new")
+  );
+}
 async function loadBooks() {
-  const grid = document.getElementById('book-grid');
-  const books = await fetch('/api/books').then(r => r.json());
-
-  const countEl = document.getElementById('library-count');
-  if (countEl) countEl.textContent = books.length
-    ? books.length + (books.length === 1 ? ' title' : ' titles')
-    : '';
-
+  try {
+    libraryBooks = await api("/api/books");
+    const selected = $("library-collection").value;
+    $("library-collection").innerHTML =
+      '<option value="">Mindegyik</option>' +
+      [...new Set(libraryBooks.map((b) => b.collection).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, "hu"))
+        .map((c) => `<option>${esc(c)}</option>`)
+        .join("");
+    $("library-collection").value = selected;
+    renderBooks();
+  } catch (e) {
+    $("book-grid").innerHTML =
+      `<p role="alert">${esc(e.message)} <button class="btn btn-ghost" onclick="loadBooks()">Újrapróbálás</button></p>`;
+  }
+}
+function renderBooks() {
+  const query = $("library-search").value.toLocaleLowerCase("hu"),
+    state = $("library-state").value,
+    collection = $("library-collection").value;
+  const books = libraryBooks.filter(
+    (b) =>
+      `${b.title} ${b.author} ${b.series || ""} ${b.collection || ""}`
+        .toLocaleLowerCase("hu")
+        .includes(query) &&
+      (state === "all" || effectiveState(b) === state) &&
+      (!collection || b.collection === collection),
+  );
+  const sort = $("library-sort").value;
+  books.sort((a, b) =>
+    sort === "title" || sort === "author"
+      ? String(a[sort] || "").localeCompare(String(b[sort] || ""), "hu")
+      : String(
+          b[sort === "added" ? "added_at" : "last_read"] || b.added_at,
+        ).localeCompare(
+          String(a[sort === "added" ? "added_at" : "last_read"] || a.added_at),
+        ),
+  );
+  $("library-count").textContent =
+    `${books.length} / ${libraryBooks.length} könyv`;
+  const recent = libraryBooks
+    .filter((b) => b.progress_chapter_id && effectiveState(b) !== "finished")
+    .sort((a, b) => String(b.last_read).localeCompare(String(a.last_read)))[0];
+  $("continue-card").classList.toggle("hidden", !recent);
+  if (recent)
+    $("continue-card").innerHTML =
+      `<div><span class="eyebrow">Ahol abbahagytad</span><h2>${esc(recent.title)}</h2><p>${esc(recent.progress_chapter_title || "Mentett hely")}</p></div><a class="btn btn-primary" href="/reader/${recent.id}">Folytatom</a>`;
   if (!books.length) {
-    grid.innerHTML = `
-      <div class="empty-library">
-        <p>Your library is empty.</p>
-        <p class="sub">Import an EPUB, PDF, or TXT file to get started.</p>
-      </div>`;
+    $("book-grid").innerHTML =
+      `<div class="empty-library"><p>${libraryBooks.length ? "Nincs a szűrésnek megfelelő könyv." : "Válaszd ki az első történeted."}</p><p class="sub">EPUB, PDF, TXT vagy webcikk — a tartalmat import előtt ellenőrizheted.</p></div>`;
     return;
   }
-
-  grid.innerHTML = books.map(b => {
-    const coverHtml = b.cover_url
-      ? `<img src="${b.cover_url}" alt="" loading="lazy">`
-      : `<div class="book-cover-placeholder">${esc(b.title)}</div>`;
-    const hasProgress = Number.isInteger(b.progress_chapter_id) || Number.isInteger(Number.parseInt(b.progress_chapter_id, 10));
-    const progressPosition = Math.max(0, Number.parseInt(b.progress_position, 10) || 0);
-    const actionLabel = hasProgress ? 'Continue' : 'Read';
-    const progressMeta = hasProgress
-      ? `<div class="book-progress-hint">Continue from ${esc(b.progress_chapter_title || 'saved position')} &middot; seg ${progressPosition + 1}</div>`
-      : '';
-    const analysisState = b.character_analysis_status || '';
-    const analysisMeta = ['queued', 'running'].includes(analysisState)
-      ? `<div class="book-progress-hint status-warn">${esc(b.character_analysis_message || 'Analyzing characters…')}</div>`
-      : analysisState === 'failed'
-        ? `<div class="book-progress-hint status-error">Character analysis failed: ${esc(b.character_analysis_message)}</div>`
-        : analysisState === 'complete'
-          ? `<div class="book-progress-hint status-ok">${esc(b.character_analysis_message || 'Character analysis complete.')}</div>`
-          : analysisState === 'partial'
-            ? `<div class="book-progress-hint status-warn">${esc(b.character_analysis_message || 'Character analysis partially complete.')}</div>`
-            : analysisState === 'skipped'
-              ? `<div class="book-progress-hint">${esc(b.character_analysis_message || 'Single narrator — no character analysis.')}</div>`
-          : '';
-
-    return `
-    <div class="book-card" data-id="${b.id}">
-      <div class="book-cover">${coverHtml}</div>
-      <span class="book-type-badge">${esc(b.file_type)}</span>
-      <div class="book-info">
-        <div class="book-title">${esc(b.title)}</div>
-        <div class="book-author">${esc(b.author || 'Unknown')}</div>
-        <div class="book-author" style="margin-top:3px;font-size:.68rem">
-          ${b.total_chapters} section${b.total_chapters !== 1 ? 's' : ''}
-        </div>
-        ${progressMeta}
-        ${analysisMeta}
-      </div>
-      <div class="book-actions">
-        <a href="/reader/${b.id}">${actionLabel}</a>
-        <button class="del-btn" onclick="deleteBook(event,${b.id})">Remove</button>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-async function deleteBook(e, id) {
-  e.stopPropagation();
-  if (!confirm('Remove this book from the library?')) return;
-  await fetch(`/api/books/${id}`, { method: 'DELETE' });
-  loadBooks();
-}
-
-let pendingImportFile = null;
-let importSettings = null;
-
-function activeCharacterModel(settings) {
-  const provider = settings?.llm_provider === 'openai' ? 'openai' : 'local';
-  if (provider === 'openai') {
-    return {
-      configured: Boolean(settings.openai_api_key && settings.openai_model),
-      providerLabel: 'OpenAI',
-      model: settings.openai_model || '',
-      missingMessage: 'Character voices require an OpenAI API key and model in Settings.',
-    };
-  }
-  return {
-    configured: Boolean(settings?.llm_base_url && settings?.llm_model),
-    providerLabel: 'Local server',
-    model: settings?.llm_model || '',
-    missingMessage: 'Character voices require a local language model in Settings.',
+  const labels = {
+    new: "Még nem kezdtem",
+    reading: "Folyamatban",
+    finished: "Befejeztem",
   };
+  $("book-grid").innerHTML = books
+    .map(
+      (b) =>
+        `<article class="book-card" data-id="${b.id}"><a class="book-cover" href="/reader/${b.id}" aria-label="${esc(b.title)} megnyitása">${b.cover_url ? `<img src="${b.cover_url}" alt="" loading="lazy">` : `<div class="book-cover-placeholder">${esc(b.title)}</div>`}</a><span class="book-type-badge">${esc(b.file_type)}</span><div class="book-info"><h2 class="book-title">${esc(b.title)}</h2><div class="book-author">${esc(b.author || "Ismeretlen szerző")}</div><p class="book-progress-hint">${labels[effectiveState(b)]} · ${b.total_chapters} fejezet</p>${b.series ? `<p class="book-progress-hint">${esc(b.series)}</p>` : ""}${["queued", "running"].includes(b.character_analysis_status) ? '<p class="status-warn">Szereplők elemzése folyamatban…</p>' : ""}</div><div class="book-actions"><a href="/reader/${b.id}">${b.progress_chapter_id ? "Folytatás" : "Olvasás"}</a><button onclick="openBookDetails(${b.id})">Adatok</button><button class="del-btn" onclick="deleteBook(event,${b.id})" aria-label="${esc(b.title)} eltávolítása">Eltávolítás</button></div></article>`,
+    )
+    .join("");
 }
-
-document.getElementById('file-input').addEventListener('change', function() {
+for (const id of [
+  "library-search",
+  "library-state",
+  "library-sort",
+  "library-collection",
+])
+  $(id).addEventListener("input", renderBooks);
+$("file-input").addEventListener("change", async function () {
   const file = this.files[0];
-  this.value = '';
+  this.value = "";
   if (!file) return;
-  openImportDialog(file);
-});
-
-async function openImportDialog(file) {
-  pendingImportFile = file;
-  document.getElementById('import-file-name').textContent = file.name;
-  document.getElementById('import-file-size').textContent = formatFileSize(file.size);
-  document.getElementById('import-file-type').textContent =
-    (file.name.split('.').pop() || 'BOOK').toUpperCase();
-  document.querySelector('input[name="narration-mode"][value="single"]').checked = true;
-  document.getElementById('import-dialog').classList.remove('hidden');
-
-  try {
-    importSettings = await fetch('/api/settings').then(r => r.json());
-    const activeModel = activeCharacterModel(importSettings);
-    const note = document.getElementById('import-model-note');
-    note.className =
-      `import-model-note ${activeModel.configured ? 'ready' : 'warning'}`;
-    note.textContent = activeModel.configured
-      ? `Character analysis: ${activeModel.providerLabel} · ${activeModel.model}`
-      : activeModel.missingMessage;
-  } catch (_) {
-    document.getElementById('import-model-note').textContent =
-      'Could not read language-model settings.';
-  }
-}
-
-function closeImportDialog() {
-  document.getElementById('import-dialog').classList.add('hidden');
-  pendingImportFile = null;
-}
-
-async function confirmImport() {
-  const file = pendingImportFile;
-  if (!file) return;
-  const mode = document.querySelector('input[name="narration-mode"]:checked').value;
-  const button = document.getElementById('confirm-import-btn');
-  const status = document.getElementById('import-status');
-  status.textContent = `Importing “${file.name}”…`;
-  status.className = 'import-status';
-  status.classList.remove('hidden');
+  status("A dokumentum előnézetének előkészítése…");
   const fd = new FormData();
-  fd.append('file', file);
-  fd.append('narration_mode', mode);
-  button.disabled = true;
-  button.textContent = 'Importing…';
+  fd.append("file", file);
   try {
-    const r = await fetch('/api/books/import', { method: 'POST', body: fd });
-    const d = await r.json();
-    if (!r.ok || d.error) throw new Error(d.error || 'Import failed');
-    closeImportDialog();
-    status.textContent = mode === 'multi'
-      ? `“${d.title}” imported — ${d.chapters} sections. Analyzing dialogue speakers…`
-      : `“${d.title}” imported — ${d.chapters} sections. Ready with one narrator.`;
-    loadBooks();
-    if (mode === 'multi') pollCharacterAnalysis(d.book_id, status);
-  } catch(e) {
-    status.textContent = e.message;
-    status.className = 'import-status error';
+    await showImportPreview(
+      await api("/api/import/preview", { method: "POST", body: fd }),
+    );
+    status(
+      "Az előnézet elkészült. Ellenőrizd a címet, a nyelvet és a szöveget.",
+    );
+  } catch (e) {
+    status(e.message, true);
+  }
+});
+function openUrlDialog() {
+  $("url-error").textContent = "";
+  $("url-dialog").showModal();
+  $("article-url").focus();
+}
+async function previewUrl() {
+  const button = $("url-preview-btn");
+  button.disabled = true;
+  button.textContent = "Cikk letöltése…";
+  $("url-error").textContent = "";
+  try {
+    const d = await post("/api/import/preview", {
+      url: $("article-url").value,
+    });
+    $("url-dialog").close();
+    await showImportPreview(d);
+  } catch (e) {
+    $("url-error").textContent = e.message;
   } finally {
     button.disabled = false;
-    button.textContent = 'Import book';
+    button.textContent = "Előnézet";
   }
 }
-
-async function pollCharacterAnalysis(bookId, statusEl) {
-  for (;;) {
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    try {
-      const d = await fetch(`/api/books/${bookId}/character-analysis`).then(r => r.json());
-      if (d.error) throw new Error(d.error);
-      statusEl.textContent = d.message || 'Analyzing characters and dialogue speakers…';
-      loadBooks();
-      if (d.status === 'complete' || d.status === 'partial' || d.status === 'skipped') {
-        statusEl.className = 'import-status';
-        return;
-      }
-      if (d.status === 'failed') {
-        statusEl.className = 'import-status error';
-        return;
-      }
-    } catch (error) {
-      statusEl.textContent = `Character analysis status error: ${error.message}`;
-      statusEl.className = 'import-status error';
-      return;
+async function showImportPreview(data) {
+  importPreview = data;
+  $("import-title").value = data.title;
+  $("import-author").value = data.author;
+  if (![...$("import-language").options].some((o) => o.value === data.language))
+    $("import-language").add(new Option(data.language, data.language));
+  $("import-language").value = data.language || "hu";
+  $("import-sample").textContent = data.sample;
+  $("import-source").textContent = data.source_url
+    ? `Forrás: ${data.source_url}`
+    : "";
+  $("import-chapters-summary").textContent = `${data.chapters.length} fejezet`;
+  $("import-chapters").innerHTML = data.chapters
+    .map((c) => `<li>${esc(c.title)} · ${c.word_count} szó</li>`)
+    .join("");
+  $("import-duplicate").textContent = data.duplicate
+    ? `Ez a tartalom már szerepel: ${data.duplicate.title}. Megnyithatod a könyvtárból.`
+    : "";
+  $("confirm-import-btn").disabled = Boolean(data.duplicate);
+  $("import-error").textContent = "";
+  document.querySelector('[name="narration-mode"][value="single"]').checked =
+    true;
+  try {
+    importSettings = await api("/api/settings");
+  } catch {
+    importSettings = null;
+  }
+  updateImportNote();
+  $("import-dialog").showModal();
+  $("import-title").focus();
+}
+function updateImportNote() {
+  const multi =
+    document.querySelector('[name="narration-mode"]:checked').value === "multi";
+  $("import-model-note").textContent = !multi
+    ? "Helyi felolvasás, nyelvimodell-hívás nélkül."
+    : importSettings?.llm_provider === "openai"
+      ? "OpenAI-elemzés: a könyv szövege az OpenAI szolgáltatásához kerül. Ez API-költséggel jár."
+      : "A szereplőelemzés a beállított helyi nyelvi modellt használja. A felolvasásra az elemzés után kerülhet sor.";
+}
+document
+  .querySelectorAll('[name="narration-mode"]')
+  .forEach((e) => e.addEventListener("change", updateImportNote));
+function closeImportDialog() {
+  $("import-dialog").close();
+}
+async function confirmImport() {
+  if (!importPreview) return;
+  const button = $("confirm-import-btn");
+  button.disabled = true;
+  button.textContent = "Hozzáadás…";
+  try {
+    const d = await post("/api/import/confirm", {
+      token: importPreview.token,
+      title: $("import-title").value,
+      author: $("import-author").value,
+      language: $("import-language").value,
+      narration_mode: document.querySelector('[name="narration-mode"]:checked')
+        .value,
+    });
+    $("import-dialog").close();
+    status(
+      `„${d.title}” hozzáadva. ${d.analysis_status === "queued" ? "A szereplőelemzés követhető a Feladatok oldalon." : "Megnyithatod és hallgathatod."}`,
+    );
+    await loadBooks();
+  } catch (e) {
+    $("import-error").textContent = e.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Hozzáadás";
+  }
+}
+async function openBookDetails(id) {
+  const b = libraryBooks.find((x) => x.id === id);
+  if (!b) return;
+  $("details-id").value = id;
+  $("details-book-title").value = b.title;
+  $("details-author").value = b.author;
+  $("details-series").value = b.series || "";
+  $("details-collection").value = b.collection || "";
+  $("details-state").value = effectiveState(b);
+  $("details-analysis").textContent = b.character_analysis_message || "";
+  $("details-error").textContent = "";
+  $("details-chapter-picker").open = false;
+  $("details-chapters").textContent = "Fejezetek betöltése…";
+  $("reanalyze-selected").disabled = true;
+  let source = null;
+  try {
+    const url = new URL(b.source_url);
+    if (['https:', 'http:'].includes(url.protocol)) source = url.href;
+  } catch (_) {}
+  $("details-source").classList.toggle("hidden", !source);
+  $("details-source").href = source || '#';
+  $("book-details").showModal();
+  try {
+    const chapters = await api(`/api/books/${id}/chapters`);
+    if ($("details-id").value !== String(id)) return;
+    $("details-chapters").replaceChildren();
+    for (const chapter of chapters) {
+      const label = document.createElement("label");
+      label.className = "check-row";
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = chapter.id;
+      input.addEventListener("change", () => {
+        $("reanalyze-selected").disabled = !document.querySelector(
+          '#details-chapters input:checked',
+        );
+      });
+      label.append(input, document.createTextNode(chapter.title));
+      $("details-chapters").append(label);
     }
+    if (!chapters.length) $("details-chapters").textContent = "Nincs feldolgozható fejezet.";
+  } catch (e) {
+    if ($("details-id").value === String(id)) $("details-chapters").textContent = e.message;
   }
 }
-
-function esc(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+async function saveBookDetails() {
+  try {
+    await api(`/api/books/${$("details-id").value}/metadata`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: $("details-book-title").value,
+        author: $("details-author").value,
+        series: $("details-series").value,
+        collection: $("details-collection").value,
+        reading_state: $("details-state").value,
+      }),
+    });
+    $("book-details").close();
+    await loadBooks();
+  } catch (e) {
+    $("details-error").textContent = e.message;
+  }
 }
-
-function formatFileSize(bytes) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+async function reanalyzeBook(failedOnly, selectedOnly = false) {
+  try {
+    const chapterIds = Array.from(document.querySelectorAll('#details-chapters input:checked'), input => Number(input.value));
+    if (selectedOnly && !chapterIds.length) throw new Error("Jelölj ki legalább egy fejezetet.");
+    $("details-error").textContent = "";
+    await post(`/api/books/${$("details-id").value}/reanalyze`, {
+      failed_only: failedOnly,
+      ...(selectedOnly ? { chapter_ids: chapterIds } : {}),
+    });
+    $("details-analysis").textContent =
+      "Az újraelemzés elindult. A Feladatok oldalon követheted.";
+  } catch (e) {
+    $("details-error").textContent = e.message;
+  }
 }
-
+function deleteBook(event, id) {
+  event.stopPropagation();
+  deletingBook = id;
+  $("delete-book-name").textContent = libraryBooks.find(
+    (b) => b.id === id,
+  )?.title;
+  $("delete-source").checked = false;
+  $("delete-audio").checked = false;
+  $("delete-error").textContent = "";
+  $("delete-dialog").showModal();
+}
+async function confirmDelete() {
+  try {
+    const result = await post(`/api/books/${deletingBook}/remove`, {
+      source: $("delete-source").checked,
+      audio: $("delete-audio").checked,
+    });
+    $("delete-dialog").close();
+    if (result.warnings?.length) status(result.warnings.join(" "), true);
+    await loadBooks();
+  } catch (e) {
+    $("delete-error").textContent = e.message;
+  }
+}
 loadBooks();
+api("/api/setup/status")
+  .then((s) => $("welcome-card").classList.toggle("hidden", s.completed))
+  .catch(() => {});
+setInterval(() => {
+  if (
+    libraryBooks.some((b) =>
+      ["queued", "running"].includes(b.character_analysis_status),
+    )
+  )
+    loadBooks();
+}, 4000);

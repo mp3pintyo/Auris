@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Feladatok — Auris{% endblock %}
+{% block content %}
+<main class="jobs-page"><h1>Feladatok</h1><p>Generálás, export és szereplőelemzés egy helyen. Nyugodtan elnavigálhatsz: a szerver folytatja a munkát.</p>
+<p class="muted">Szerverleállás után a félbemaradt feladatot a Folytatás gombbal indíthatod újra. Az érvényes elkészült hangokat újra felhasználjuk. A megszakítás a folyamatban lévő részfeladat után léphet életbe.</p>
+<button class="btn btn-ghost" onclick="loadJobs()">Frissítés</button><p id="jobs-message" role="status" aria-live="polite"></p><div id="jobs-list"><p>Feladatok betöltése…</p></div></main>
+{% endblock %}
+{% block scripts %}<script src="/static/js/jobs.js"></script>{% endblock %}

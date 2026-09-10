@@ -16,6 +16,7 @@
         <a href="#higgs">Higgs TTS 3</a>
         <a href="#engine-lifecycle">Motor és beállítások</a>
         <a href="#export">Export és gyorsítótár</a>
+        <a href="#storage">Tárhely és mentés</a>
         <a href="#performance">Teljesítmény</a>
         <a href="#troubleshooting">Hibaelhárítás</a>
       </nav>
@@ -69,7 +70,7 @@
       <div class="docs-callout">
         <span class="docs-callout-icon" aria-hidden="true">↻</span>
         <div>
-          <strong>Motorváltás után Reload TTS engine szükséges.</strong>
+          <strong>Motorváltás után a beszédmotort újra kell tölteni.</strong>
           <p>Az Auris előbb leállítja és felszabadítja az előző motort, majd külön környezetben betölti a kiválasztottat.</p>
         </div>
       </div>
@@ -87,13 +88,16 @@
         <div>
           <h3>Könyvtár és olvasó</h3>
           <ul class="docs-check-list">
-            <li><strong>EPUB, PDF és TXT import</strong>, az importálás előtt választható egy narrátoros vagy szereplőhangos feldolgozással.</li>
+            <li><strong>EPUB, PDF, TXT és webcikk import</strong> szerkeszthető előnézettel, fejezetlistával és narrációs mód választásával.</li>
+            <li>A könyvtár cím, szerző és sorozat szerint kereshető; állapot és gyűjtemény alapján szűrhető.</li>
             <li>Fejezetes tartalomjegyzék, olvasási időbecslés és fejezet-progressz.</li>
-            <li>Automatikusan mentett olvasási pozíció és folytatás a Library oldalról.</li>
+            <li>Automatikusan mentett olvasási pozíció és folytatás a Könyvtár oldalról.</li>
             <li>Könyvjelzők létrehozása, listázása, megnyitása és törlése.</li>
             <li>Szereplőnként színezett párbeszédtartományok és közvetlen, mondatszintű beszélőjavítás.</li>
             <li>Night, Sepia, Paper és AMOLED téma; serif, sans-serif és monospace betű.</li>
             <li>Állítható betűméret, sorköz és felolvasási sebesség.</li>
+            <li>Teljes könyves keresés, 15 másodperces ugrás, elalvásidőzítő és becsült hátralévő idő.</li>
+            <li>Médiagomb-kezelés a Media Session API-t támogató böngészőkben.</li>
           </ul>
         </div>
         <div>
@@ -103,8 +107,9 @@
             <li>Előtöltés és háttér-pufferelés a folyamatosabb hallgatáshoz.</li>
             <li>Egynarrátoros vagy szereplőnként eltérő hangú felolvasás.</li>
             <li>Narrátor- és szereplőhang előnézete a Voice Studioban.</li>
-            <li>Aktuális vagy kiválasztott fejezetek exportja WAV/MP3 és ASS/SRT formátumban.</li>
+            <li>Aktuális vagy kiválasztott fejezetek exportja WAV/MP3, illetve egyetlen fejezetes M4B formátumban; ASS/SRT felirat kérhető vagy elhagyható.</li>
             <li>Export-progressz, ETA, újrahasznosítható audio cache és letölthető eredmény.</li>
+            <li>Tartós Feladatok oldal generáláshoz, exporthoz és újraelemzéshez, leállítással és explicit folytatással.</li>
           </ul>
         </div>
       </div>
@@ -120,6 +125,20 @@
           </tbody>
         </table>
       </div>
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">≈</span>
+        <div>
+          <strong>A szókiemelés időzítése becslés.</strong>
+          <p>
+            Az Auris a szegmens ismert hanghosszából osztja el a szavak idejét;
+            nem használ szóillesztő modellt. A hátralévő idő <strong>kb.</strong>
+            jelölést kap, amíg nincs minden szegmenshez kész hang. A Media Session
+            a támogató böngészők médiagombjait kezeli, de nem ígér minden mobilon
+            folyamatos háttérlejátszást. A mobil olvasó csukott tartalomjegyzékkel,
+            nagyobb vezérlőkkel és billentyűzetes/Esc fókuszkezeléssel indul.
+          </p>
+        </div>
+      </div>
     </section>
 
     <section class="docs-section docs-section-tinted" id="workflow">
@@ -127,11 +146,11 @@
         <span class="docs-section-index">02</span>
         <div>
           <h2>Ajánlott munkafolyamat</h2>
-          <p>Az importálás csak a fájl és a narrációs mód jóváhagyása után indul el.</p>
+          <p>Az importálás csak a forrás előnézete, metaadatai és a narrációs mód jóváhagyása után indul el.</p>
         </div>
       </div>
       <div class="pipeline" aria-label="Az Auris feldolgozási folyamata">
-        <div class="pipeline-node"><span class="pipeline-icon">1</span><strong>Fájl</strong><small>EPUB · PDF · TXT</small></div>
+        <div class="pipeline-node"><span class="pipeline-icon">1</span><strong>Forrás</strong><small>EPUB · PDF · TXT · webcikk</small></div>
         <span class="pipeline-connector" aria-hidden="true">→</span>
         <div class="pipeline-node"><span class="pipeline-icon">2</span><strong>Narráció</strong><small>egy hang · szereplőhangok</small></div>
         <span class="pipeline-connector" aria-hidden="true">→</span>
@@ -145,7 +164,7 @@
         <div>
           <h3>Karakterfelismerés</h3>
           <p>
-            Ha importáláskor a <strong>Character voices</strong> módot választod,
+            Ha importáláskor a <strong>Szereplőhangok</strong> módot választod,
             az Auris a beállított helyi LLM-mel fejezetenként azonosítja a
             szereplőket és a konkrét párbeszédek beszélőit.
             LM Studio, Ollama és más OpenAI-kompatibilis <code>/v1</code>
@@ -175,30 +194,59 @@
         </div>
       </div>
 
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">⇩</span>
+        <div>
+          <strong>Fájl és nyilvános webcikk ugyanazzal az előnézeti folyamattal importálható.</strong>
+          <p>
+            Az előnézetben módosítható a cím, a szerző és a nyelv, továbbá
+            ellenőrizhető a fejezetlista és a mintaszöveg. Az Auris SHA-256
+            alapján jelzi az azonos tartalmat, az azonos nevű feltöltéseket pedig
+            külön belső fájlban tartja. A webcikket kizárólag a Trafilatura
+            dolgozza fel: csak publikus HTTP(S) cím engedélyezett, JavaScript nem
+            fut, a localhost és a belső hálózat tiltott, a letöltés méret-, idő-
+            és átirányítási korlátos. A már eltárolt cikk ezután helyben olvasható.
+          </p>
+        </div>
+      </div>
+
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">!</span>
+        <div>
+          <strong>Auris nem tartalmaz OCR-motort.</strong>
+          <p>
+            A szkennelt vagy szövegréteg nélküli PDF-et importálás előtt külső
+            OCR-rel kell felismerni. Az üres dokumentum nem kerül a könyvtárba.
+            A magyar PDF-tisztítás a sortörésből eredő elválasztást javítja; a
+            valódi kötőjeles szavakat megőrzi, az eredeti forrásfájl pedig megmarad.
+          </p>
+        </div>
+      </div>
+
       <div class="settings-guide-wrap" id="speaker-review" style="margin-top:28px;scroll-margin-top:72px">
         <h3>Importálási mód és szereplők ellenőrzése</h3>
         <p>
           A fájl kiválasztása önmagában még nem importál. Az összegző ablakban
           előbb döntsd el, hogy a teljes könyvet egy narrátor olvassa-e, vagy
           külön szereplőhangokat szeretnél. Az alapértelmezett
-          <strong>One narrator</strong> mód nem indít nyelvimodell-elemzést.
+          <strong>Egy narrátor</strong> mód nem indít nyelvimodell-elemzést.
         </p>
         <table class="settings-guide">
           <thead><tr><th>Mód vagy művelet</th><th>Mit csinál?</th><th>Mikor használd?</th></tr></thead>
           <tbody>
             <tr>
-              <td><strong>One narrator</strong></td>
+              <td><strong>Egy narrátor</strong></td>
               <td>A narrációt és minden párbeszédet ugyanazzal a hanggal olvassa; a szereplőelemzés állapota <strong>skipped</strong>.</td>
               <td>Ha gyors importot és egységes felolvasást szeretnél.</td>
             </tr>
             <tr>
-              <td><strong>Character voices</strong></td>
+              <td><strong>Szereplőhangok</strong></td>
               <td>A beállított helyi LLM felismeri a szereplőket és a beszédszakaszokat. Konfigurált LLM-végpont és modellnév szükséges.</td>
               <td>Ha külön narrátor- és szereplőhangokat szeretnél.</td>
             </tr>
             <tr>
-              <td><strong>Editing speakers</strong></td>
-              <td>A Reader minden mondatát — a narrációnak felismert részeket is — külön szerkesztősorban, szereplőválasztóval mutatja.</td>
+              <td><strong>Beszélők szerkesztése</strong></td>
+              <td>Az Olvasó minden mondatát — a narrációnak felismert részeket is — külön szerkesztősorban, szereplőválasztóval mutatja.</td>
               <td>A gépi eredmény javításához és teljesen kihagyott megszólalások beszúrásához.</td>
             </tr>
           </tbody>
@@ -209,8 +257,8 @@
             <ul class="docs-check-list">
               <li>A színezett tartomány egy azonos beszélőhöz rendelt megszólalást mutat.</li>
               <li>A névcímke a megszólalás elején jelenik meg; a folytató mondatok ugyanazzal a színnel maradnak jelölve.</li>
-              <li>A névcímkére mutatva a Reader jól láthatóan kiemeli a hozzá tartozó teljes, mentett beszédtartományt.</li>
-              <li>Az <strong>Editing speakers</strong> gomb az aktív fejezet minden mondatát teljes szélességű, gyorsan átnézhető szerkesztősorokban mutatja; a fejezetlistával a könyv teljes szövege végigjárható.</li>
+              <li>A névcímkére mutatva az Olvasó jól láthatóan kiemeli a hozzá tartozó teljes, mentett beszédtartományt.</li>
+              <li>A <strong>Beszélők szerkesztése</strong> gomb az aktív fejezet minden mondatát teljes szélességű, gyorsan átnézhető szerkesztősorokban mutatja; a fejezetlistával a könyv teljes szövege végigjárható.</li>
               <li>A kézzel mentett hozzárendelés felülírja a későbbi automatikus eredményt is.</li>
             </ul>
           </div>
@@ -221,7 +269,7 @@
               <li>A csúszkával állítható be, melyik mondatnál vagy rövid szövegegységnél ér véget a szereplő beszéde.</li>
               <li>A mínusz és plusz gomb egy-egy szövegegységgel rövidíti vagy hosszabbítja a kijelölést.</li>
               <li>A kijelölt szöveg élőben kiemelődik, a modal pedig mutatja a mondatok számát és az utolsó szövegrészt.</li>
-              <li><strong>Narration / no speaker</strong> választásával ugyanígy adható vissza egy tartomány a narrátor hangjának.</li>
+              <li><strong>Narráció / nincs beszélő</strong> választásával ugyanígy adható vissza egy tartomány a narrátor hangjának.</li>
             </ul>
           </div>
         </div>
@@ -232,9 +280,9 @@
         <p>
           Indítsd el a helyi szervert és töltsd be a használni kívánt nyelvi
           modellt. Ezután nyisd meg a
-          <a href="/settings"><strong>Settings → Character &amp; Dialogue Speaker Detection</strong></a>
-          részt, válaszd a <strong>Local LLM — recommended</strong> módot, majd
-          töltsd ki az alábbi mezőket. A <strong>Test connection</strong> gombbal
+          <a href="/settings"><strong>Beállítások → Szereplők és narrátor</strong></a>
+          részt, válaszd a <strong>Nyelvi modell — ajánlott</strong> és a
+          <strong>Helyi szerver</strong> módot, majd töltsd ki az alábbi mezőket. A kapcsolatellenőrző gombbal
           ellenőrizd a kapcsolatot, mentsd a beállításokat, és csak ezután
           importáld a könyvet.
         </p>
@@ -242,27 +290,27 @@
           <thead><tr><th>Beállítás</th><th>LM Studio példa</th><th>Ollama példa / magyarázat</th></tr></thead>
           <tbody>
             <tr>
-              <td><strong>OpenAI-compatible base URL</strong></td>
+              <td><strong>OpenAI-kompatibilis alap-URL</strong></td>
               <td><code>http://127.0.0.1:1234/v1</code></td>
               <td><code>http://127.0.0.1:11434/v1</code></td>
             </tr>
             <tr>
-              <td><strong>Model name</strong></td>
+              <td><strong>Modell neve</strong></td>
               <td><code>unsloth/gemma-4-26b-a4b-it</code></td>
               <td>A szerver által közzétett pontos modellazonosító.</td>
             </tr>
             <tr>
-              <td><strong>API key</strong></td>
+              <td><strong>API-kulcs</strong></td>
               <td>Normál helyi szervernél üres.</td>
               <td>Csak akkor kell, ha a végpont hitelesítést kér.</td>
             </tr>
             <tr>
-              <td><strong>Request timeout</strong></td>
+              <td><strong>Kérés időkorlátja</strong></td>
               <td><strong>600 másodperc</strong> volt a tesztérték.</td>
               <td>Lassabb modellen vagy CPU offload mellett emelhető.</td>
             </tr>
             <tr>
-              <td><strong>Maximum characters</strong></td>
+              <td><strong>Legfeljebb ennyi szereplő</strong></td>
               <td><strong>60</strong> volt a tesztérték.</td>
               <td>A könyvhöz eltárolható kanonikus szereplők felső korlátja.</td>
             </tr>
@@ -282,10 +330,10 @@
           <h3>Mi történik importkor?</h3>
           <ul class="docs-check-list">
             <li>A fájlválasztó után egy külön importablakban jóvá kell hagyni a narrációs módot.</li>
-            <li><strong>One narrator</strong> módban nincs háttérben futó LLM-feldolgozás; a könyv azonnal használható.</li>
-            <li><strong>Character voices</strong> módban az Auris előbb leállítja és kiüríti a TTS modellt, hogy felszabadítsa a VRAM-ot.</li>
+            <li><strong>Egy narrátor</strong> módban nincs háttérben futó LLM-feldolgozás; a könyv azonnal használható.</li>
+            <li><strong>Szereplőhangok</strong> módban az Auris előbb leállítja és kiüríti a TTS modellt, hogy felszabadítsa a VRAM-ot.</li>
             <li>A helyi LLM fejezetenként megkapja a számozott szövegegységeket, majd kanonikus szereplőlistát és beszélő-hozzárendeléseket készít.</li>
-            <li>Az eredmény tartósan a könyvhöz kerül; a Reader, Voice Studio, lejátszás és export ugyanazt használja.</li>
+            <li>Az eredmény tartósan a könyvhöz kerül; az Olvasó, a Voice Studio, a lejátszás és az export ugyanazt használja.</li>
             <li>A TTS csak akkor töltődik vissza, amikor a felhasználó legközelebb ténylegesen felolvasást vagy hangelőnézetet kér.</li>
           </ul>
         </div>
@@ -303,11 +351,16 @@
       <div class="docs-callout">
         <span class="docs-callout-icon" aria-hidden="true">!</span>
         <div>
-          <strong>A korábban importált könyveket újra kell importálni.</strong>
+          <strong>A meglévő könyv törlés nélkül újraelemezhető.</strong>
           <p>
-            A helyi LLM elemzés importkor fut le. A felismerési mód utólagos
-            átállítása önmagában nem indít visszamenőleges elemzést, ezért a
-            régi példányt törölni, majd az eredeti fájlt újra importálni kell.
+            Nyisd meg a könyv adatait a Könyvtárban, majd válaszd a
+            <strong>Szereplők újraelemzése</strong> műveletet. Kérhető a teljes
+            könyv vagy csak a korábban hibás fejezetek feldolgozása. Egyes
+            fejezetekhez nyisd le a <strong>Csak kijelölt fejezetek újraelemzése</strong>
+            részt, jelöld be a kívánt fejezeteket, majd indítsd el az elemzést. A könyv- és fejezetazonosítók, a kézi beszélőjavítások,
+            a hangbeállítások és a sikeres fejezetek eredménye megmarad. Ha a
+            szegmenshatár változik, az Auris a haladást és a könyvjelzőket a
+            hozzájuk tartozó szöveghez próbálja visszailleszteni.
           </p>
         </div>
       </div>
@@ -379,9 +432,31 @@
             <tr><td><strong>Üres referenciaszöveg</strong></td><td>Whisperrel automatikusan átírhatja, lassabb és pontatlanabb lehet.</td><td>Átirat nélkül is futhat, de a pontos szöveg erősen ajánlott.</td></tr>
             <tr><td><strong>Voice instruct</strong></td><td>Nem, kor, hangmagasság és akcentus alapján hangot tervez.</td><td>A hangazonosságot főként a referencia adja; Expressive módban pitch/whisper tokenné alakul.</td></tr>
             <tr><td><strong>Automatikus hang</strong></td><td>Referencia és instruct nélkül támogatott.</td><td>Referencia nélkül a modell saját hangkondicionálásával generál.</td></tr>
-            <tr><td><strong>Single narrator</strong></td><td colspan="2">Minden narrációt és párbeszédet ugyanazzal a narrátorhanggal olvas.</td></tr>
+            <tr><td><strong>Egy narrátor</strong></td><td colspan="2">Minden narrációt és párbeszédet ugyanazzal a narrátorhanggal olvas.</td></tr>
           </tbody>
         </table>
+      </div>
+      <div class="docs-two-column" style="margin-top:28px">
+        <div>
+          <h3>Mentett hangprofilok</h3>
+          <p>
+            A narrátor vagy szereplő beállítása névvel hangprofilként menthető,
+            majd másik könyv narrátorára vagy szereplőjére alkalmazható. A
+            profilhoz tartozó referenciahang tartós példánya a könyv eredeti
+            rekordjától függetlenül megmarad. Mentés előtt magyar próbamondattal
+            ellenőrizhető a hang.
+          </p>
+        </div>
+        <div>
+          <h3>Kiejtési szótár</h3>
+          <p>
+            A <strong>Beállítások → Kiejtés</strong> alatt szóhoz vagy
+            kifejezéshez megadható a felolvasandó alak. A könyvspecifikus szabály
+            felülírja a minden könyvre érvényes szabályt. Az olvasóban látható
+            eredeti szöveg nem változik; a szabály törölhető, és módosításkor az
+            érintett hangcache újragenerálódik.
+          </p>
+        </div>
       </div>
       <div class="docs-callout">
         <span class="docs-callout-icon" aria-hidden="true">♪</span>
@@ -599,16 +674,16 @@
         <span class="docs-section-index">06</span>
         <div>
           <h2>Motorválasztás, betöltés és beállítások</h2>
-          <p>A Settings oldalon a közös és a motorspecifikus opciók külön blokkokban jelennek meg.</p>
+          <p>A Beállítások oldalon a közös és a motorspecifikus opciók külön blokkokban jelennek meg.</p>
         </div>
       </div>
       <div class="docs-two-column">
         <div>
           <h3>Motorváltás</h3>
           <ol class="docs-number-list">
-            <li>Válaszd ki az <strong>Active engine</strong> mezőben az OmniVoice vagy Higgs motort.</li>
+            <li>Válaszd ki az aktív beszédmotornál az OmniVoice vagy Higgs motort.</li>
             <li>Mentsd a beállításokat.</li>
-            <li>Nyomd meg a <strong>Reload TTS engine</strong> gombot.</li>
+            <li>Nyomd meg a <strong>Beszédmotor újratöltése</strong> gombot.</li>
             <li>Várd meg a jobb felső állapotjelző <strong>ready</strong> állapotát.</li>
           </ol>
         </div>
@@ -621,6 +696,21 @@
             <li>A modell cache-ben marad az interaktív használathoz.</li>
             <li>Hangot befolyásoló beállításváltás friss szegmenshangokat készít.</li>
           </ul>
+        </div>
+      </div>
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">1</span>
+        <div>
+          <strong>Első indításkor kezdd a Gyors beállítással.</strong>
+          <p>
+            A lap jelzi a gépet, a videomemóriát és az ffmpeg elérhetőségét.
+            Választható <strong>Gyors — 8 lépés</strong>,
+            <strong>Kiegyensúlyozott — 16 lépés</strong> vagy
+            <strong>Részletes — 32 lépés</strong> profil, majd a meglévő
+            modellbeállításhoz/letöltőhöz vezet. A beszédmotor betöltése után
+            magyar próbahang készíthető. A részletes motorparaméterek továbbra
+            is külön állíthatók; a felület jelzi, ha újratöltés szükséges.
+          </p>
         </div>
       </div>
       <div class="docs-callout">
@@ -649,16 +739,18 @@
         <div>
           <h3>Exportlehetőségek</h3>
           <ul class="docs-check-list">
-            <li><strong>This chapter:</strong> az aktuális fejezet egyben.</li>
-            <li><strong>Selected chapters:</strong> <code>all</code>, tartomány vagy lista, például <code>1,3,5-8</code>.</li>
+            <li><strong>Aktuális fejezet:</strong> az éppen olvasott fejezet egyben.</li>
+            <li><strong>Kijelölt fejezetek:</strong> vizuális fejezetlistából választhatók; az API a <code>1,3,5-8</code> alakot is elfogadja.</li>
             <li><strong>WAV:</strong> veszteségmentes és mindig elérhető.</li>
             <li><strong>MP3:</strong> ffmpeg szükséges a PATH környezeti változóban.</li>
+            <li><strong>M4B:</strong> a kijelölt fejezeteket egy AAC hangoskönyvbe írja, valódi ffmpeg fejezetmetaadatokkal; ffmpeg szükséges.</li>
             <li>Az MP3 fájlokba bekerül a fejezet címe, a könyv címe, a szerző és fejezetenkénti exportnál a sorszám is.</li>
-            <li><strong>Studio mastering:</strong> finom EQ és kompresszor után kétmenetes FFmpeg loudness-normalizálást végez fejezetenként.</li>
+            <li><strong>Export hangjának utófeldolgozása:</strong> finom EQ és kompresszor után kétmenetes FFmpeg loudness-normalizálást végez fejezetenként.</li>
             <li>A mastering célértéke <strong>−19 LUFS</strong>, <strong>9 LU LRA</strong> és <strong>−3 dBTP</strong>; így a különböző referenciahangú szereplők hangerőkülönbsége is mérséklődik.</li>
             <li>A normalizálás a kész fejezeten történik, nem mondatonként, ezért nem okoz szegmensenkénti hangerőpumpálást.</li>
             <li><strong>ASS:</strong> szereplőnként színezett/stílusozott felirat.</li>
             <li><strong>SRT:</strong> egyszerű, széles körben kompatibilis felirat.</li>
+            <li><strong>Nincs felirat:</strong> csak a hangfájl vagy hangcsomag készül el.</li>
           </ul>
         </div>
         <div>
@@ -673,11 +765,70 @@
           </ul>
         </div>
       </div>
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">↻</span>
+        <div>
+          <strong>A generálás, export és újraelemzés tartós feladat.</strong>
+          <p>
+            A <strong>Feladatok</strong> oldal új lapról is mutatja az állapotot,
+            a készültséget, a hibát és a letöltéseket. Szerverújraindítás után a
+            függő vagy futó feladat <strong>Megszakadt</strong> lesz: az Auris nem
+            indít automatikusan új modellmunkát vagy OpenAI-költséget. A
+            <strong>Folytatás / újrapróbálás</strong> explicit művelet a meglévő
+            érvényes cache-ből folytat. A leállítás kooperatív, ezért az éppen
+            futó csomag befejeződhet, de utána új csomag nem indul.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="docs-section" id="storage">
+      <div class="docs-section-heading">
+        <span class="docs-section-index">08</span>
+        <div>
+          <h2>Tárhely, könyvtármentés és visszaállítás</h2>
+          <p>A Beállítások Tárhely és mentés lapján áttekinthető, mi foglal helyet, és hordozható Auris ZIP készíthető.</p>
+        </div>
+      </div>
+      <div class="docs-two-column">
+        <div>
+          <h3>Mit tartalmaz a mentés?</h3>
+          <ul class="docs-check-list">
+            <li>A könyvtár adatbázisát, fejezeteket, könyvjelzőket, haladást és kézi beszélőjavításokat.</li>
+            <li>Az Auris által kezelt forrásfájlokat és a hangprofilok tartós referenciafájljait.</li>
+            <li>A kiejtési szabályokat és a hordozható megjelenési/generálási alapbeállításokat.</li>
+            <li>A nagy, újragenerálható hangcache csak külön jelöléssel kerül bele.</li>
+            <li>API-kulcs és gépspecifikus modellútvonal alapból nem része a mentésnek.</li>
+          </ul>
+        </div>
+        <div>
+          <h3>Visszaállítás</h3>
+          <ol class="docs-number-list">
+            <li>Válaszd ki az Auris ZIP-et, majd írd be a <strong>VISSZAÁLLÍTÁS</strong> megerősítést.</li>
+            <li>Az Auris ellenőrzi a formátumot, fájlutakat, ellenőrzőösszegeket és a rendelkezésre álló tárhelyet.</li>
+            <li>A jelenlegi könyvtárról automatikus helyreállítási mentés készül.</li>
+            <li>A mentett könyvtár lecseréli a jelenlegit; nem történik összeolvasztás.</li>
+            <li>A régi könyvekhez tartozó feladatok törlődnek, így nem folytathatók téves azonosítókkal.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">i</span>
+        <div>
+          <strong>Könyvtörléskor külön választható a forrás és a generált hang.</strong>
+          <p>
+            Az Auris csak a saját kezelt könyvfájlját és az adott könyvhöz
+            tartozó hangokat törli. A más könyvek vagy mentett hangprofilok által
+            használt közös referenciafájlokat megőrzi.
+            A már elkészült exportok letöltési linkjei a Feladatok oldalon megmaradnak.
+          </p>
+        </div>
+      </div>
     </section>
 
     <section class="docs-section" id="performance">
       <div class="docs-section-heading">
-        <span class="docs-section-index">08</span>
+        <span class="docs-section-index">09</span>
         <div>
           <h2>Teljesítmény és GPU-mérés</h2>
           <p>
@@ -737,7 +888,7 @@
 
     <section class="docs-section" id="troubleshooting">
       <div class="docs-section-heading">
-        <span class="docs-section-index">09</span>
+        <span class="docs-section-index">10</span>
         <div>
           <h2>Hibaelhárítás</h2>
           <p>A leggyakoribb közös és motorspecifikus jelenségek.</p>
@@ -745,8 +896,8 @@
       </div>
       <div class="faq-list">
         <details>
-          <summary>A Play gomb után „Model not ready” jelenik meg</summary>
-          <div><p>Várd meg a <strong>ready</strong> állapotot. Első Higgs-betöltéskor a több gigabájtos modell letöltése és inicializálása hosszabb lehet. A fejezet háttér-pufferelése automatikusan vár a modellre.</p></div>
+          <summary>A Lejátszás gomb után „A modell még nem áll készen” jelenik meg</summary>
+          <div><p>Várd meg a <strong>Hang kész</strong> állapotot. Első Higgs-betöltéskor a több gigabájtos modell letöltése és inicializálása hosszabb lehet. A fejezet háttér-pufferelése automatikusan vár a modellre.</p></div>
         </details>
         <details>
           <summary>A Higgs magyar szöveget angolosan ejt</summary>
@@ -774,15 +925,15 @@
         </details>
         <details>
           <summary>A nyelvi modell túl hosszúra jelölte egy szereplő beszédét</summary>
-          <div><p>Nyisd meg a Readert, kapcsold be az <strong>Editing speakers</strong> módot, majd annál az első mondatnál, amelynek már a narrátorhoz kell tartoznia, válaszd a <strong>Narration / no speaker</strong> értéket. A csúszkával vagy a plusz/mínusz gombokkal jelöld ki a narrátorhoz visszaadandó teljes tartományt, majd mentsd a módosítást.</p></div>
+          <div><p>Nyisd meg az Olvasót, kapcsold be a <strong>Beszélők szerkesztése</strong> módot, majd annál az első mondatnál, amelynek már a narrátorhoz kell tartoznia, válaszd a <strong>Narráció / nincs beszélő</strong> értéket. A csúszkával vagy a plusz/mínusz gombokkal jelöld ki a narrátorhoz visszaadandó teljes tartományt, majd mentsd a módosítást.</p></div>
         </details>
         <details>
           <summary>A nyelvi modell egy teljes megszólalást narrációnak hagyott</summary>
-          <div><p>Kapcsold be az <strong>Editing speakers</strong> módot. Itt minden mondat mellett megjelenik a szereplőválasztó, a narrációként kezelt részeknél is. Az első kihagyott mondatnál válaszd ki a szereplőt, húzd a tartomány végét a megszólalás utolsó szövegegységéig, majd kattints a <strong>Save speaker</strong> gombra.</p></div>
+          <div><p>Kapcsold be a <strong>Beszélők szerkesztése</strong> módot. Itt minden mondat mellett megjelenik a szereplőválasztó, a narrációként kezelt részeknél is. Az első kihagyott mondatnál válaszd ki a szereplőt, húzd a tartomány végét a megszólalás utolsó szövegegységéig, majd kattints a <strong>Beszélő mentése</strong> gombra.</p></div>
         </details>
         <details>
           <summary>Importáláskor nem indul el a szereplőelemzés</summary>
-          <div><p>A <strong>One narrator</strong> mód szándékosan kihagyja az elemzést. Külön szereplőhangokhoz válaszd a <strong>Character voices</strong> módot, és előtte állíts be működő helyi LLM-végpontot és modellnevet a Settings oldalon.</p></div>
+          <div><p>Az <strong>Egy narrátor</strong> mód szándékosan kihagyja az elemzést. Külön szereplőhangokhoz válaszd a <strong>Szereplőhangok</strong> módot, és előtte állíts be működő helyi LLM-végpontot és modellnevet a Beállítások oldalon.</p></div>
         </details>
         <details>
           <summary>Az egy-két szavas válaszok rossz sorrendben vagy másik sor részeként hallatszanak</summary>
@@ -790,11 +941,27 @@
         </details>
         <details>
           <summary>A klónozott szereplők hangereje eltér egymástól</summary>
-          <div><p>A Settings → Output Defaults alatt hagyd bekapcsolva a <strong>Studio mastering for exports</strong> lehetőséget. Az FFmpeg a kész fejezetet finoman kompresszálja, majd két menetben egységes loudness-célra állítja. Ehhez az <code>ffmpeg</code> parancsnak elérhetőnek kell lennie a PATH-ban.</p></div>
+          <div><p>A <strong>Beállítások → Generálás és export</strong> alatt hagyd bekapcsolva az <strong>Export hangjának utófeldolgozása</strong> lehetőséget. Az FFmpeg a kész fejezetet finoman kompresszálja, majd két menetben egységes loudness-célra állítja. Ehhez az <code>ffmpeg</code> parancsnak elérhetőnek kell lennie a PATH-ban.</p></div>
         </details>
         <details>
           <summary>Az MP3 export nem készül el</summary>
           <div><p>Az MP3 kódoláshoz ffmpeg szükséges a rendszer PATH-jában. A WAV export külső kódoló nélkül is működik.</p></div>
+        </details>
+        <details>
+          <summary>A PDF import szerint OCR szükséges</summary>
+          <div><p>A fájl nem tartalmaz használható szövegréteget. Futtass rajta külső OCR-t, ments szöveges PDF-et vagy TXT-t, majd készíts új előnézetet. Auris nem végez OCR-t.</p></div>
+        </details>
+        <details>
+          <summary>A webcikk nem importálható</summary>
+          <div><p>Ellenőrizd, hogy nyilvános HTTP(S) oldal, legfeljebb 5 MB, és a cikk bejelentkezés vagy JavaScript nélkül is olvasható. Auris biztonsági okból nem éri el a localhostot vagy belső hálózati címet, és nem futtat weboldali JavaScriptet.</p></div>
+        </details>
+        <details>
+          <summary>Szerverújraindítás után nem folytatódik automatikusan a feladat</summary>
+          <div><p>Ez szándékos, hogy ne induljon váratlan modellmunka vagy API-költség. Nyisd meg a <strong>Feladatok</strong> oldalt, ellenőrizd a <strong>Megszakadt</strong> feladatot, majd válaszd a <strong>Folytatás / újrapróbálás</strong> műveletet.</p></div>
+        </details>
+        <details>
+          <summary>Az M4B export nem készül el</summary>
+          <div><p>A fejezetes M4B-hez ffmpeg szükséges a rendszer PATH-jában. Ellenőrizd a Beállítások első indítási vizsgálatát; ffmpeg nélkül válassz WAV exportot.</p></div>
         </details>
       </div>
     </section>

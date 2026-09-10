@@ -1,19 +1,27 @@
-const BOOK_ID = window.BOOK_ID;
-const NARRATOR_INSTRUCT = window.NARRATOR_INSTRUCT || "";
+const studioWindow = typeof window === "undefined" ? {} : window;
+const studioDocument = typeof document === "undefined" ? null : document;
+const BOOK_ID = studioWindow.BOOK_ID;
+let narratorInstruct = studioWindow.NARRATOR_INSTRUCT || "";
 const DEFAULT_NARRATOR_INSTRUCT = "male, elderly, low pitch, british accent";
-const CURRENT_CHAPTER_ID = window.CURRENT_CHAPTER_ID !== null
-  && Number.isInteger(Number(window.CURRENT_CHAPTER_ID))
-  ? Number(window.CURRENT_CHAPTER_ID)
+const CURRENT_CHAPTER_ID = studioWindow.CURRENT_CHAPTER_ID !== null
+  && Number.isInteger(Number(studioWindow.CURRENT_CHAPTER_ID))
+  ? Number(studioWindow.CURRENT_CHAPTER_ID)
   : null;
-let singleNarratorMode = Boolean(window.SINGLE_NARRATOR_MODE);
-let narratorHasRefAudio = Boolean(window.NARRATOR_HAS_REF_AUDIO);
-let narratorRefAudioName = window.NARRATOR_REF_AUDIO_NAME || "Previously uploaded WAV";
-const previewAudio = document.getElementById("preview-audio");
+const HUNGARIAN_PREVIEW_TEXT =
+  "Az árvíztűrő tükörfúrógép próbája tisztán és természetesen szól magyarul.";
 
-const GENDERS = ["male", "female"];
+let singleNarratorMode = Boolean(studioWindow.SINGLE_NARRATOR_MODE);
+let narratorHasRefAudio = Boolean(studioWindow.NARRATOR_HAS_REF_AUDIO);
+let narratorRefAudioName = studioWindow.NARRATOR_REF_AUDIO_NAME || "Korábban feltöltött WAV";
+let voiceProfiles = [];
+let loadedCharacters = [];
+const previewAudio = studioDocument?.getElementById("preview-audio") || null;
+
+const GENDERS = ["female", "male"];
 const AGES = ["child", "teenager", "young adult", "middle-aged", "elderly"];
 const PITCHES = ["very low pitch", "low pitch", "moderate pitch", "high pitch", "very high pitch"];
 const ACCENTS = [
+  "",
   "american accent",
   "british accent",
   "australian accent",
@@ -23,12 +31,48 @@ const ACCENTS = [
   "korean accent",
   "japanese accent",
 ];
+const OPTION_LABELS = {
+  "": "Semleges / nincs akcentus",
+  female: "Női",
+  male: "Férfi",
+  child: "Gyermek",
+  teenager: "Tinédzser",
+  "young adult": "Fiatal felnőtt",
+  "middle-aged": "Középkorú",
+  elderly: "Idős",
+  "very low pitch": "Nagyon mély hang",
+  "low pitch": "Mély hang",
+  "moderate pitch": "Közepes hangmagasság",
+  "high pitch": "Magas hang",
+  "very high pitch": "Nagyon magas hang",
+  "american accent": "Amerikai akcentus",
+  "british accent": "Brit akcentus",
+  "australian accent": "Ausztrál akcentus",
+  "canadian accent": "Kanadai akcentus",
+  "indian accent": "Indiai akcentus",
+  "chinese accent": "Kínai akcentus",
+  "korean accent": "Koreai akcentus",
+  "japanese accent": "Japán akcentus",
+};
 
-function buildSelect(options, selected, id) {
-  return `<select class="vc-select" id="${id}">
-    ${options
-      .map((option) => `<option value="${option}"${option === selected ? " selected" : ""}>${option}</option>`)
-      .join("")}
+function optionLabel(value) {
+  return OPTION_LABELS[value] || value;
+}
+
+function esc(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildSelect(options, selected, id, label) {
+  return `<select class="vc-select" id="${esc(id)}" aria-label="${esc(label)}">
+    ${options.map((option) => (
+      `<option value="${esc(option)}"${option === selected ? " selected" : ""}>${esc(optionLabel(option))}</option>`
+    )).join("")}
   </select>`;
 }
 
@@ -41,39 +85,96 @@ function parseInstruct(instruct) {
     gender: parts.find((part) => GENDERS.includes(part)) || "female",
     age: AGES.find((age) => parts.includes(age)) || "young adult",
     pitch: PITCHES.find((pitch) => parts.includes(pitch)) || "moderate pitch",
-    accent: ACCENTS.find((accent) => parts.includes(accent)) || "american accent",
+    accent: ACCENTS.find((accent) => accent && parts.includes(accent)) || "",
   };
 }
 
-function buildInstruct(gender, age, pitch, accent) {
-  return [gender, age, pitch, accent].join(", ");
+function buildInstruct(gender, age, pitch, accent, originalInstruct = "") {
+  const selected = { gender, age, pitch, accent };
+  const original = String(originalInstruct || "");
+  if (original) {
+    const parsed = parseInstruct(original);
+    const controlsUnchanged = Object.keys(selected).every(
+      (key) => selected[key] === parsed[key],
+    );
+    if (controlsUnchanged) return original;
+  }
+
+  const knownParts = new Set([...GENDERS, ...AGES, ...PITCHES, ...ACCENTS]);
+  const extraParts = original
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part && !knownParts.has(part.toLowerCase()));
+  return [gender, age, pitch, accent, ...extraParts].filter(Boolean).join(", ");
 }
 
-function esc(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+function filterCharacters(characters, query) {
+  const needle = String(query || "").trim().toLocaleLowerCase("hu");
+  if (!needle) return characters;
+  return characters.filter((character) => (
+    String(character.name || "").toLocaleLowerCase("hu").includes(needle)
+  ));
 }
 
-function flashSaved(el) {
-  if (!el) return;
-  const prev = el.style.color;
-  el.style.color = "#4caf80";
-  setTimeout(() => {
-    el.style.color = prev;
-  }, 1500);
+function targetPayload(bookId, charId) {
+  const payload = { book_id: bookId };
+  if (charId !== null && charId !== undefined) payload.char_id = charId;
+  return payload;
+}
+
+function previewPayload(instruct, refText) {
+  return {
+    instruct,
+    ref_text: refText,
+    text: HUNGARIAN_PREVIEW_TEXT,
+  };
+}
+
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const data = await response.json();
+  if (!response.ok || data.error) {
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+  return data;
+}
+
+async function saveVoiceProfile({ bookId, charId, name, saveCurrent, request = requestJson }) {
+  const trimmedName = String(name || "").trim();
+  if (!trimmedName) throw new Error("Adj nevet a hangprofilnak.");
+  const saved = await saveCurrent();
+  if (!saved) throw new Error("A jelenlegi hangbeállításokat nem sikerült menteni.");
+  return request("/api/voice-profiles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: trimmedName, ...targetPayload(bookId, charId) }),
+  });
+}
+
+function flashSaved(element) {
+  if (!element) return;
+  const previous = element.style.color;
+  element.style.color = "#4caf80";
+  setTimeout(() => { element.style.color = previous; }, 1500);
+}
+
+function showError(prefix, error) {
+  alert(`${prefix}: ${error.message || error}`);
 }
 
 function updateInstructPreview(charId) {
+  const originalInstruct = loadedCharacters.find(
+    (character) => Number(character.id) === Number(charId),
+  )?.instruct || "";
   const instruct = buildInstruct(
     document.getElementById(`g-${charId}`)?.value || "female",
     document.getElementById(`a-${charId}`)?.value || "young adult",
     document.getElementById(`p-${charId}`)?.value || "moderate pitch",
-    document.getElementById(`ac-${charId}`)?.value || "american accent"
+    document.getElementById(`ac-${charId}`)?.value || "",
+    originalInstruct,
   );
-  const el = document.getElementById(`ins-${charId}`);
-  if (el) el.textContent = instruct;
+  const element = document.getElementById(`ins-${charId}`);
+  if (element) element.textContent = instruct;
   return instruct;
 }
 
@@ -82,62 +183,58 @@ function getNarratorInstruct() {
     document.getElementById("narrator-gender")?.value || "male",
     document.getElementById("narrator-age")?.value || "elderly",
     document.getElementById("narrator-pitch")?.value || "low pitch",
-    document.getElementById("narrator-accent")?.value || "british accent"
+    document.getElementById("narrator-accent")?.value || "",
+    narratorInstruct,
   );
 }
 
 function updateNarratorPreview() {
   const instruct = getNarratorInstruct();
-  const el = document.getElementById("narrator-instruct-preview");
-  if (el) el.textContent = instruct;
+  const element = document.getElementById("narrator-instruct-preview");
+  if (element) element.textContent = instruct;
   return instruct;
 }
 
 function syncNarratorRefUI() {
-  const status = document.getElementById("narrator-ref-status");
+  document.getElementById("narrator-ref-status")?.classList.toggle("hidden", !narratorHasRefAudio);
   const name = document.getElementById("narrator-ref-name");
-  const removeBtn = document.getElementById("remove-narrator-ref-btn");
-  if (status) status.classList.toggle("hidden", !narratorHasRefAudio);
   if (name) name.textContent = narratorRefAudioName;
-  if (removeBtn) {
-    removeBtn.disabled = !narratorHasRefAudio;
-    removeBtn.title = narratorHasRefAudio ? "" : "No cloned narrator voice is active.";
+  const remove = document.getElementById("remove-narrator-ref-btn");
+  if (remove) {
+    remove.disabled = !narratorHasRefAudio;
+    remove.title = narratorHasRefAudio ? "" : "Nincs aktív narrátori referenciahang.";
   }
 }
 
 function syncSingleNarratorUI() {
   const toggle = document.getElementById("single-narrator-mode");
   if (toggle) toggle.checked = singleNarratorMode;
-
   const note = document.getElementById("character-voice-note");
   if (!note) return;
-
-  if (singleNarratorMode) {
-    note.textContent =
-      "Single narrator mode is on. Character voices can still be edited here, but playback and export will use the narrator voice for every line.";
-    note.classList.remove("hidden");
-  } else {
-    note.textContent = "";
-    note.classList.add("hidden");
-  }
+  note.textContent = singleNarratorMode
+    ? "Az egy narrátoros mód aktív. A szereplők hangjai szerkeszthetők, de a lejátszás és az export a narrátor hangját használja."
+    : "";
+  note.classList.toggle("hidden", !singleNarratorMode);
 }
 
-function initNarratorControls() {
-  const parsed = parseInstruct(NARRATOR_INSTRUCT || DEFAULT_NARRATOR_INSTRUCT);
-  const pairs = [
+function setNarratorControls(instruct) {
+  const parsed = parseInstruct(instruct || DEFAULT_NARRATOR_INSTRUCT);
+  [
     ["narrator-gender", parsed.gender],
     ["narrator-age", parsed.age],
     ["narrator-pitch", parsed.pitch],
     ["narrator-accent", parsed.accent],
-  ];
-
-  pairs.forEach(([id, value]) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.value = value;
-    el.addEventListener("change", updateNarratorPreview);
+  ].forEach(([id, value]) => {
+    const element = document.getElementById(id);
+    if (element) element.value = value;
   });
+  updateNarratorPreview();
+}
 
+function initNarratorControls() {
+  setNarratorControls(narratorInstruct || DEFAULT_NARRATOR_INSTRUCT);
+  ["narrator-gender", "narrator-age", "narrator-pitch", "narrator-accent"]
+    .forEach((id) => document.getElementById(id)?.addEventListener("change", updateNarratorPreview));
   const toggle = document.getElementById("single-narrator-mode");
   if (toggle) {
     toggle.checked = singleNarratorMode;
@@ -146,166 +243,295 @@ function initNarratorControls() {
       syncSingleNarratorUI();
     });
   }
-
-  updateNarratorPreview();
   syncSingleNarratorUI();
   syncNarratorRefUI();
+}
+
+function profileOptions() {
+  return `<option value="">Válassz mentett hangot…</option>${voiceProfiles.map((profile) => (
+    `<option value="${profile.id}">${esc(profile.name)}</option>`
+  )).join("")}`;
+}
+
+function populateProfileSelects(selectedId = null) {
+  document.querySelectorAll(".voice-profile-select").forEach((select) => {
+    const previous = selectedId || Number(select.value) || null;
+    select.innerHTML = profileOptions();
+    if (previous) select.value = String(previous);
+  });
+}
+
+async function loadProfiles(selectedId = null) {
+  voiceProfiles = await requestJson("/api/voice-profiles");
+  populateProfileSelects(selectedId);
+}
+
+function profileControls(charId, ownerName) {
+  const suffix = charId === null ? "narrator" : String(charId);
+  const argument = charId === null ? "null" : String(charId);
+  return `<section class="profile-controls" aria-label="${esc(ownerName)} mentett hangprofilja">
+    <label for="profile-${suffix}">Mentett hangprofil</label>
+    <div class="profile-apply-row">
+      <select id="profile-${suffix}" class="vc-select voice-profile-select" aria-label="Mentett hangprofil ${esc(ownerName)} számára">${profileOptions()}</select>
+      <button type="button" class="btn btn-sm btn-primary" onclick="applySelectedProfile(${argument})">Alkalmazás</button>
+      <button type="button" class="btn btn-sm btn-ghost" onclick="deleteSelectedProfile(${argument})">Törlés</button>
+    </div>
+    <div class="profile-save-row">
+      <label class="sr-only" for="profile-name-${suffix}">Új hangprofil neve</label>
+      <input id="profile-name-${suffix}" maxlength="100" placeholder="Új hangprofil neve">
+      <button type="button" class="btn btn-sm btn-ghost" onclick="saveCurrentAsProfile(${argument})">Jelenlegi hang mentése</button>
+    </div>
+  </section>`;
+}
+
+function renderCharacters(characters, filterActive) {
+  const query = document.getElementById("character-search")?.value || "";
+  const visible = filterCharacters(characters, query);
+  const count = document.getElementById("char-count");
+  if (count) {
+    count.textContent = query.trim()
+      ? `(${visible.length}/${characters.length})`
+      : filterActive ? `(${characters.length} ebben a fejezetben)` : `(${characters.length})`;
+  }
+  const list = document.getElementById("char-list");
+  if (!list) return;
+  if (!visible.length) {
+    list.innerHTML = `<div class="voice-empty">${query.trim() ? "Nincs ilyen nevű szereplő." : "Nem található szereplő."}</div>`;
+    return;
+  }
+
+  list.innerHTML = visible.map((character) => {
+    const voice = parseInstruct(character.instruct);
+    const initial = String(character.name || "?").charAt(0).toUpperCase();
+    const gender = optionLabel(character.gender || voice.gender);
+    return `<details class="character-card voice-character" id="card-${character.id}">
+      <summary class="character-summary">
+        <span class="char-avatar" style="background:${esc(character.color_hex || "#d8b4fe")};color:#1a1a2e">${esc(initial)}</span>
+        <span class="character-summary-text"><strong>${esc(character.name)}</strong><span>${esc(gender)} · ${Number(character.frequency) || 0} megszólalás</span></span>
+        <span class="summary-action" aria-hidden="true">Beállítások</span>
+      </summary>
+      <div class="char-details voice-character-body">
+        ${profileControls(character.id, character.name)}
+        <div class="clone-section clone-prominent">
+          <div id="ref-status-${character.id}" class="reference-status${character.ref_audio_path ? "" : " hidden"}">
+            <span class="reference-status-label">Aktív referencia:</span>
+            <span id="ref-name-${character.id}">${esc(character.ref_audio_name || "Korábban feltöltött WAV")}</span>
+          </div>
+          <label for="ref-text-${character.id}">Referenciahang pontos átirata</label>
+          <textarea id="ref-text-${character.id}" class="reference-text" rows="3" placeholder="Pontosan azt írd ide, ami a hangfelvételen elhangzik.">${esc(character.ref_text)}</textarea>
+          <div class="reference-actions">
+            <label class="btn btn-sm btn-ghost file-picker"><span>Átirat betöltése TXT-ből</span><input type="file" accept=".txt,text/plain" onchange="loadRefText(event, ${character.id})"></label>
+            <label class="btn btn-sm btn-primary file-picker"><span>Referencia WAV kiválasztása</span><input type="file" accept=".wav,audio/wav" onchange="uploadRef(event, ${character.id})"></label>
+            <button id="remove-ref-${character.id}" class="btn btn-sm btn-ghost" type="button" onclick="removeRef(${character.id})"${character.ref_audio_path ? "" : " disabled"}>Referencia törlése</button>
+          </div>
+          <p class="studio-note">Tiszta, egyetlen beszélőt tartalmazó, 3–10 másodperces magyar felvétel ajánlott.</p>
+        </div>
+        <details class="technical-panel">
+          <summary>Hang finomhangolása</summary>
+          <div class="voice-controls">
+            ${buildSelect(GENDERS, voice.gender, `g-${character.id}`, `${character.name} hang neme`)}
+            ${buildSelect(AGES, voice.age, `a-${character.id}`, `${character.name} életkora`)}
+            ${buildSelect(PITCHES, voice.pitch, `p-${character.id}`, `${character.name} hangmagassága`)}
+            ${buildSelect(ACCENTS, voice.accent, `ac-${character.id}`, `${character.name} akcentusa`)}
+          </div>
+          <div class="char-card-footer">
+            <span class="instruct-preview" id="ins-${character.id}">${esc(character.instruct)}</span>
+            <button class="btn btn-sm btn-ghost" type="button" onclick="previewChar(${character.id})">▶ Magyar próba</button>
+            <button class="btn btn-sm btn-primary" type="button" onclick="saveChar(${character.id})">Mentés</button>
+          </div>
+        </details>
+      </div>
+    </details>`;
+  }).join("");
+
+  visible.forEach((character) => {
+    ["g", "a", "p", "ac"].forEach((prefix) => {
+      document.getElementById(`${prefix}-${character.id}`)?.addEventListener(
+        "change", () => updateInstructPreview(character.id),
+      );
+    });
+    updateInstructPreview(character.id);
+  });
 }
 
 async function loadCharacters() {
   const chapterFilter = document.getElementById("chapter-character-filter");
   const filterActive = Boolean(chapterFilter?.checked && CURRENT_CHAPTER_ID);
   const query = filterActive ? `?chapter_id=${CURRENT_CHAPTER_ID}` : "";
-  const chars = await fetch(`/api/books/${BOOK_ID}/characters${query}`).then((r) => r.json());
-  const list = document.getElementById("char-list");
-  document.getElementById("char-count").textContent = filterActive
-    ? `(${chars.length} in chapter)`
-    : `(${chars.length} detected)`;
-
-  if (!chars.length) {
-    const analysis = await fetch(`/api/books/${BOOK_ID}/character-analysis`)
-      .then((r) => r.json());
-    const analysisActive = analysis.status === "queued" || analysis.status === "running";
-    const message = filterActive && !analysisActive
-      ? "No characters appear in this chapter."
-      : (analysis.message || "No characters were detected.");
-    list.innerHTML = `<div class="muted" style="padding:16px">${esc(message)}</div>`;
-    if (analysisActive) {
-      setTimeout(loadCharacters, 1500);
+  try {
+    loadedCharacters = await requestJson(`/api/books/${BOOK_ID}/characters${query}`);
+    if (!loadedCharacters.length) {
+      const analysis = await requestJson(`/api/books/${BOOK_ID}/character-analysis`);
+      const active = analysis.status === "queued" || analysis.status === "running";
+      const list = document.getElementById("char-list");
+      if (list) list.innerHTML = `<div class="voice-empty">${esc(analysis.message || "Nem található szereplő.")}</div>`;
+      if (active) setTimeout(loadCharacters, 1500);
+      return;
     }
-    return;
+    renderCharacters(loadedCharacters, filterActive);
+  } catch (error) {
+    const list = document.getElementById("char-list");
+    if (list) list.innerHTML = `<div class="voice-empty status-error">${esc(error.message)}</div>`;
   }
-
-  list.innerHTML = chars
-    .map((ch) => {
-      const v = parseInstruct(ch.instruct);
-      const avatarStyle = `background:${ch.color_hex};color:#1a1a2e`;
-      const initial = ch.name.charAt(0).toUpperCase();
-      const genderBadge = `<span class="char-gender gender-${ch.gender}">${ch.gender}</span>`;
-      return `
-      <div class="character-card" id="card-${ch.id}">
-        <div class="char-avatar" style="${avatarStyle}">${initial}</div>
-        <div class="char-details">
-          <span class="char-name">${esc(ch.name)} ${genderBadge} <span class="char-freq">x ${ch.frequency}</span></span>
-          <div class="voice-controls">
-            ${buildSelect(GENDERS, v.gender, `g-${ch.id}`)}
-            ${buildSelect(AGES, v.age, `a-${ch.id}`)}
-            ${buildSelect(PITCHES, v.pitch, `p-${ch.id}`)}
-            ${buildSelect(ACCENTS, v.accent, `ac-${ch.id}`)}
-          </div>
-          <div class="char-card-footer">
-            <span class="instruct-preview" id="ins-${ch.id}">${esc(ch.instruct)}</span>
-            <button class="btn btn-sm btn-ghost preview-btn" onclick="previewChar(${ch.id})">&#9654; Preview</button>
-            <button class="btn btn-sm btn-primary" onclick="saveChar(${ch.id})">Save</button>
-          </div>
-          <div class="clone-section">
-            <div id="ref-status-${ch.id}" class="reference-status${ch.ref_audio_path ? "" : " hidden"}">
-              <span class="reference-status-label">Active reference:</span>
-              <span id="ref-name-${ch.id}">${esc(ch.ref_audio_name || "Previously uploaded WAV")}</span>
-            </div>
-            <label for="ref-text-${ch.id}">Reference audio transcript</label>
-            <textarea id="ref-text-${ch.id}" class="reference-text" rows="3" placeholder="Type exactly what is spoken in the reference audio.">${esc(ch.ref_text)}</textarea>
-            <div class="reference-actions">
-              <label class="btn btn-sm btn-ghost file-picker">
-                <span>Load transcript TXT</span>
-                <input type="file" accept=".txt,text/plain" onchange="loadRefText(event, ${ch.id})">
-              </label>
-            </div>
-            <div class="studio-note">A matching transcript gives OmniVoice the best cloning quality. The TXT content is loaded into this field; save it or upload the audio to persist it. Empty uses Whisper auto-transcription.</div>
-            <div class="reference-actions">
-              <label class="btn btn-sm btn-ghost file-picker">
-                <span>Choose reference WAV</span>
-                <input type="file" accept=".wav,audio/wav" onchange="uploadRef(event, ${ch.id})">
-              </label>
-              <button id="remove-ref-${ch.id}" class="btn btn-sm btn-ghost" type="button" onclick="removeRef(${ch.id})"${ch.ref_audio_path ? "" : " disabled"}>Remove reference</button>
-            </div>
-            <div class="studio-note">Best results: a clean, single-speaker, 3–10 second clip in the target language.</div>
-          </div>
-        </div>
-      </div>`;
-    })
-    .join("");
-
-  chars.forEach((ch) => {
-    ["g", "a", "p", "ac"].forEach((prefix) => {
-      const el = document.getElementById(`${prefix}-${ch.id}`);
-      if (el) {
-        el.addEventListener("change", () => updateInstructPreview(ch.id));
-      }
-    });
-    updateInstructPreview(ch.id);
-  });
 }
 
 async function saveChar(charId) {
-  const instruct = updateInstructPreview(charId);
-  const gender = document.getElementById(`g-${charId}`)?.value || "female";
-  const refText = document.getElementById(`ref-text-${charId}`)?.value.trim() || "";
-
-  const r = await fetch(`/api/books/${BOOK_ID}/characters/${charId}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ instruct, gender, ref_text: refText }),
-  });
-  const d = await r.json();
-  if (d.ok) {
+  try {
+    const instruct = updateInstructPreview(charId);
+    const gender = document.getElementById(`g-${charId}`)?.value || "female";
+    const refText = document.getElementById(`ref-text-${charId}`)?.value.trim() || "";
+    await requestJson(`/api/books/${BOOK_ID}/characters/${charId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instruct, gender, ref_text: refText }),
+    });
+    const character = loadedCharacters.find(
+      (item) => Number(item.id) === Number(charId),
+    );
+    if (character) {
+      character.instruct = instruct;
+      character.gender = gender;
+    }
     flashSaved(document.getElementById(`ins-${charId}`));
-  } else if (d.error) {
-    alert(`Save failed: ${d.error}`);
+    return true;
+  } catch (error) {
+    showError("A mentés sikertelen", error);
+    return false;
+  }
+}
+
+async function saveNarrator() {
+  try {
+    const instruct = updateNarratorPreview();
+    const refText = document.getElementById("narrator-ref-text")?.value.trim() || "";
+    const data = await requestJson(`/api/books/${BOOK_ID}/narrator`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instruct, single_narrator_mode: singleNarratorMode, ref_text: refText }),
+    });
+    narratorInstruct = data.instruct || instruct;
+    singleNarratorMode = Boolean(data.single_narrator_mode);
+    syncSingleNarratorUI();
+    flashSaved(document.getElementById("narrator-instruct-preview"));
+    return true;
+  } catch (error) {
+    showError("A narrátor mentése sikertelen", error);
+    return false;
+  }
+}
+
+async function saveCurrentAsProfile(charId) {
+  const suffix = charId === null ? "narrator" : String(charId);
+  const input = document.getElementById(`profile-name-${suffix}`);
+  try {
+    const profile = await saveVoiceProfile({
+      bookId: BOOK_ID,
+      charId,
+      name: input?.value,
+      saveCurrent: () => charId === null ? saveNarrator() : saveChar(charId),
+    });
+    if (input) input.value = "";
+    await loadProfiles(profile.id);
+    alert("A hangprofil mentve.");
+  } catch (error) {
+    showError("A hangprofil mentése sikertelen", error);
+  }
+}
+
+async function refreshNarrator() {
+  const data = await requestJson(`/api/books/${BOOK_ID}/narrator`);
+  narratorInstruct = data.instruct || "";
+  singleNarratorMode = Boolean(data.single_narrator_mode);
+  narratorHasRefAudio = Boolean(data.ref_audio_name);
+  narratorRefAudioName = data.ref_audio_name || "Korábban feltöltött WAV";
+  const text = document.getElementById("narrator-ref-text");
+  if (text) text.value = data.ref_text || "";
+  setNarratorControls(narratorInstruct);
+  syncSingleNarratorUI();
+  syncNarratorRefUI();
+}
+
+async function applySelectedProfile(charId) {
+  const suffix = charId === null ? "narrator" : String(charId);
+  const profileId = Number(document.getElementById(`profile-${suffix}`)?.value);
+  if (!profileId) {
+    alert("Előbb válassz mentett hangprofilt.");
+    return;
+  }
+  try {
+    await requestJson(`/api/voice-profiles/${profileId}/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(targetPayload(BOOK_ID, charId)),
+    });
+    if (charId === null) await refreshNarrator();
+    else await loadCharacters();
+    alert("A hangprofil alkalmazva. Az érintett hangok újragenerálódnak.");
+  } catch (error) {
+    showError("A hangprofil alkalmazása sikertelen", error);
+  }
+}
+
+async function deleteSelectedProfile(charId) {
+  const suffix = charId === null ? "narrator" : String(charId);
+  const profileId = Number(document.getElementById(`profile-${suffix}`)?.value);
+  if (!profileId) {
+    alert("Előbb válassz törlendő hangprofilt.");
+    return;
+  }
+  if (!confirm("Biztosan törlöd ezt a mentett hangprofilt?")) return;
+  try {
+    await requestJson(`/api/voice-profiles/${profileId}`, { method: "DELETE" });
+    await loadProfiles();
+  } catch (error) {
+    showError("A hangprofil törlése sikertelen", error);
   }
 }
 
 async function previewChar(charId) {
-  const instruct = updateInstructPreview(charId);
-  const refText = document.getElementById(`ref-text-${charId}`)?.value.trim() || "";
-  const r = await fetch(`/api/books/${BOOK_ID}/characters/${charId}/preview`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ instruct, ref_text: refText }),
-  });
-  const d = await r.json();
-  if (d.error) {
-    alert(`Preview failed: ${d.error}`);
-    return;
+  try {
+    const payload = previewPayload(
+      updateInstructPreview(charId),
+      document.getElementById(`ref-text-${charId}`)?.value.trim() || "",
+    );
+    const data = await requestJson(`/api/books/${BOOK_ID}/characters/${charId}/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    previewAudio.src = `${data.audio_url}?t=${Date.now()}`;
+    await previewAudio.play();
+  } catch (error) {
+    showError("A próbahang sikertelen", error);
   }
-  previewAudio.src = `${d.audio_url}?t=${Date.now()}`;
-  await previewAudio.play();
 }
 
-async function uploadRef(event, charId) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  const fd = new FormData();
-  fd.append("file", file);
-  fd.append("ref_text", document.getElementById(`ref-text-${charId}`)?.value.trim() || "");
-
-  const r = await fetch(`/api/characters/${charId}/ref-audio`, {
-    method: "POST",
-    body: fd,
-  });
-  const d = await r.json();
-  if (d.ok) {
-    document.getElementById(`ref-name-${charId}`).textContent = d.ref_audio_name;
-    document.getElementById(`ref-status-${charId}`).classList.remove("hidden");
-    document.getElementById(`remove-ref-${charId}`).disabled = false;
-    alert("Reference audio and transcript saved for cloning.");
-  } else if (d.error) {
-    alert(`Upload failed: ${d.error}`);
+async function previewNarrator() {
+  try {
+    const payload = previewPayload(
+      updateNarratorPreview(),
+      document.getElementById("narrator-ref-text")?.value.trim() || "",
+    );
+    const data = await requestJson(`/api/books/${BOOK_ID}/characters/narrator/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    previewAudio.src = `${data.audio_url}?t=${Date.now()}`;
+    await previewAudio.play();
+  } catch (error) {
+    showError("A próbahang sikertelen", error);
   }
-  event.target.value = "";
 }
 
 async function loadTextFileIntoField(event, fieldId) {
   const file = event.target.files[0];
   if (!file) return;
-
   try {
-    const text = await file.text();
     const field = document.getElementById(fieldId);
-    if (field) field.value = text.replace(/^\uFEFF/, "").trim();
+    if (field) field.value = (await file.text()).replace(/^\uFEFF/, "").trim();
   } catch (error) {
-    alert(`Could not read the TXT file: ${error.message || error}`);
+    showError("A TXT fájl nem olvasható", error);
   } finally {
     event.target.value = "";
   }
@@ -319,106 +545,105 @@ function loadNarratorRefText(event) {
   return loadTextFileIntoField(event, "narrator-ref-text");
 }
 
+async function uploadRef(event, charId) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file);
+  form.append("ref_text", document.getElementById(`ref-text-${charId}`)?.value.trim() || "");
+  try {
+    const data = await requestJson(`/api/characters/${charId}/ref-audio`, { method: "POST", body: form });
+    document.getElementById(`ref-name-${charId}`).textContent = data.ref_audio_name;
+    document.getElementById(`ref-status-${charId}`).classList.remove("hidden");
+    document.getElementById(`remove-ref-${charId}`).disabled = false;
+    alert("A referenciahang és az átirat mentve.");
+  } catch (error) {
+    showError("A feltöltés sikertelen", error);
+  } finally {
+    event.target.value = "";
+  }
+}
+
 async function removeRef(charId) {
-  const r = await fetch(`/api/characters/${charId}/ref-audio`, { method: "DELETE" });
-  const d = await r.json();
-  if (d.ok) {
+  try {
+    await requestJson(`/api/characters/${charId}/ref-audio`, { method: "DELETE" });
     document.getElementById(`ref-status-${charId}`).classList.add("hidden");
     document.getElementById(`remove-ref-${charId}`).disabled = true;
     document.getElementById(`ref-text-${charId}`).value = "";
-  } else if (d.error) {
-    alert(`Remove failed: ${d.error}`);
+  } catch (error) {
+    showError("A referencia törlése sikertelen", error);
   }
 }
 
 async function uploadNarratorRef(event) {
   const file = event.target.files[0];
   if (!file) return;
-
-  const fd = new FormData();
-  fd.append("file", file);
-  fd.append("ref_text", document.getElementById("narrator-ref-text")?.value.trim() || "");
-
-  const r = await fetch(`/api/books/${BOOK_ID}/narrator-ref-audio`, {
-    method: "POST",
-    body: fd,
-  });
-  const d = await r.json();
-  if (d.ok) {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("ref_text", document.getElementById("narrator-ref-text")?.value.trim() || "");
+  try {
+    const data = await requestJson(`/api/books/${BOOK_ID}/narrator-ref-audio`, { method: "POST", body: form });
     narratorHasRefAudio = true;
-    narratorRefAudioName = d.ref_audio_name;
+    narratorRefAudioName = data.ref_audio_name;
     syncNarratorRefUI();
-    alert("Narrator reference audio saved. Existing audio will be regenerated with the cloned voice.");
-  } else if (d.error) {
-    alert(`Upload failed: ${d.error}`);
+    alert("A narrátor referenciahangja mentve.");
+  } catch (error) {
+    showError("A feltöltés sikertelen", error);
+  } finally {
+    event.target.value = "";
   }
-  event.target.value = "";
 }
 
 async function removeNarratorRef() {
-  const r = await fetch(`/api/books/${BOOK_ID}/narrator-ref-audio`, {
-    method: "DELETE",
-  });
-  const d = await r.json();
-  if (d.ok) {
+  try {
+    await requestJson(`/api/books/${BOOK_ID}/narrator-ref-audio`, { method: "DELETE" });
     narratorHasRefAudio = false;
-    narratorRefAudioName = "Previously uploaded WAV";
+    narratorRefAudioName = "Korábban feltöltött WAV";
     const refText = document.getElementById("narrator-ref-text");
     if (refText) refText.value = "";
     syncNarratorRefUI();
-    alert("Cloned narrator voice removed. Preview, playback, and export will use the narrator settings again.");
-  } else if (d.error) {
-    alert(`Remove failed: ${d.error}`);
+  } catch (error) {
+    showError("A referencia törlése sikertelen", error);
   }
 }
 
-async function saveNarrator() {
-  const instruct = updateNarratorPreview();
-  const refText = document.getElementById("narrator-ref-text")?.value.trim() || "";
-  const r = await fetch(`/api/books/${BOOK_ID}/narrator`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ instruct, single_narrator_mode: singleNarratorMode, ref_text: refText }),
+function initializeVoiceStudio() {
+  initNarratorControls();
+  document.getElementById("narrator-preview-btn")?.addEventListener("click", previewNarrator);
+  document.getElementById("chapter-character-filter")?.addEventListener("change", loadCharacters);
+  document.getElementById("character-search")?.addEventListener("input", () => {
+    const active = Boolean(document.getElementById("chapter-character-filter")?.checked && CURRENT_CHAPTER_ID);
+    renderCharacters(loadedCharacters, active);
   });
-  const d = await r.json();
-  if (d.ok) {
-    singleNarratorMode = Boolean(d.single_narrator_mode);
-    syncSingleNarratorUI();
-    flashSaved(document.getElementById("narrator-instruct-preview"));
-  } else if (d.error) {
-    alert(`Save failed: ${d.error}`);
-  }
+  loadProfiles().then(loadCharacters).catch((error) => showError("A hangprofilok betöltése sikertelen", error));
 }
 
-async function previewNarrator() {
-  const instruct = updateNarratorPreview();
-  const refText = document.getElementById("narrator-ref-text")?.value.trim() || "";
-  const r = await fetch(`/api/books/${BOOK_ID}/characters/narrator/preview`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ instruct, ref_text: refText }),
+if (studioDocument) {
+  Object.assign(studioWindow, {
+    applySelectedProfile,
+    deleteSelectedProfile,
+    loadNarratorRefText,
+    loadRefText,
+    previewChar,
+    removeNarratorRef,
+    removeRef,
+    saveChar,
+    saveCurrentAsProfile,
+    saveNarrator,
+    uploadNarratorRef,
+    uploadRef,
   });
-  const d = await r.json();
-  if (d.error) {
-    alert(`Preview failed: ${d.error}`);
-    return;
-  }
-  previewAudio.src = `${d.audio_url}?t=${Date.now()}`;
-  await previewAudio.play();
+  initializeVoiceStudio();
 }
 
-document.querySelector('.preview-btn[data-char-id="narrator"]').onclick = previewNarrator;
-
-initNarratorControls();
-document.getElementById("chapter-character-filter")?.addEventListener("change", loadCharacters);
-loadCharacters();
-
-window.saveChar = saveChar;
-window.previewChar = previewChar;
-window.uploadRef = uploadRef;
-window.removeRef = removeRef;
-window.uploadNarratorRef = uploadNarratorRef;
-window.removeNarratorRef = removeNarratorRef;
-window.saveNarrator = saveNarrator;
-window.loadRefText = loadRefText;
-window.loadNarratorRefText = loadNarratorRefText;
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    buildInstruct,
+    filterCharacters,
+    optionLabel,
+    parseInstruct,
+    previewPayload,
+    saveVoiceProfile,
+    targetPayload,
+  };
+}

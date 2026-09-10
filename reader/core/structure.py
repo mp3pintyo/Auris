@@ -1,5 +1,7 @@
 import re
 
+from core.parser.sections import HU_ORDINAL as _HU_ORDINAL
+
 _NUMBER_WORDS = (
     r'one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|'
     r'thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|'
@@ -8,23 +10,28 @@ _NUMBER_WORDS = (
 )
 
 SECTION_PATTERNS = [
-    ('prologue',     re.compile(r'^\s*prologue\b', re.IGNORECASE)),
-    ('epilogue',     re.compile(r'^\s*epilogue\b', re.IGNORECASE)),
-    ('foreword',     re.compile(r'^\s*foreword\b', re.IGNORECASE)),
+    ('prologue',     re.compile(r'^\s*(?:prologue|pr[óo]l[óo]gus)\b', re.IGNORECASE)),
+    ('epilogue',     re.compile(r'^\s*(?:epilogue|epil[óo]gus)\b', re.IGNORECASE)),
+    ('foreword',     re.compile(r'^\s*(?:foreword|el[őo]sz[óo])\b', re.IGNORECASE)),
     ('preface',      re.compile(r'^\s*preface\b', re.IGNORECASE)),
-    ('introduction', re.compile(r'^\s*introduction\b', re.IGNORECASE)),
-    ('afterword',    re.compile(r'^\s*afterword\b', re.IGNORECASE)),
-    ('appendix',     re.compile(r'^\s*appendix\b', re.IGNORECASE)),
+    ('introduction', re.compile(r'^\s*(?:introduction|bevezet[ée]s|bevezet[őo])\b', re.IGNORECASE)),
+    ('afterword',    re.compile(
+        r'^\s*(?:afterword|ut[óo]sz[óo]|k[öo]sz[öo]netnyilv[áa]n[íi]t[áa]s|a\s+szerz[őo]r[őo]l)\b',
+        re.IGNORECASE,
+    )),
+    ('appendix',     re.compile(r'^\s*(?:appendix|f[üu]ggel[ée]k)\b', re.IGNORECASE)),
     ('interlude',    re.compile(r'^\s*interlude\b', re.IGNORECASE)),
     ('part',         re.compile(
         rf'^\s*(?:part\s+(?:\d+|[ivxlcdm]+|{_NUMBER_WORDS})\b|'
-        r'(?:\d+|[ivxlcdm]+)\.?\s*r[eé]sz\b|r[eé]sz\s+(?:\d+|[ivxlcdm]+)\b)',
+        r'(?:\d+|[ivxlcdm]+)\.?\s*r[eé]sz\b|r[eé]sz\s+(?:\d+|[ivxlcdm]+)\b|'
+        rf'(?:{_HU_ORDINAL})\s+r[eé]sz\b)',
         re.IGNORECASE,
     )),
     ('chapter',      re.compile(
         rf'^\s*(?:'
         rf'(?:chapter|ch\.?)\s+(?:\d+|[ivxlcdm]+|{_NUMBER_WORDS})\b|'
-        r'(?:\d+|[ivxlcdm]+)\.?\s*fejezet\b|fejezet\s+(?:\d+|[ivxlcdm]+)\b'
+        r'(?:\d+|[ivxlcdm]+)\.?\s*fejezet\b|fejezet\s+(?:\d+|[ivxlcdm]+)\b|'
+        rf'(?:{_HU_ORDINAL})\s+fejezet\b'
         r')',
         re.IGNORECASE,
     )),

@@ -37,6 +37,7 @@
       </div>
       <div class="settings-category" id="settings-storage" data-settings-category="storage" role="tabpanel" hidden>
         <section class="settings-section"><h2>Tárhely és könyvtármentés</h2><div id="storage-areas"></div><button class="btn btn-ghost" onclick="loadStorage()">Tárhely frissítése</button>
+          <h3>Generált hangcache</h3><p id="audio-cache-summary"></p><button class="btn btn-ghost" id="audio-cache-cleanup" onclick="cleanupAudioCache()">Nem használt régi hangok törlése</button>
           <h3>Mentés</h3><p>A ZIP tartalmazza a könyvtárat, könyvjelzőket, kiejtési szabályokat, forrásfájlokat és referenciahangokat. Az API-kulcsokat nem exportáljuk.</p><label><input type="checkbox" id="backup-audio"> Generált hangcache is (jelentősen nagyobb fájl)</label><p><button class="btn btn-primary" id="backup-btn" onclick="downloadBackup()">Könyvtár mentése</button></p>
           <h3>Visszaállítás</h3><p>A mentés lecseréli a jelenlegi könyvtáradatokat. Előtte automatikusan biztonsági mentés készül. A jelenlegi API-kulcsok és modellútvonalak megmaradnak. Legfeljebb 500 MB-os ZIP, 4 GB kibontott tartalom támogatott.</p><div class="experience-form"><label>Auris ZIP-mentés<input id="restore-file" type="file" accept=".zip"></label><label>Megerősítés: írd be, hogy VISSZAÁLLÍTÁS<input id="restore-confirm" autocomplete="off"></label><button class="btn btn-ghost" id="restore-btn" onclick="restoreBackup()">Könyvtár visszaállítása</button></div><p id="storage-message" role="status" aria-live="polite"></p>
         </section>

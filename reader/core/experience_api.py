@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import re
 import shutil
@@ -14,6 +15,7 @@ from pathlib import Path
 from flask import Blueprint, jsonify, request, render_template, send_file, g
 
 from core import experience, settings
+from core import voice_preset_file
 from core.database import get_conn
 
 bp = Blueprint("experience", __name__)
@@ -108,6 +110,74 @@ def use_profile(profile_id):
     return jsonify(ok=True)
 
 
+@bp.route("/api/voice-profiles/<int:profile_id>/export")
+def export_profile(profile_id):
+    with get_conn() as conn:
+        profile = conn.execute(
+            "SELECT * FROM voice_profiles WHERE id=?", (profile_id,)
+        ).fetchone()
+    if not profile:
+        return jsonify(error="A hangprofil nem található."), 404
+    if not profile["ref_audio_path"]:
+        return jsonify(error="Csak referenciahangot tartalmazó profil exportálható."), 400
+    try:
+        archive = voice_preset_file.build_archive_from_path(
+            profile["name"],
+            profile["ref_audio_path"],
+            ref_text=profile["ref_text"],
+            source_filename=profile["ref_audio_name"],
+            created_at=profile["created_at"],
+            instruct=profile["instruct"],
+        )
+    except voice_preset_file.VoicePresetFileError as error:
+        return jsonify(error=str(error)), 410
+    return send_file(
+        io.BytesIO(archive),
+        mimetype="application/octet-stream",
+        as_attachment=True,
+        download_name=voice_preset_file.safe_download_name(profile["name"]),
+    )
+
+
+@bp.route("/api/voice-profiles/import", methods=["POST"])
+def import_profile():
+    uploaded = request.files.get("file")
+    if not uploaded or not str(uploaded.filename or "").lower().endswith(".aurisvoice"):
+        raise ValueError("Válassz egy .aurisvoice hangprofilfájlt.")
+    try:
+        payload = voice_preset_file.read_archive_from_stream(uploaded.stream)
+    except voice_preset_file.VoicePresetFileError as error:
+        raise ValueError(str(error)) from error
+
+    base_name = payload.name or Path(uploaded.filename).stem or "Importált hang"
+    with get_conn() as conn:
+        existing = {
+            str(row["name"]).casefold()
+            for row in conn.execute("SELECT name FROM voice_profiles")
+        }
+        name = base_name[:100]
+        suffix = 2
+        while name.casefold() in existing:
+            tail = f" ({suffix})"
+            name = base_name[:100 - len(tail)] + tail
+            suffix += 1
+
+        folder = Path(conn.execute("PRAGMA database_list").fetchone()[2]).parent / "voice_profiles"
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / (uuid.uuid4().hex + ".wav")
+        target.write_bytes(payload.audio_bytes)
+        try:
+            profile_id = conn.execute(
+                "INSERT INTO voice_profiles(name,instruct,ref_audio_path,ref_audio_name,ref_text) "
+                "VALUES(?,?,?,?,?)",
+                (name, payload.instruct, str(target), payload.source_filename, payload.ref_text),
+            ).lastrowid
+        except Exception:
+            target.unlink(missing_ok=True)
+            raise
+    return jsonify(ok=True, id=profile_id, name=name, renamed=name != base_name)
+
+
 @bp.route("/api/books/<int:bid>/search")
 def search_book(bid):
     import app as application
@@ -160,7 +230,7 @@ def _staging():
     # Only our UUID-named staging files expire; no user-specified paths.
     for old in path.iterdir():
         if (
-            re.fullmatch(r"[0-9a-f]{32}\.(json|epub|pdf|txt)", old.name)
+            re.fullmatch(r"[0-9a-f]{32}\.(json|epub|pdf|docx|txt|prc|mobi)", old.name)
             and old.stat().st_mtime < time.time() - 86400
         ):
             old.unlink(missing_ok=True)
@@ -178,8 +248,8 @@ def preview_import():
     try:
         if uploaded:
             ext = Path(uploaded.filename or "").suffix.lower()
-            if ext not in {".epub", ".pdf", ".txt"}:
-                raise ValueError("EPUB, PDF vagy TXT fájlt válassz.")
+            if ext not in {".epub", ".pdf", ".docx", ".txt", ".prc", ".mobi"}:
+                raise ValueError("EPUB, PDF, DOCX, TXT, PRC vagy MOBI fájlt válassz.")
             source_path = folder / (token + ext)
             uploaded.save(source_path)
             parsed = import_service.prepare_file(str(source_path))
@@ -501,9 +571,67 @@ def storage_status():
                 "files": len(files),
             }
         )
+    cache = _audio_cache_scan()
+    cache.pop("orphan_paths", None)
     return jsonify(
-        areas=result, free_bytes=shutil.disk_usage(Path(get_db_path()).parent).free
+        areas=result,
+        free_bytes=shutil.disk_usage(Path(get_db_path()).parent).free,
+        audio_cache=cache,
     )
+
+
+def _audio_cache_scan():
+    from core.tts_engine import AUDIO_CACHE_DIR
+
+    with get_conn() as conn:
+        referenced = {
+            Path(row["audio_path"]).name
+            for row in conn.execute(
+                "SELECT DISTINCT audio_path FROM tts_segments WHERE audio_path IS NOT NULL"
+            )
+            if row["audio_path"]
+        }
+    total_files = total_bytes = orphan_files = orphan_bytes = 0
+    orphan_paths = []
+    folder = Path(AUDIO_CACHE_DIR)
+    for entry in folder.iterdir() if folder.exists() else ():
+        if not entry.is_file() or entry.suffix.lower() != ".wav":
+            continue
+        try:
+            size = entry.stat().st_size
+        except OSError:
+            continue
+        total_files += 1
+        total_bytes += size
+        if entry.name not in referenced:
+            orphan_files += 1
+            orphan_bytes += size
+            orphan_paths.append(entry)
+    return {
+        "total_files": total_files,
+        "total_bytes": total_bytes,
+        "orphan_files": orphan_files,
+        "orphan_bytes": orphan_bytes,
+        "orphan_paths": orphan_paths,
+    }
+
+
+@bp.route("/api/storage/audio-cache/cleanup", methods=["POST"])
+def cleanup_audio_cache():
+    scan = _audio_cache_scan()
+    removed_files = removed_bytes = 0
+    cutoff = time.time() - 3600
+    for path in scan["orphan_paths"]:
+        try:
+            stat = path.stat()
+            if stat.st_mtime > cutoff:
+                continue
+            path.unlink()
+            removed_files += 1
+            removed_bytes += stat.st_size
+        except OSError:
+            continue
+    return jsonify(ok=True, removed_files=removed_files, removed_bytes=removed_bytes)
 
 
 @bp.route("/api/backup", methods=["POST"])

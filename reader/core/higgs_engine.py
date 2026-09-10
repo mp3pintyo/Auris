@@ -33,7 +33,7 @@ OFFICIAL_MODEL_REPO = "bosonai/higgs-tts-3-4b"
 DEFAULT_TRANSFORMERS_REPO = "multimodalart/higgs-audio-v3-tts-4b-transformers"
 REFERENCE_EXPAND_IF_SHORTER_SECONDS = 2.0
 REFERENCE_EXPAND_TARGET_SECONDS = 4.0
-HIGGS_CACHE_VERSION = 6
+HIGGS_CACHE_VERSION = 7
 HIGGS_MODEL_INIT_SEED = 123
 
 _OMNIVOICE_TAGS = {
@@ -403,7 +403,8 @@ class HiggsTTSEngine:
             # clean user text, no implicit normalization or delivery prefix.
             # Auris enrichment tags are implementation details of OmniVoice
             # and must not reach Higgs as literal bracketed words.
-            return _BRACKET_TAG_RE.sub("", text).strip()
+            spoken = apply_text_normalization(text, language) if normalize_text else text
+            return _BRACKET_TAG_RE.sub("", spoken).strip()
 
         spoken = apply_text_normalization(text, language) if normalize_text else text
         spoken = _translate_inline_tags(spoken).strip()

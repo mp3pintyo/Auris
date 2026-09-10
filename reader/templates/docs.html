@@ -89,7 +89,7 @@
         <div>
           <h3>Könyvtár és olvasó</h3>
           <ul class="docs-check-list">
-            <li><strong>EPUB, PDF, DOCX, TXT és webcikk import</strong> szerkeszthető előnézettel, fejezetlistával és narrációs mód választásával. A DOCX dokumentumok Word-címsorstílusai fejezethatárként szolgálnak.</li>
+            <li><strong>EPUB, PDF, DOCX, TXT, DRM-mentes PRC/MOBI és webcikk import</strong> szerkeszthető előnézettel, fejezetlistával és narrációs mód választásával. A DOCX dokumentumok Word-címsorstílusai fejezethatárként szolgálnak; a PRC/MOBI import a könyv saját tartalomjegyzékét és borítóját is felhasználja.</li>
             <li>A könyvtár cím, szerző és sorozat szerint kereshető; állapot és gyűjtemény alapján szűrhető.</li>
             <li>Az <strong>Adatok</strong> ablakban a cím, szerző és nyelv is javítható. A nyelv módosítása megerősítés után törli a könyv régi hangjait, hogy az új kiejtéssel készüljenek el.</li>
             <li>Fejezetes tartalomjegyzék, olvasási időbecslés és fejezet-progressz.</li>
@@ -108,7 +108,7 @@
             <li>Lejátszás, szünet, valódi generálás-megszakítás, előző/következő szegmens.</li>
             <li>A Lejátszás után induló előtöltés és háttér-pufferelés a folyamatosabb hallgatáshoz.</li>
             <li>Egynarrátoros vagy szereplőnként eltérő hangú felolvasás.</li>
-            <li>Narrátor- és szereplőhang előnézete a Voice Studioban.</li>
+            <li>Narrátor- és szereplőhang előnézete szabadon megadott magyar próbaszöveggel, a próba WAV-fájljának mentésével.</li>
             <li>Aktuális vagy kiválasztott fejezetek exportja WAV/MP3, illetve egyetlen fejezetes M4B formátumban; ASS/SRT felirat kérhető vagy elhagyható.</li>
             <li>Export-progressz, ETA, újrahasznosítható audio cache és letölthető eredmény.</li>
             <li>Tartós Feladatok oldal generáláshoz, exporthoz és újraelemzéshez, leállítással és explicit folytatással.</li>
@@ -152,7 +152,7 @@
         </div>
       </div>
       <div class="pipeline" aria-label="Az Auris feldolgozási folyamata">
-        <div class="pipeline-node"><span class="pipeline-icon">1</span><strong>Forrás</strong><small>EPUB · PDF · DOCX · TXT · webcikk</small></div>
+        <div class="pipeline-node"><span class="pipeline-icon">1</span><strong>Forrás</strong><small>EPUB · PDF · DOCX · TXT · PRC/MOBI · webcikk</small></div>
         <span class="pipeline-connector" aria-hidden="true">→</span>
         <div class="pipeline-node"><span class="pipeline-icon">2</span><strong>Narráció</strong><small>egy hang · szereplőhangok</small></div>
         <span class="pipeline-connector" aria-hidden="true">→</span>
@@ -445,8 +445,11 @@
             A narrátor vagy szereplő beállítása névvel hangprofilként menthető,
             majd másik könyv narrátorára vagy szereplőjére alkalmazható. A
             profilhoz tartozó referenciahang tartós példánya a könyv eredeti
-            rekordjától függetlenül megmarad. Mentés előtt magyar próbamondattal
-            ellenőrizhető a hang.
+            rekordjától függetlenül megmarad. A referenciahangot tartalmazó
+            profil <strong>.aurisvoice</strong> fájlba exportálható, majd másik
+            Auris-telepítésbe importálható. A formátum együtt tartja a WAV-ot,
+            a pontos átiratot és a hangutasítást. Mentés előtt saját magyar
+            próbamondattal ellenőrizhető és WAV-ként letölthető a hang.
           </p>
         </div>
         <div>
@@ -458,6 +461,13 @@
             eredeti szöveg nem változik; a szabály törölhető, és módosításkor az
             érintett hangcache újragenerálódik.
           </p>
+        </div>
+      </div>
+      <div class="docs-callout">
+        <span class="docs-callout-icon" aria-hidden="true">123</span>
+        <div>
+          <strong>A magyar számok felolvasás előtt nyelvtanilag helyes alakra alakulnak.</strong>
+          <p>Az Auris felismeri többek között a számneveket, sorszámokat, évszámokat, dátumokat, időpontokat, százalékokat, Celsius-fokot és a kötőjeles magyar ragokat. Ez az OmniVoice és a Higgs nyers módjában is működik, ha a szövegnormalizálás be van kapcsolva.</p>
         </div>
       </div>
       <div class="docs-callout">
@@ -689,6 +699,7 @@
             <li>Nyomd meg a <strong>Beszédmotor újratöltése</strong> gombot.</li>
             <li>Várd meg a jobb felső állapotjelző <strong>ready</strong> állapotát.</li>
           </ol>
+          <p>A tárhelylapon külön látható a generált WAV-cache teljes és már nem használt része. A takarítás csak egy óránál régebbi, adatbázisban nem hivatkozott fájlokat töröl, így a folyamatban lévő generálás friss fájljait védi.</p>
         </div>
         <div>
           <h3>Mi történik a háttérben?</h3>

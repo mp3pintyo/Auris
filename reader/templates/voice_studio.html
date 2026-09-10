@@ -14,6 +14,18 @@
     </div>
   </header>
 
+  <section class="studio-narrator" aria-labelledby="preview-text-title">
+    <h2 id="preview-text-title" class="studio-section-title">Próbaszöveg</h2>
+    <article class="character-card narrator-card">
+      <div class="char-avatar narrator-avatar" aria-hidden="true">▶</div>
+      <div class="char-details">
+        <label for="voice-preview-text">Ezt a magyar szöveget olvassa fel a próbahang</label>
+        <textarea id="voice-preview-text" class="reference-text" rows="3" maxlength="1500">Az árvíztűrő tükörfúrógép próbája tisztán és természetesen szól magyarul.</textarea>
+        <p class="studio-note">A szöveg csak a próbahanghoz használatos, nem módosítja a könyvet. Legfeljebb 1500 karakter.</p>
+      </div>
+    </article>
+  </section>
+
   <section class="studio-narrator" aria-labelledby="narrator-title">
     <h2 id="narrator-title" class="studio-section-title">Narrátor</h2>
     <article class="character-card narrator-card">
@@ -34,6 +46,13 @@
             <label class="sr-only" for="profile-name-narrator">Új narrátorprofil neve</label>
             <input id="profile-name-narrator" maxlength="100" placeholder="Új hangprofil neve">
             <button type="button" class="btn btn-sm btn-ghost" onclick="saveCurrentAsProfile(null)">Jelenlegi hang mentése</button>
+          </div>
+          <div class="profile-save-row">
+            <button type="button" class="btn btn-sm btn-ghost" onclick="exportSelectedProfile()">Kijelölt profil exportálása</button>
+            <label class="btn btn-sm btn-ghost file-picker">
+              <span>Profil importálása</span>
+              <input type="file" accept=".aurisvoice" onchange="importVoiceProfile(event)">
+            </label>
           </div>
         </section>
 
@@ -109,6 +128,7 @@
           <div class="char-card-footer">
             <span class="instruct-preview" id="narrator-instruct-preview"></span>
             <button id="narrator-preview-btn" class="btn btn-sm btn-ghost" type="button">▶ Magyar próba</button>
+            <button id="narrator-download-btn" class="btn btn-sm btn-ghost" type="button">↓ Próba mentése</button>
             <button class="btn btn-sm btn-primary" type="button" onclick="saveNarrator()">Mentés</button>
           </div>
         </details>

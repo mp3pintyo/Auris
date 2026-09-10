@@ -95,3 +95,8 @@ test('Hungarian preview text is included in preview requests', () => {
   assert.equal(payload.ref_text, 'Pontos átirat.');
   assert.match(payload.text, /árvíztűrő tükörfúrógép/i);
 });
+
+test('A custom Hungarian preview text is preserved', () => {
+  const payload = previewPayload('female, young adult', '', 'Tűz és vér.');
+  assert.equal(payload.text, 'Tűz és vér.');
+});

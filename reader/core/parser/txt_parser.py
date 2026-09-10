@@ -27,23 +27,30 @@ def parse(file_path):
     with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
         raw = f.read()
 
+    return parse_text(raw)
+
+
+def parse_text(raw, title=None, author=None):
+
     # Form-feed page breaks are common in plain-text book dumps.
     raw = raw.replace('\x0c', '\n')
     lines = raw.splitlines()
 
     # Try to extract title from first non-empty lines
-    title = 'Unknown Title'
-    author = 'Unknown Author'
-    for line in lines[:20]:
-        line = line.strip()
-        if line and len(line) < 120:
-            title = line
-            break
+    if not title:
+        title = 'Unknown Title'
+        for line in lines[:20]:
+            line = line.strip()
+            if line and len(line) < 120:
+                title = line
+                break
 
     # Detect "by Author" pattern
-    by_match = re.search(r'\bby\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', raw[:500])
-    if by_match:
-        author = by_match.group(1)
+    if not author:
+        author = 'Unknown Author'
+        by_match = re.search(r'\bby\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', raw[:500])
+        if by_match:
+            author = by_match.group(1)
 
     # If the document already has several explicit Chapter/Fejezet markers,
     # ignore all-caps scene titles so they don't pollute the TOC.

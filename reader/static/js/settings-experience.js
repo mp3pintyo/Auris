@@ -148,8 +148,27 @@ async function loadStorage() {
             `<div class="storage-row"><span>${sxEscape(a.name)} · ${a.files} fájl</span><strong>${sizeText(a.bytes)}</strong></div>`,
         )
         .join("") + `<p>Szabad lemezterület: ${sizeText(d.free_bytes)}</p>`;
+    const cache = d.audio_cache || {};
+    sx("audio-cache-summary").textContent =
+      `${cache.total_files || 0} WAV, ${sizeText(cache.total_bytes || 0)}; ` +
+      `${cache.orphan_files || 0} már nem használt fájl (${sizeText(cache.orphan_bytes || 0)}).`;
   } catch (e) {
     sx("storage-message").textContent = e.message;
+  }
+}
+async function cleanupAudioCache() {
+  const button = sx("audio-cache-cleanup");
+  button.disabled = true;
+  sx("storage-message").textContent = "A nem használt hangok törlése…";
+  try {
+    const result = await sxApi("/api/storage/audio-cache/cleanup", {});
+    sx("storage-message").textContent =
+      `${result.removed_files} régi hangfájl törölve (${sizeText(result.removed_bytes)}).`;
+    await loadStorage();
+  } catch (error) {
+    sx("storage-message").textContent = error.message;
+  } finally {
+    button.disabled = false;
   }
 }
 async function downloadBackup() {

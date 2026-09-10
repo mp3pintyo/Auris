@@ -10,6 +10,22 @@ NUMBER_WORDS = (
     r'ninety|hundred'
 )
 
+# Hungarian ordinal headings from 1 to 99. Accent-tolerant variants also
+# recognize text extracted from older PDFs with damaged Hungarian glyphs.
+HU_ORDINAL = (
+    r'(?:tizen|huszon|harminc|negyven|[öo]tven|hatvan|hetven|nyolcvan|kilencven)'
+    r'(?:egyedik|kettedik|harmadik|negyedik|[öo]t[öo]dik|hatodik|hetedik|nyolcadik|kilencedik)'
+    r'|els[őo]|m[áa]sodik|harmadik|negyedik|[öo]t[öo]dik|hatodik|hetedik|nyolcadik|kilencedik'
+    r'|tizedik|huszadik|harmincadik|negyvenedik|[öo]tvenedik|hatvanadik|hetvenedik'
+    r'|nyolcvanadik|kilencvenedik|sz[áa]zadik'
+)
+
+HU_NAMED_SECTIONS = (
+    r'el[őo]sz[óo]|ut[óo]sz[óo]|bevezet[ée]s|bevezet[őo]|pr[óo]l[óo]gus|'
+    r'epil[óo]gus|f[üu]ggel[ée]k|k[öo]sz[öo]netnyilv[áa]n[íi]t[áa]s|'
+    r'a\s+szerz[őo]r[őo]l'
+)
+
 # Explicit section markers (English + Hungarian). High-confidence chapter boundaries.
 SECTION_RE = re.compile(
     r'^(?:'
@@ -19,12 +35,15 @@ SECTION_RE = re.compile(
     rf'|part\s+(?:\d+|[ivxlcdm]+|{NUMBER_WORDS})\b'
     # Named front/back matter
     r'|prologue|epilogue|foreword|preface|introduction|afterword|appendix|interlude'
+    rf'|(?:{HU_NAMED_SECTIONS})\b'
     # Hungarian: "1. fejezet", "Fejezet 1", "I. FEJEZET"
     r'|(?:\d+|[ivxlcdm]+)\.?\s*fejezet\b'
     r'|fejezet\s+(?:\d+|[ivxlcdm]+)\b'
+    rf'|(?:{HU_ORDINAL})\s+fejezet\b'
     # Hungarian: "1. rész", "II. rész", "Rész 3"
     r'|(?:\d+|[ivxlcdm]+)\.?\s*r[eé]sz\b'
     r'|r[eé]sz\s+(?:\d+|[ivxlcdm]+)\b'
+    rf'|(?:{HU_ORDINAL})\s+r[eé]sz\b'
     r').*$',
     re.IGNORECASE,
 )
@@ -39,6 +58,61 @@ def is_explicit_section(line: str, max_len: int = 150) -> bool:
     if not line or len(line) > max_len:
         return False
     return bool(SECTION_RE.match(line))
+
+
+def looks_like_lead_in_prose(content: str) -> bool:
+    """Recognize a real opening paragraph before the first chapter heading."""
+    content = (content or '').strip()
+    if len(content.split()) < 15:
+        return False
+    lines = [line.strip() for line in content.splitlines() if line.strip()]
+    longest_line_words = max((len(line.split()) for line in lines), default=0)
+    sentence_marks = len(re.findall(r'[.!?…]', content))
+    return longest_line_words >= 12 or sentence_marks >= 2
+
+
+NUMBERED_MARKER_RE = re.compile(r'^\s*(\d{1,3})\s*[.)]?\s*$')
+MIN_NUMBERED_MARKERS = 3
+MIN_MEDIAN_SCENE_WORDS = 50
+
+
+def _median(values):
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def split_numbered_scenes(
+    lines,
+    min_markers=MIN_NUMBERED_MARKERS,
+    min_median_words=MIN_MEDIAN_SCENE_WORDS,
+):
+    """Split a substantial consecutive run of bare numbered scenes."""
+    marks = []
+    for index, line in enumerate(lines):
+        match = NUMBERED_MARKER_RE.match(line)
+        if match:
+            marks.append((index, int(match.group(1))))
+    if len(marks) < min_markers:
+        return None
+    numbers = [number for _, number in marks]
+    if any(second - first != 1 for first, second in zip(numbers, numbers[1:])):
+        return None
+
+    bounds = [index for index, _ in marks] + [len(lines)]
+    scenes = [
+        (lines[start].strip(), lines[start + 1:end])
+        for (start, _), end in zip(marks, bounds[1:])
+    ]
+    preamble = lines[:marks[0][0]]
+    if preamble:
+        scenes[0] = (scenes[0][0], preamble + scenes[0][1])
+    sizes = [sum(len(line.split()) for line in body) for _, body in scenes]
+    if not sizes or sizes[-1] == 0 or _median(sizes) < min_median_words:
+        return None
+    return scenes
 
 
 SKIP_SECTION_RE = re.compile(
@@ -59,7 +133,8 @@ COPYRIGHT_RE = re.compile(
 )
 TOC_CHAPTER_RE = re.compile(
     rf'\b(?:chapter|fejezet)\s+(?:\d+|[ivxlcdm]+|{NUMBER_WORDS})\b|'
-    rf'\b(?:\d+|[ivxlcdm]+)\.?\s*fejezet\b',
+    rf'\b(?:\d+|[ivxlcdm]+)\.?\s*fejezet\b|'
+    rf'\b(?:{HU_ORDINAL})\s+fejezet\b',
     re.IGNORECASE,
 )
 # Pure roman-numeral sub-section markers: I, II, III., XIV
@@ -129,6 +204,7 @@ def should_skip_section(title, content, started_story, *, title_is_declared_head
         and not started_story
         and len(content.split()) < 120
         and not is_explicit_section(title)
+        and not looks_like_lead_in_prose(content)
     ):
         return True
     return False

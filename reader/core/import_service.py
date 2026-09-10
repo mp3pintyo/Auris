@@ -10,7 +10,7 @@ import ssl
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
-from core.parser import docx_parser, epub_parser, pdf_parser, txt_parser
+from core.parser import docx_parser, epub_parser, pdf_parser, prc_parser, txt_parser
 from core.parser.language import detect_language
 
 
@@ -62,10 +62,14 @@ def prepare_file(path) -> dict:
         ".pdf": pdf_parser.parse,
         ".docx": docx_parser.parse,
         ".txt": txt_parser.parse,
+        ".prc": prc_parser.parse,
+        ".mobi": prc_parser.parse,
     }
     parser = parsers.get(source.suffix.lower())
     if parser is None:
-        raise ValueError("Nem támogatott fájltípus. Használj EPUB, PDF, DOCX vagy TXT fájlt.")
+        raise ValueError(
+            "Nem támogatott fájltípus. Használj EPUB, PDF, DOCX, TXT, PRC vagy MOBI fájlt."
+        )
 
     result = parser(str(source))
     _ensure_readable_chapters(result)

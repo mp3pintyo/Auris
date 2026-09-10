@@ -2,7 +2,7 @@
 {% block title %}Könyvtár — Auris{% endblock %}
 {% block content %}
 <main class="library-page">
- <div class="library-header"><h1>Könyvtár</h1><span id="library-count" class="library-count"></span><button class="btn btn-primary" onclick="document.getElementById('file-input').click()">Könyv hozzáadása</button><button class="btn btn-ghost" onclick="openUrlDialog()">Webcikk hozzáadása</button><input id="file-input" type="file" accept=".epub,.pdf,.docx,.txt" hidden></div>
+<div class="library-header"><h1>Könyvtár</h1><span id="library-count" class="library-count"></span><button class="btn btn-primary" onclick="document.getElementById('file-input').click()">Könyv hozzáadása</button><button class="btn btn-ghost" onclick="openUrlDialog()">Webcikk hozzáadása</button><input id="file-input" type="file" accept=".epub,.pdf,.docx,.txt,.prc,.mobi" hidden></div>
  <section id="welcome-card" class="experience-card hidden"><h2>Magyar történetek, a saját hangjaiddal</h2><p>Ellenőrizd a beszédmotort, és hallgass meg egy magyar próbamondatot.</p><a class="btn btn-primary" href="/settings#setup">Első beállítás</a></section>
  <div id="import-status" class="import-status hidden" role="status" aria-live="polite"></div>
  <section id="continue-card" class="experience-card hidden" aria-label="Legutóbbi könyv"></section>

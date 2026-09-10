@@ -6,7 +6,7 @@ Current version: [`VERSION`](VERSION). See the complete bilingual
 [`CHANGELOG.md`](CHANGELOG.md) and the [`RELEASING.md`](RELEASING.md) guide for
 the versioning and release process.
 
-Local-first audiobook reader for EPUB, PDF, DOCX, TXT, and public web articles with selectable local
+Local-first audiobook reader for EPUB, PDF, DOCX, TXT, PRC/MOBI, and public web articles with selectable local
 OmniVoice or Higgs TTS 3 speech, character-aware voices, per-book narrator
 control, and duration-based estimated word highlighting.
 
@@ -34,7 +34,7 @@ labels and the updated workflows described below and in the built-in help.
 
 ## Highlights
 
-- Preview and import EPUB, PDF, DOCX, TXT, or a public HTTP(S) article; edit title,
+- Preview and import EPUB, PDF, DOCX, TXT, DRM-free PRC/MOBI, or a public HTTP(S) article; edit title,
   author, and language before confirming.
 - Split DOCX books by Word heading styles when the document provides them.
 - Extract web articles with Trafilatura. Auris does not run page JavaScript and
@@ -47,9 +47,10 @@ labels and the updated workflows described below and in the built-in help.
   Studio, Ollama, llama.cpp, or other OpenAI-compatible endpoint.
 - Customize each detected character in Voice Studio.
 - Customize the narrator voice per book.
-- Save reusable narrator/character voice profiles with durable reference audio.
+- Save reusable narrator/character voice profiles with durable reference audio;
+  transfer profiles between Auris installations as `.aurisvoice` files.
 - Apply global or per-book pronunciation rules without changing displayed text.
-- Preview voices before saving.
+- Preview voices with your own Hungarian sample text and save the result as WAV.
 - Upload reference WAV files for voice cloning.
 - Invalidate stale cached playback automatically when narrator or character voices change.
 - Search within a book, jump 15 seconds, use a sleep timer, and control playback
@@ -62,6 +63,7 @@ labels and the updated workflows described below and in the built-in help.
 - Save and restore the library as an Auris ZIP, optionally including the
   regenerable audio cache. Restore replaces the library after confirmation and
   first writes a recovery backup; stale jobs from the replaced library are cleared.
+- Inspect generated audio-cache usage and remove old files that no book references.
 - Run from a project-local `.venv` created by the installer.
 
 ## Requirements

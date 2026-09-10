@@ -1,7 +1,9 @@
 import os
 import tempfile
+import threading
 import time
 import unittest
+from unittest.mock import patch
 
 import app as app_module
 from core import database
@@ -49,6 +51,17 @@ class _FakeTTS:
 
 class ChapterGenerationApiTest(unittest.TestCase):
     def setUp(self):
+        self.worker_threads = []
+        real_thread = threading.Thread
+
+        def tracked_thread(*args, **kwargs):
+            thread = real_thread(*args, **kwargs)
+            self.worker_threads.append(thread)
+            return thread
+
+        thread_patch = patch.object(app_module.threading, "Thread", side_effect=tracked_thread)
+        thread_patch.start()
+        self.addCleanup(thread_patch.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.original_db_path = database.DB_PATH
         self.original_startup = app_module._startup_complete
@@ -83,6 +96,11 @@ class ChapterGenerationApiTest(unittest.TestCase):
         self.client = app_module.app.test_client()
 
     def tearDown(self):
+        # A complete progress response can precede the worker's final DB write.
+        # Finish workers before restoring globals or deleting the Windows DB file.
+        for thread in self.worker_threads:
+            thread.join(timeout=5)
+            self.assertFalse(thread.is_alive(), "Chapter worker did not stop")
         database.DB_PATH = self.original_db_path
         app_module._startup_complete = self.original_startup
         app_module.tts = self.original_tts

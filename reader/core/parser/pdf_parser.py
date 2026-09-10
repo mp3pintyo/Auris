@@ -6,7 +6,7 @@ from core.parser.language import detect_language
 from core.parser.sections import EXPLICIT_MARKER_THRESHOLD, is_explicit_section
 
 try:
-    import fitz  # PyMuPDF
+    import pymupdf
     FITZ_OK = True
 except ImportError:
     FITZ_OK = False
@@ -69,10 +69,10 @@ def _collect_blocks(doc):
     all_blocks = []
     for page_num, page in enumerate(doc):
         blocks = page.get_text('dict')['blocks']
-        for block in blocks:
+        for block_index, block in enumerate(blocks):
             if block.get('type') != 0:
                 continue
-            for line in block.get('lines', []):
+            for line_index, line in enumerate(block.get('lines', [])):
                 spans = line.get('spans', [])
                 text = _join_line_spans(spans)
                 if text:
@@ -83,6 +83,7 @@ def _collect_blocks(doc):
                         'page': page_num,
                         'bbox': tuple(line.get('bbox', ())),
                         'page_width': page.rect.width,
+                        'paragraph_start': line_index == 0 and block_index > 0,
                     })
     return all_blocks
 
@@ -104,6 +105,29 @@ def _is_centered_page_number(block):
 def _without_page_numbers(blocks):
     """Remove PDF page-number lines before language and chapter processing."""
     return [block for block in blocks if not _is_centered_page_number(block)]
+
+
+def _merge_pdf_blocks(blocks):
+    """Join PDF lines while preserving meaningful layout boundaries."""
+    output = ''
+    for block in blocks:
+        text = unicodedata.normalize('NFC', block.get('text', '')).strip()
+        if not text:
+            continue
+        if not output:
+            output = text
+            continue
+
+        if (
+            re.search(r"[^\W\d_][-\u00ad]$", output, re.UNICODE)
+            and re.match(r"[a-záéíóöőúüű]", text)
+        ):
+            output = output[:-1] + text
+        elif block.get('paragraph_start'):
+            output += '\n\n' + text
+        else:
+            output += ' ' + text
+    return output.strip()
 
 
 def _body_font_size(all_blocks):
@@ -147,7 +171,7 @@ def _split_chapters(all_blocks, default_title):
             )
 
         if is_heading and current_lines:
-            content = ' '.join(current_lines).strip()
+            content = _merge_pdf_blocks(current_lines)
             if len(content) > 100:
                 chapters.append({
                     'title': current_title,
@@ -163,10 +187,10 @@ def _split_chapters(all_blocks, default_title):
             current_title = text.strip()
             current_lines = []
         else:
-            current_lines.append(text)
+            current_lines.append(block)
 
     if current_lines:
-        content = ' '.join(current_lines).strip()
+        content = _merge_pdf_blocks(current_lines)
         if len(content) > 100:
             chapters.append({
                 'title': current_title,
@@ -182,7 +206,10 @@ def parse(file_path):
     if not FITZ_OK:
         raise ImportError("PyMuPDF is not installed. Run: pip install pymupdf")
 
-    doc = fitz.open(file_path)
+    # A failed native open can retain a Windows file handle in its traceback.
+    # Own and close the source handle before parsing, including corrupt PDFs.
+    with open(file_path, 'rb') as source:
+        doc = pymupdf.open(stream=source.read(), filetype='pdf')
 
     title = doc.metadata.get('title', '') or 'Unknown Title'
     author = doc.metadata.get('author', '') or 'Unknown Author'
@@ -191,7 +218,7 @@ def parse(file_path):
     cover_b64 = None
     try:
         page = doc[0]
-        pix = page.get_pixmap(matrix=fitz.Matrix(0.5, 0.5))
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(0.5, 0.5))
         cover_b64 = base64.b64encode(pix.tobytes('png')).decode()
     except Exception:
         pass
@@ -207,7 +234,7 @@ def parse(file_path):
     chapters = _split_chapters(all_blocks, default_title=title)
 
     if not chapters:
-        full_text = '\n'.join(b['text'] for b in all_blocks)
+        full_text = _merge_pdf_blocks(all_blocks)
         chapters = [{
             'title': title,
             'order_num': 0,

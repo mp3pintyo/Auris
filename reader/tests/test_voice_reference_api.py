@@ -116,9 +116,20 @@ class VoiceReferenceApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'id="chapter-character-filter"', response.data)
-        self.assertIn(b'Only characters in this chapter', response.data)
+        self.assertIn('Csak az aktuális fejezet szereplői'.encode(), response.data)
         self.assertIn(b'Opening', response.data)
         self.assertIn(b'window.CURRENT_CHAPTER_ID = 4', response.data)
+
+    def test_voice_studio_renders_profile_search_and_neutral_accent_controls(self):
+        response = self.client.get('/voice-studio/1')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'/static/css/voice-experience.css', response.data)
+        self.assertIn(b'id="profile-narrator"', response.data)
+        self.assertIn(b'id="profile-name-narrator"', response.data)
+        self.assertIn(b'id="character-search"', response.data)
+        self.assertIn('Semleges / nincs akcentus'.encode(), response.data)
+        self.assertIn('aria-label="Mentett narrátorhang"'.encode(), response.data)
 
 
 if __name__ == '__main__':

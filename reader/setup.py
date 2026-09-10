@@ -18,6 +18,7 @@ import platform
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -235,40 +236,39 @@ def install_torch(hw_tag):
                 ok("PyTorch installed")
                 return
 
-        # PyTorch's own index ships broken typing-extensions metadata (name
-        # typing_extensions vs typing-extensions). With --index-url alone, pip
-        # cannot fall back to PyPI and ResolutionImpossible follows. Seed the
-        # dependency from PyPI first, then install CUDA wheels from PyTorch.
-        #
-        # Important: do NOT leave only --extra-index-url without a CUDA pin —
-        # PyPI may supply a newer CPU torch and break torchaudio matching.
-        if not STRICT_OFFLINE:
-            info("Pre-installing typing-extensions from PyPI (torch dep)")
-            pip_install("typing-extensions>=4.10.0")
-
-        # Prefer a known-good CUDA pair. Uninstall first so a prior CPU wheel
-        # from requirements.txt / PyPI cannot remain "already satisfied".
-        run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "uninstall",
-                "-y",
-                "torch",
-                "torchaudio",
-            ],
-            check=False,
-        )
-        pip_install(
-            "torch",
-            "torchaudio",
-            index_url=index_url,
-            # Keep PyPI available for any remaining pure-Python deps.
-            extra_index_url="https://pypi.org/simple",
-        )
+        # Resolve the native pair ONLY against the hardware-specific index.
+        # Mixing this index with PyPI selected a newer CPU torch alongside CUDA
+        # torchaudio. Download without dependencies, then install exact wheels;
+        # ordinary dependencies may safely come from PyPI in the second step.
+        with tempfile.TemporaryDirectory(prefix="auris-torch-") as wheel_dir:
+            run([
+                sys.executable, "-m", "pip", "download", "--no-deps",
+                "--index-url", index_url, "--dest", wheel_dir,
+                "torch", "torchaudio",
+            ])
+            wheels = sorted(Path(wheel_dir).glob("*.whl"))
+            if len(wheels) != 2 or any(f"+{hw_tag}-" not in p.name for p in wheels):
+                raise RuntimeError(f"Expected two {hw_tag} PyTorch wheels; refusing mixed builds.")
+            pip_install(*(str(p) for p in wheels))
 
     ok("PyTorch installed")
+
+
+def verify_torch(hw_tag):
+    """Import native libraries in a fresh process before declaring setup ready."""
+    step("Checking PyTorch + torchaudio runtime")
+    code = (
+        "import torch; import torchaudio; "
+        "print('torch:', torch.__version__, 'torchaudio:', torchaudio.__version__); "
+    )
+    if hw_tag.startswith("cu"):
+        code += (
+            "assert torch.version.cuda and torch.cuda.is_available(), "
+            "'CUDA is unavailable: check the PyTorch build and NVIDIA driver'; "
+            "print('GPU:', torch.cuda.get_device_name(0))"
+        )
+    run([sys.executable, "-c", code])
+    ok("Native audio runtime verified")
 
 
 def install_omnivoice_deps():
@@ -422,11 +422,13 @@ def main():
 
     hw_tag = detect_hardware()
     install_torch(hw_tag)
+    verify_torch(hw_tag)
     install_omnivoice_deps()
     install_omnivoice()
     install_higgs_transformers_runtime()
     install_reader_deps()
     install_spacy_model()
+    verify_torch(hw_tag)
     print_summary(hw_tag)
 
 

@@ -1,72 +1,79 @@
 {% extends "base.html" %}
 {% block title %}{{ book.title }} — Auris{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/reader-experience.css">{% endblock %}
 {% block content %}
-<div class="reader-layout">
+<div class="reader-layout" id="reader-layout">
 
   <!-- Left: Table of Contents -->
-  <aside class="toc-sidebar" id="toc-sidebar">
+  <aside class="toc-sidebar" id="toc-sidebar" aria-label="Tartalomjegyzék">
     <div class="toc-header">
       <span class="book-title-short" title="{{ book.title }}">{{ book.title }}</span>
-      <a href="/voice-studio/{{ book.id }}" id="voice-studio-link" class="btn btn-sm btn-ghost" title="Voice Studio">Voices</a>
-      <button id="toc-close" class="btn btn-sm btn-ghost toc-close" title="Close contents" aria-label="Close contents">&#215;</button>
+      <a href="/voice-studio/{{ book.id }}" id="voice-studio-link" class="btn btn-sm btn-ghost" title="Voice Studio">Hangok</a>
+      <button id="toc-close" class="btn btn-sm btn-ghost toc-close" title="Tartalomjegyzék bezárása" aria-label="Tartalomjegyzék bezárása">&#215;</button>
     </div>
     <div class="chapter-generate-card" id="chapter-generate-card">
       <div class="chapter-generate-heading">
-        <span>Chapter audio</span>
+        <span>Fejezethang</span>
         <span id="chapter-generate-percent" class="chapter-generate-percent">0%</span>
       </div>
       <button id="chapter-generate-btn" class="btn btn-primary btn-full" disabled>
-        Generate chapter
+        Fejezet elkészítése
       </button>
       <div class="chapter-generate-progress"
            id="chapter-generate-progress"
            role="progressbar"
-           aria-label="Chapter audio generation"
+           aria-label="Fejezethang elkészítése"
            aria-valuemin="0"
            aria-valuemax="100"
            aria-valuenow="0">
         <div id="chapter-generate-fill" class="chapter-generate-fill"></div>
       </div>
       <div id="chapter-generate-status" class="chapter-generate-status">
-        Open a chapter to see its status.
+        Nyiss meg egy fejezetet az állapot megtekintéséhez.
       </div>
     </div>
     <div id="toc-list" class="toc-list">
-      <div class="loading-spinner">Loading…</div>
+      <div class="loading-spinner">Betöltés…</div>
     </div>
   </aside>
 
   <!-- Centre: Reading area -->
   <main class="reader-main" id="reader-main">
-    <div class="reader-toolbar">
-      <button id="toc-toggle" class="btn btn-sm btn-ghost" title="Toggle contents (C)">&#8801;</button>
+    <div class="reader-toolbar" aria-label="Olvasási eszközök">
+      <button id="toc-toggle" class="btn btn-sm btn-ghost" title="Tartalomjegyzék (C)" aria-label="Tartalomjegyzék" aria-controls="toc-sidebar" aria-expanded="true">&#8801;</button>
       <span id="chapter-title" class="chapter-title-bar"></span>
       <span id="reading-estimate" class="reading-estimate"></span>
 
       <div class="font-controls">
         {% if not book.single_narrator_mode %}
+        <button class="btn btn-sm btn-ghost" id="speaker-label-toggle"
+                type="button" aria-pressed="false"
+                title="Beszélőjelölések megjelenítése">
+          Beszélők
+        </button>
         <button class="btn btn-sm btn-ghost speaker-edit-toggle"
                 id="speaker-edit-toggle" onclick="toggleSpeakerEditMode()"
-                title="Review and correct dialogue speakers">
-          Edit speakers
+                title="A párbeszédek beszélőinek ellenőrzése és javítása">
+          Beszélők javítása
         </button>
         {% endif %}
-        <button class="btn btn-sm btn-ghost" onclick="changeFontSize(-1)" title="Smaller text">A&#8722;</button>
-        <button class="btn btn-sm btn-ghost" onclick="changeFontSize(1)" title="Larger text">A+</button>
-        <button class="btn btn-sm btn-ghost" id="theme-cycle-btn" onclick="cycleTheme()" title="Cycle theme (T)">&#9675;</button>
-        <button class="btn btn-sm btn-ghost" id="bookmark-btn" onclick="addBookmark()" title="Add bookmark (B)">&#9734;</button>
-        <button class="btn btn-sm btn-ghost" id="bm-panel-toggle" onclick="toggleBookmarkPanel()" title="Bookmarks">&#9776;</button>
-        <button class="btn btn-sm btn-ghost" id="shortcuts-btn" onclick="showShortcuts()" title="Keyboard shortcuts (?)">?</button>
+        <button class="btn btn-sm btn-ghost" id="book-search-btn" type="button" title="Keresés a könyvben" aria-label="Keresés a könyvben">&#128269;</button>
+        <button class="btn btn-sm btn-ghost" onclick="changeFontSize(-1)" title="Kisebb szöveg" aria-label="Kisebb szöveg">A&#8722;</button>
+        <button class="btn btn-sm btn-ghost" onclick="changeFontSize(1)" title="Nagyobb szöveg" aria-label="Nagyobb szöveg">A+</button>
+        <button class="btn btn-sm btn-ghost" id="theme-cycle-btn" onclick="cycleTheme()" title="Téma váltása (T)" aria-label="Téma váltása">&#9675;</button>
+        <button class="btn btn-sm btn-ghost" id="bookmark-btn" onclick="addBookmark()" title="Könyvjelző hozzáadása (B)" aria-label="Könyvjelző hozzáadása">&#9734;</button>
+        <button class="btn btn-sm btn-ghost" id="bm-panel-toggle" onclick="toggleBookmarkPanel()" title="Könyvjelzők" aria-label="Könyvjelzők">&#9776;</button>
+        <button class="btn btn-sm btn-ghost" id="shortcuts-btn" onclick="showShortcuts()" title="Billentyűparancsok (?)" aria-label="Billentyűparancsok">?</button>
       </div>
     </div>
 
     {% if not book.single_narrator_mode %}
     <div class="speaker-edit-banner hidden" id="speaker-edit-banner">
       <div>
-        <strong>Speaker review</strong>
-        <span>Every sentence in this chapter is shown. Choose a speaker, then drag the end marker until the full spoken passage is highlighted.</span>
+        <strong>Beszélők ellenőrzése</strong>
+        <span>A fejezet minden mondata látható. Válassz beszélőt, majd húzd a végjelölőt addig, amíg a teljes megszólalás ki nincs emelve.</span>
       </div>
-      <button class="btn btn-sm btn-ghost" onclick="toggleSpeakerEditMode()">Done</button>
+      <button class="btn btn-sm btn-ghost" onclick="toggleSpeakerEditMode()">Kész</button>
     </div>
     {% endif %}
 
@@ -75,19 +82,40 @@
     </div>
 
     <div id="chapter-content" class="chapter-content">
-      <div class="placeholder-text">Select a chapter from the sidebar to begin reading.</div>
+      <div class="placeholder-text">Válassz fejezetet a tartalomjegyzékből az olvasáshoz.</div>
     </div>
   </main>
 
   <!-- Right: Bookmarks panel -->
-  <aside class="bookmarks-panel collapsed" id="bookmarks-panel">
+  <aside class="bookmarks-panel collapsed" id="bookmarks-panel" aria-label="Könyvjelzők">
     <div class="bookmarks-header">
-      <span>Bookmarks</span>
-      <button class="btn btn-sm btn-ghost" onclick="toggleBookmarkPanel()">&#215;</button>
+      <span>Könyvjelzők</span>
+      <button class="btn btn-sm btn-ghost" onclick="toggleBookmarkPanel()" aria-label="Könyvjelzők bezárása">&#215;</button>
     </div>
     <div id="bookmark-list" class="bookmark-list"></div>
   </aside>
 
+</div>
+
+<!-- Book search dialog -->
+<div class="modal-overlay hidden" id="book-search-overlay">
+  <section class="modal book-search-dialog" role="dialog" aria-modal="true"
+           aria-labelledby="book-search-title" tabindex="-1">
+    <div class="dialog-heading-row">
+      <div class="modal-title" id="book-search-title">Keresés a teljes könyvben</div>
+      <button class="btn btn-sm btn-ghost" id="book-search-close" type="button" aria-label="Keresés bezárása">&#215;</button>
+    </div>
+    <form id="book-search-form" role="search">
+      <label class="sr-only" for="book-search-input">Keresett szó vagy kifejezés</label>
+      <div class="book-search-row">
+        <input id="book-search-input" class="text-input" type="search" minlength="2"
+               autocomplete="off" placeholder="Szó vagy kifejezés…">
+        <button class="btn btn-primary" type="submit">Keresés</button>
+      </div>
+    </form>
+    <div id="book-search-status" class="search-status" role="status" aria-live="polite"></div>
+    <div id="book-search-results" class="search-results"></div>
+  </section>
 </div>
 
 <!-- Speaker correction dialog -->
@@ -95,44 +123,44 @@
      onclick="closeSpeakerEditor()">
   <div class="modal speaker-editor" role="dialog" aria-modal="true"
        aria-labelledby="speaker-editor-title" onclick="event.stopPropagation()">
-    <div class="modal-title" id="speaker-editor-title">Who speaks this line?</div>
+    <div class="modal-title" id="speaker-editor-title">Ki mondja ezt?</div>
     <div class="speaker-editor-quote" id="speaker-editor-quote"></div>
-    <label class="speaker-editor-label" for="speaker-editor-select">Speaker</label>
+    <label class="speaker-editor-label" for="speaker-editor-select">Beszélő</label>
     <select id="speaker-editor-select" class="select-input"
             onchange="toggleNewSpeakerInput()"></select>
     <div id="speaker-editor-new-wrap" class="hidden">
-      <label class="speaker-editor-label" for="speaker-editor-new">New character name</label>
+      <label class="speaker-editor-label" for="speaker-editor-new">Új szereplő neve</label>
       <input id="speaker-editor-new" class="text-input" type="text"
-             maxlength="100" autocomplete="off" placeholder="Character name">
+             maxlength="100" autocomplete="off" placeholder="Szereplő neve">
     </div>
     <p class="speaker-editor-help">
-      The first sentence is fixed. Drag the marker to include every sentence or short fragment spoken by this character.
+      Az első mondat rögzített. Húzd a jelölőt addig, amíg a szereplő teljes megszólalása bele nem kerül.
     </p>
     <div class="speaker-range-editor">
       <div class="speaker-range-heading">
-        <span>Spoken text range</span>
-        <strong id="speaker-range-count">1 sentence</strong>
+        <span>A megszólalás tartománya</span>
+        <strong id="speaker-range-count">1 mondat</strong>
       </div>
       <div class="speaker-range-control">
         <button type="button" class="btn btn-sm btn-ghost"
-                aria-label="Shorten spoken range"
+                aria-label="Megszólalás rövidítése"
                 onclick="adjustSpeakerRange(-1)">&#8722;</button>
         <input id="speaker-range-end" type="range" min="0" max="0" value="0"
-               aria-label="Last sentence spoken by this character"
+               aria-label="A szereplő megszólalásának utolsó mondata"
                oninput="previewSpeakerRange()">
         <button type="button" class="btn btn-sm btn-ghost"
-                aria-label="Extend spoken range"
+                aria-label="Megszólalás bővítése"
                 onclick="adjustSpeakerRange(1)">+</button>
       </div>
       <div class="speaker-range-endpoint">
-        <span>Ends with</span>
+        <span>Utolsó mondat</span>
         <strong id="speaker-range-end-text"></strong>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeSpeakerEditor()">Cancel</button>
+      <button class="btn btn-ghost" onclick="closeSpeakerEditor()">Mégse</button>
       <button class="btn btn-primary" id="speaker-editor-save"
-              onclick="saveSpeakerCorrection()">Save speaker</button>
+              onclick="saveSpeakerCorrection()">Beszélő mentése</button>
     </div>
   </div>
 </div>
@@ -140,51 +168,76 @@
 <!-- Playback bar -->
 <div class="playback-bar" id="playback-bar">
   <div class="playback-left">
-    <button id="btn-prev-seg" class="pb-btn" title="Previous segment (&#8592;)">&#10094;</button>
-    <button id="btn-play"     class="pb-btn pb-play paused" title="Play / Pause (Space)">&#9654;</button>
-    <button id="btn-next-seg" class="pb-btn" title="Next segment (&#8594;)">&#10095;</button>
-    <button id="btn-stop"     class="pb-btn" title="Stop">&#9632;</button>
+    <button id="btn-prev-seg" class="pb-btn" title="Előző szakasz (&#8592;)" aria-label="Előző szakasz">&#10094;</button>
+    <button id="btn-seek-back" class="pb-btn pb-seek" title="15 másodperc vissza" aria-label="15 másodperc vissza">&#8634;<span>15</span></button>
+    <button id="btn-play" class="pb-btn pb-play paused" title="Lejátszás vagy szünet (Szóköz)" aria-label="Lejátszás">&#9654;</button>
+    <button id="btn-seek-forward" class="pb-btn pb-seek" title="15 másodperc előre" aria-label="15 másodperc előre">&#8635;<span>15</span></button>
+    <button id="btn-next-seg" class="pb-btn" title="Következő szakasz (&#8594;)" aria-label="Következő szakasz">&#10095;</button>
+    <button id="btn-stop" class="pb-btn" title="Leállítás" aria-label="Leállítás">&#9632;</button>
   </div>
   <div class="playback-center">
     <span id="pb-character" class="pb-character">&#8212;</span>
     <span id="pb-progress"  class="pb-progress">0 / 0</span>
+    <span id="pb-remaining" class="pb-remaining" aria-live="polite">Hátralévő idő: —</span>
   </div>
   <div class="playback-right">
-    <span class="pb-label">Speed</span>
-    <input id="speed-slider" type="range" min="0.5" max="2.0" step="0.1" value="1.0" class="pb-slider">
+    <label class="pb-label" for="sleep-timer">Elalvás</label>
+    <select id="sleep-timer" class="pb-select" aria-label="Elalvásidőzítő">
+      <option value="off">Kikapcsolva</option>
+      <option value="15">15 perc</option>
+      <option value="30">30 perc</option>
+      <option value="60">60 perc</option>
+      <option value="chapter">Fejezet végén</option>
+    </select>
+    <label class="pb-label" for="speed-slider">Sebesség</label>
+    <input id="speed-slider" type="range" min="0.5" max="2.0" step="0.1" value="1.0" class="pb-slider" aria-label="Lejátszási sebesség">
     <span id="speed-val" style="font-size:.75rem;color:var(--text2);font-family:'Courier New',monospace">1.0&#215;</span>
     <div class="export-menu-wrap">
-      <button class="btn btn-sm btn-ghost" id="export-btn">&#8595; Export</button>
-      <div class="export-dropdown hidden" id="export-dropdown">
-        <div class="export-dropdown-title">Export Audio</div>
+      <button class="btn btn-sm btn-ghost" id="export-btn" aria-expanded="false" aria-controls="export-dropdown">&#8595; Exportálás</button>
+      <div class="export-dropdown hidden" id="export-dropdown" role="dialog" aria-label="Hang exportálása">
+        <div class="export-dropdown-title">Hang exportálása</div>
         <div class="export-section">
-          <b>Scope</b>
-          <label><input type="radio" name="exp-mode" value="chapter" checked> This chapter</label>
-          <label><input type="radio" name="exp-mode" value="chapterwise"> Selected chapters</label>
+          <label for="export-preset"><b>Cél</b></label>
+          <select id="export-preset" class="select-input">
+            <option value="chapter-wav">Aktuális fejezet szerkesztéshez</option>
+            <option value="selected-mp3">Kijelölt fejezetek megosztáshoz</option>
+            <option value="book-m4b">Hangoskönyv M4B formátumban</option>
+            <option value="custom">Egyéni beállítások</option>
+          </select>
+        </div>
+        <div class="export-section">
+          <b>Fejezetek</b>
+          <label><input type="radio" name="exp-mode" value="chapter" checked> Aktuális fejezet</label>
+          <label><input type="radio" name="exp-mode" value="chapterwise"> Kijelölt fejezetek</label>
           <div id="chapter-selection-wrap" class="chapter-selection hidden">
-            <label for="exp-chapters">Chapters</label>
-            <input id="exp-chapters" type="text" value="all"
-                   placeholder="all or 1,3,5-8" autocomplete="off">
-            <small>Use all, a range, or comma-separated numbers.</small>
+            <div class="chapter-selection-actions">
+              <button class="text-button" id="select-all-chapters" type="button">Mind</button>
+              <button class="text-button" id="select-no-chapters" type="button">Egyik sem</button>
+            </div>
+            <div id="exp-chapter-list" class="exp-chapter-list" aria-label="Exportálandó fejezetek"></div>
           </div>
         </div>
         <div class="export-section">
-          <b>Audio</b>
-          <label><input type="radio" name="exp-audio" value="wav" checked> WAV (lossless)</label>
-          <label><input type="radio" name="exp-audio" value="mp3"> MP3 (requires ffmpeg)</label>
+          <b>Hangformátum</b>
+          <label><input type="radio" name="exp-audio" value="wav" checked> WAV (veszteségmentes)</label>
+          <label><input type="radio" name="exp-audio" value="mp3"> MP3 (ffmpeg szükséges)</label>
+          <label><input type="radio" name="exp-audio" value="m4b"> M4B fejezetekkel (ffmpeg szükséges)</label>
         </div>
         <div class="export-section">
-          <b>Subtitles</b>
+          <b>Felirat</b>
+          <label><input type="radio" name="exp-sub" value="none" checked> Nincs felirat</label>
           {% if not book.single_narrator_mode %}
-          <label><input type="radio" name="exp-sub" value="ass" checked> ASS (styled, per-character)</label>
+          <label><input type="radio" name="exp-sub" value="ass"> ASS (szereplőnként formázott)</label>
           {% endif %}
-          <label><input type="radio" name="exp-sub" value="srt"{% if book.single_narrator_mode %} checked{% endif %}> SRT (plain)</label>
+          <label><input type="radio" name="exp-sub" value="srt"> SRT (egyszerű)</label>
         </div>
-        <button class="btn btn-primary btn-full" id="do-export-btn">Generate export</button>
+        <button class="btn btn-primary btn-full" id="do-export-btn">Export elkészítése</button>
         <div class="export-progress-wrap" id="export-progress-wrap">
           <div class="export-progress-fill" id="export-progress-fill"></div>
         </div>
         <div id="export-status" class="export-status"></div>
+        <div id="export-links" class="export-links" aria-live="polite"></div>
+        <a class="jobs-link" href="/jobs">Exportok követése a Feladatok oldalon</a>
       </div>
     </div>
   </div>
@@ -192,19 +245,19 @@
 
 <!-- Keyboard shortcuts overlay -->
 <div class="shortcuts-overlay hidden" id="shortcuts-overlay" onclick="hideShortcuts()">
-  <div class="shortcuts-panel" onclick="event.stopPropagation()">
-    <div class="shortcuts-title">Keyboard Shortcuts</div>
-    <div class="shortcut-row"><span class="shortcut-key">Space</span><span class="shortcut-desc">Play / Pause</span></div>
-    <div class="shortcut-row"><span class="shortcut-key">&#8592;</span><span class="shortcut-desc">Previous segment</span></div>
-    <div class="shortcut-row"><span class="shortcut-key">&#8594;</span><span class="shortcut-desc">Next segment</span></div>
-    <div class="shortcut-row"><span class="shortcut-key">B</span><span class="shortcut-desc">Add bookmark</span></div>
-    <div class="shortcut-row"><span class="shortcut-key">T</span><span class="shortcut-desc">Cycle theme</span></div>
-    <div class="shortcut-row"><span class="shortcut-key">C</span><span class="shortcut-desc">Toggle contents</span></div>
-    <div class="shortcut-row"><span class="shortcut-key">M</span><span class="shortcut-desc">Toggle bookmarks</span></div>
-    <div class="shortcut-row"><span class="shortcut-key">?</span><span class="shortcut-desc">Show this panel</span></div>
-    <div class="shortcut-row"><span class="shortcut-key">Esc</span><span class="shortcut-desc">Close overlay</span></div>
+  <div class="shortcuts-panel" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" tabindex="-1" onclick="event.stopPropagation()">
+    <div class="shortcuts-title" id="shortcuts-title">Billentyűparancsok</div>
+    <div class="shortcut-row"><span class="shortcut-key">Szóköz</span><span class="shortcut-desc">Lejátszás / szünet</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">&#8592;</span><span class="shortcut-desc">Előző szakasz</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">&#8594;</span><span class="shortcut-desc">Következő szakasz</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">B</span><span class="shortcut-desc">Könyvjelző hozzáadása</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">T</span><span class="shortcut-desc">Téma váltása</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">C</span><span class="shortcut-desc">Tartalomjegyzék</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">M</span><span class="shortcut-desc">Könyvjelzők</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">?</span><span class="shortcut-desc">Súgó megnyitása</span></div>
+    <div class="shortcut-row"><span class="shortcut-key">Esc</span><span class="shortcut-desc">Ablak bezárása</span></div>
     <div style="margin-top:16px">
-      <button class="btn btn-ghost btn-sm" onclick="hideShortcuts()">Close</button>
+      <button class="btn btn-ghost btn-sm" onclick="hideShortcuts()">Bezárás</button>
     </div>
   </div>
 </div>
@@ -216,6 +269,8 @@
 {% endblock %}
 {% block scripts %}
 <script>window.BOOK_ID = {{ book.id }};</script>
+<script>window.BOOK_TITLE = {{ book.title|tojson }};</script>
 <script>window.SINGLE_NARRATOR_MODE = {{ 1 if book.single_narrator_mode else 0 }};</script>
+<script src="/static/js/listening.js"></script>
 <script src="/static/js/reader.js"></script>
 {% endblock %}

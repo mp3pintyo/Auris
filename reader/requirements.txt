@@ -47,9 +47,11 @@ num2words>=0.5.13        # integer → spoken form for non-EN/ZH (and TN fallbac
 # ── OmniReader app ────────────────────────────────────────────────────────────
 flask>=3.0
 ebooklib>=0.18
-pymupdf>=1.24            # PyMuPDF — imported as: import fitz
+pymupdf>=1.24            # PDF text extraction and page rendering
 spacy>=3.7               # NLP / character detection
 
 # After installing, download the English spaCy model (requires internet once):
 #   python -m spacy download en_core_web_sm
 # OR use the Settings page in the app to install it with one click.
+
+trafilatura>=2.2,<3      # Web article text and metadata extraction

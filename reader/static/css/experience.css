@@ -1,0 +1,305 @@
+:root {
+  --text2: #b2a797;
+  --text3: #a39888;
+}
+body.theme-sepia {
+  --text2: #6e593c;
+  --text3: #776142;
+}
+body.theme-paper {
+  --text3: #736a61;
+}
+body.theme-amoled {
+  --text2: #a89f93;
+  --text3: #948b81;
+}
+
+.experience-card {
+  padding: 24px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 10px;
+  margin: 20px 0;
+}
+.empty-library {
+  grid-column: 1 / -1;
+  text-align: center;
+}
+.book-actions button {
+  background: transparent;
+  color: var(--text2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.book-actions button:hover { color: var(--text); border-color: var(--accent); }
+#settings-storage p,
+#settings-dictionary p,
+.jobs-page > p {
+  line-height: 1.6;
+  margin: 12px 0;
+}
+#settings-storage h3 {
+  margin: 26px 0 12px;
+}
+.settings-footer[hidden] {
+  display: none;
+}
+.experience-card h2 {
+  font-size: 1.35rem;
+  margin: 5px 0 12px;
+}
+.experience-card p {
+  color: var(--text2);
+  line-height: 1.6;
+}
+.experience-card .eyebrow {
+  font-size: 0.8rem;
+  color: var(--accent);
+}
+#continue-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+#continue-card.hidden {
+  display: none;
+}
+.library-tools,
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin: 22px 0;
+}
+.library-tools {
+  grid-template-columns: 2fr 1fr 1fr 1fr;
+}
+.library-tools label,
+.form-grid label,
+.experience-dialog label:not(.narration-option),
+.experience-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text2);
+  font-size: 0.9rem;
+}
+.experience-dialog .check-row {
+  flex-direction: row !important;
+  align-items: center;
+  margin: 16px 0;
+}
+.library-tools input,
+.library-tools select,
+.experience-dialog input:not([type="radio"]):not([type="checkbox"]),
+.experience-dialog select,
+.experience-form input,
+.experience-form select,
+.experience-form textarea {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+.experience-dialog {
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px;
+  width: min(720px, calc(100vw - 24px));
+  max-height: 90vh;
+  overflow: auto;
+  margin: auto;
+}
+.experience-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.7);
+}
+.experience-dialog h2 {
+  margin: 0 0 20px;
+}
+.experience-dialog p {
+  line-height: 1.6;
+}
+.experience-dialog details {
+  margin: 18px 0;
+}
+.experience-dialog summary {
+  cursor: pointer;
+  color: var(--accent);
+  min-height: 35px;
+}
+.import-sample {
+  max-height: 190px;
+  overflow: auto;
+  white-space: pre-wrap;
+  padding: 14px;
+  border-left: 2px solid var(--accent);
+  background: var(--bg);
+}
+.book-card .book-actions {
+  flex-wrap: wrap;
+}
+.book-card .book-actions button,
+.book-card .book-actions a {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.book-card .book-cover {
+  display: block;
+}
+.book-grid {
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+.book-card .book-title {
+  font-size: 1rem;
+}
+.book-card .book-progress-hint {
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.library-header {
+  flex-wrap: wrap;
+}
+.btn:focus-visible,
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.experience-form {
+  display: grid;
+  gap: 16px;
+}
+.experience-form .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.experience-message {
+  min-height: 24px;
+  line-height: 1.6;
+}
+.dictionary-row,
+.job-row {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--border);
+}
+.dictionary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.job-row h2 {
+  font-size: 1.1rem;
+}
+.job-row p {
+  line-height: 1.6;
+  color: var(--text2);
+}
+.job-row progress {
+  width: 100%;
+  height: 12px;
+  accent-color: var(--accent);
+}
+.job-results {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0;
+}
+.jobs-page {
+  max-width: 1000px;
+  margin: 40px auto;
+  padding: 0 24px;
+}
+.settings-category h2 {
+  font-size: 1.3rem;
+  margin-bottom: 16px;
+}
+.settings-category h3 {
+  font-size: 1.1rem;
+  margin: 18px 0 10px;
+}
+.setup-steps {
+  display: grid;
+  gap: 16px;
+}
+.setup-steps p {
+  line-height: 1.6;
+}
+.storage-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+.status-error {
+  overflow-wrap: anywhere;
+}
+.experience-dialog input[type="checkbox"],
+.experience-dialog input[type="radio"] {
+  width: auto;
+  min-height: 20px;
+}
+.experience-dialog .modal-footer {
+  position: sticky;
+  bottom: -28px;
+  background: var(--card);
+  padding: 20px 0;
+  margin-bottom: 0;
+}
+.library-page .status-warn {
+  font-size: 0.85rem;
+}
+.topnav .nav-links {
+  flex-wrap: wrap;
+}
+@media (max-width: 700px) {
+  .library-tools,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .library-page {
+    padding: 20px 16px;
+  }
+  .library-header .btn {
+    min-height: 44px;
+  }
+  .book-grid {
+    grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+    gap: 14px;
+  }
+  #continue-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .experience-dialog {
+    padding: 20px;
+  }
+  .experience-dialog .modal-footer {
+    bottom: -20px;
+  }
+  .btn {
+    min-height: 40px;
+  }
+  .topnav {
+    height: auto;
+    min-height: 52px;
+  }
+  .topnav .nav-links {
+    gap: 12px;
+  }
+}
+.reanalysis-chapters { max-height: 220px; overflow-y: auto; margin-block: 12px; }

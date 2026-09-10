@@ -20,6 +20,10 @@ reader/uploads/
 # ── Database & user settings (machine-specific) ───────────────────────────────
 reader/data/reader.db
 reader/data/settings.json
+reader/data/backups/
+reader/data/voice_profiles/
+reader/data/reader.db-wal
+reader/data/reader.db-shm
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/

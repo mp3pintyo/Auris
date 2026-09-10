@@ -1,12 +1,18 @@
 # Auris
 
-Offline audiobook reader for EPUB, PDF, and TXT with selectable local
+Local-first audiobook reader for EPUB, PDF, TXT, and public web articles with selectable local
 OmniVoice or Higgs TTS 3 speech, character-aware voices, per-book narrator
-control, and synced text highlighting.
+control, and duration-based estimated word highlighting.
 
-Everything runs locally after setup. No API keys. No hosted TTS dependency.
+Reading, speech generation, playback, and file import run locally after setup,
+with no hosted TTS dependency. Web-article import requires a network connection.
+Character analysis can use a local OpenAI-compatible server without a key, or
+the optional OpenAI API with a separately billed API key.
 
 ## Screenshots
+
+These images show the earlier layout. The current interface uses Hungarian
+labels and the updated workflows described below and in the built-in help.
 
 ### Library
 ![Library](assets/library.png)
@@ -22,24 +28,39 @@ Everything runs locally after setup. No API keys. No hosted TTS dependency.
 
 ## Highlights
 
-- Import EPUB, PDF, and TXT books.
+- Preview and import EPUB, PDF, TXT, or a public HTTP(S) article; edit title,
+  author, and language before confirming.
+- Extract web articles with Trafilatura. Auris does not run page JavaScript and
+  blocks localhost, private-network, oversized, and excessive-redirect URLs.
+- Detect duplicate source content with SHA-256 while keeping same-named uploads
+  in distinct managed files.
 - Detect chapters, prologues, epilogues, forewords, appendices, and parts automatically.
 - Generate per-character voices with deterministic assignment.
 - Attribute dialogue to characters with OpenAI or a configurable local LM
   Studio, Ollama, llama.cpp, or other OpenAI-compatible endpoint.
 - Customize each detected character in Voice Studio.
 - Customize the narrator voice per book.
+- Save reusable narrator/character voice profiles with durable reference audio.
+- Apply global or per-book pronunciation rules without changing displayed text.
 - Preview voices before saving.
 - Upload reference WAV files for voice cloning.
 - Invalidate stale cached playback automatically when narrator or character voices change.
-- Export numbered, per-chapter audio as WAV or MP3 and subtitles as ASS or SRT.
+- Search within a book, jump 15 seconds, use a sleep timer, and control playback
+  through Media Session where the browser supports it.
+- Track generation, export, and reanalysis on the durable Jobs page; cancelled or
+  restart-interrupted work resumes only when requested and reuses valid cached audio.
+- Export numbered, per-chapter audio as WAV or MP3, or one chaptered M4B;
+  subtitles can be ASS, SRT, or omitted.
 - Select all chapters or use print-style selections such as `1,3,5-8`.
+- Save and restore the library as an Auris ZIP, optionally including the
+  regenerable audio cache. Restore replaces the library after confirmation and
+  first writes a recovery backup; stale jobs from the replaced library are cleared.
 - Run from a project-local `.venv` created by the installer.
 
 ## Requirements
 
 - Python 3.10 or later
-- `ffmpeg` on `PATH` for MP3 export
+- `ffmpeg` on `PATH` for MP3, M4B, and export mastering
 - OmniVoice model files stored locally
 - Optional NVIDIA GPU for faster inference
 
@@ -102,12 +123,22 @@ attribution, and voice cloning requires the speaker's consent. Review the
 
 ## Usage
 
-1. Import a book from the library page.
+1. Choose a file or public article URL on the library page, review the preview,
+   then confirm the metadata and narration mode.
 2. Open the book and start playback from any sentence.
 3. Open Voice Studio from the reader sidebar.
 4. Adjust character voices or the narrator voice, preview them, then save.
 5. Export the current chapter or select chapters with `all`, a range such as
-   `2-6`, or a comma-separated expression such as `1,3,7-10`.
+   `2-6`, or a comma-separated expression such as `1,3,7-10`. Choose WAV, MP3,
+   or chaptered M4B and optionally ASS/SRT subtitles.
+
+Scanned or image-only PDFs need OCR before import; Auris does not include an OCR
+engine. Empty documents are rejected instead of creating unusable books.
+
+Library backups include managed sources, reference audio, bookmarks, progress,
+speaker corrections, pronunciation rules, and portable settings. API keys and
+machine-specific model paths are excluded. Restoring is a confirmed replacement,
+not a merge, and preserves the current machine's keys and model paths.
 
 ### Language-model character detection
 
@@ -148,7 +179,7 @@ Recommended setup:
    the local server requires one.
 6. Use **Test connection**, save the settings, and then import the book.
 
-Character and dialogue-speaker analysis is an import-time background job.
+Character and dialogue-speaker analysis is a durable background job.
 For a local language model, Auris unloads the selected TTS engine first so the
 two models do not compete for VRAM. OpenAI analysis leaves local TTS running.
 Auris sends numbered text units chapter by chapter,
@@ -159,9 +190,17 @@ next needed. If an individual chapter fails, successful chapter results are
 kept and the book is marked as partially analyzed instead of discarding the
 whole run.
 
-Books imported before enabling Local LLM detection must be deleted and imported
-again if they should receive the new speaker assignments. The analysis is not
-retroactively started just by changing the setting.
+To update an existing book, use **Szereplők újraelemzése** in its library details.
+You can reanalyze the full book, selected chapters through the API, or retry only
+failed chapters. Manual speaker corrections, voice settings, bookmarks, and the
+current reading position are retained; when segment boundaries change, Auris
+remaps positions to matching text where possible.
+
+The **Feladatok** page keeps job status, progress, errors, and downloads in
+SQLite. Restarted pending/running jobs become **Megszakadt** and never restart a
+language model or paid API automatically. **Folytatás / újrapróbálás** is the
+explicit action that resumes from valid cached results. Cancellation is
+cooperative, so the currently running batch may finish before new work stops.
 
 The two files in `test_docs/` were measured end to end against LM Studio with
 `unsloth/gemma-4-26b-a4b-it` and a 160,000-token server context:
@@ -179,6 +218,12 @@ spaCy/regex detector remains available as a fallback mode.
 Exports are saved beneath `reader/exports/<author> - <book_title>/` with
 numbered filenames, for example `01_Introduction.mp3`. When MP3 export succeeds,
 the temporary WAV file is removed automatically.
+
+Word highlighting is estimated from each segment's known audio duration; Auris
+does not run a word-alignment model. The remaining-time display is marked
+`kb.` when some audio still needs a word-count estimate. Browser Media Session
+support improves headset/media-button control where available, but background
+playback on every mobile platform is not guaranteed.
 
 On RTX 3090-class GPUs, leave **Settings → Parallel export workers** on
 **Auto** or select **2**. Multi-chapter export then loads a second OmniVoice model
@@ -256,6 +301,7 @@ Auris/
 - Flask
 - ebooklib
 - PyMuPDF
+- Trafilatura
 - spaCy
 - pydub
 - soundfile

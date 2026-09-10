@@ -12,7 +12,8 @@ function setSettingsDirty(dirty) {
   if (banner) banner.classList.toggle('hidden', !dirty);
 }
 
-function markSettingsDirty() {
+function markSettingsDirty(event) {
+  if (event?.target?.closest('#settings-setup, #settings-dictionary, #settings-storage')) return;
   if (_settingsReady) setSettingsDirty(true);
 }
 
@@ -21,6 +22,7 @@ function showSettingsCategory(category, updateHash = true) {
     `[data-settings-category="${category}"]`
   );
   if (!target) return;
+  document.querySelector('.settings-footer').hidden = ['setup', 'dictionary', 'storage'].includes(category);
   document.querySelectorAll('[data-settings-category]').forEach(panel => {
     const active = panel === target;
     panel.classList.toggle('active', active);
@@ -271,7 +273,7 @@ async function loadLLMModels(provider) {
     provider === 'openai' ? 'openai-model' : 'llm-model'
   );
   const previous = select.value;
-  hint.textContent = 'Loading models…';
+  hint.textContent = 'Modellek listázása…';
   hint.className = 'status-hint status-warn';
   try {
     const response = await fetch('/api/settings/llm-test', {
@@ -287,7 +289,7 @@ async function loadLLMModels(provider) {
     if (provider === 'openai') {
       models = models.filter(isOpenAITextModel);
     }
-    select.replaceChildren(new Option('Select a model…', ''));
+    select.replaceChildren(new Option('Válassz modellt…', ''));
     models.forEach(model => select.add(new Option(model, model)));
     if (previous && models.includes(previous)) {
       select.value = previous;
@@ -303,7 +305,7 @@ async function loadLLMModels(provider) {
     hint.className = 'status-hint status-ok';
   } catch (error) {
     ensureModelOption(select, previous);
-    hint.textContent = `Connection failed: ${error.message}`;
+    hint.textContent = `Kapcsolódási hiba: ${error.message}`;
     hint.className = 'status-hint status-error';
   }
 }
@@ -330,7 +332,7 @@ async function testLLMConnection() {
     hint.className = d.selected_available
       ? 'status-hint status-ok' : 'status-hint status-warn';
   } catch (error) {
-    hint.textContent = `Connection failed: ${error.message}`;
+    hint.textContent = `Kapcsolódási hiba: ${error.message}`;
     hint.className = 'status-hint status-error';
   }
 }
@@ -364,7 +366,7 @@ function toggleHiggsPromptMode(mode) {
 async function checkPath() {
   const path = document.getElementById('model-path').value.trim();
   const hint = document.getElementById('path-status');
-  hint.textContent = 'Checking…';
+  hint.textContent = 'Ellenőrzés…';
   const r = await fetch('/api/settings/check-model-path', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ path }),
@@ -385,7 +387,7 @@ async function checkPath() {
 async function checkHiggsPath() {
   const path = document.getElementById('higgs-model-path').value.trim();
   const hint = document.getElementById('higgs-path-status');
-  hint.textContent = 'Checking…';
+  hint.textContent = 'Ellenőrzés…';
   const r = await fetch('/api/settings/check-model-path', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ path }),
@@ -457,10 +459,11 @@ async function checkExistingDownload() {
 
 async function reloadTTS() {
   const hint = document.getElementById('tts-reload-hint');
-  hint.textContent  = 'Reloading…';
+  hint.textContent  = 'Újratöltés…';
   hint.className    = 'status-hint status-warn';
-  await fetch('/api/settings/tts-reload', { method: 'POST' });
-  hint.textContent  = 'Reloading in background…';
+  const response = await fetch('/api/settings/tts-reload', { method: 'POST' });
+  if (!response.ok) throw new Error('A beszédmotor nem tölthető újra. Előbb állítsd le a futó feladatokat.');
+  hint.textContent  = 'A modell betöltése folyamatban…';
   hint.className    = 'status-hint status-ok';
   // Poll until ready so accel status updates.
   let n = 0;
@@ -470,17 +473,17 @@ async function reloadTTS() {
       const st = await fetch('/api/tts/status').then(r => r.json());
       if (st.state === 'ready') {
         clearInterval(t);
-        hint.textContent = 'Model ready.';
+        hint.textContent = 'A beszédmotor készen áll.';
         refreshAccelStatus(st);
       } else if (st.state === 'error') {
         clearInterval(t);
-        hint.textContent = 'Load failed: ' + (st.message || 'error');
+        hint.textContent = 'Betöltési hiba: ' + (st.message || 'error');
         hint.className = 'status-hint status-error';
       }
     } catch (_) {}
     if (n > 900) {
       clearInterval(t);
-      hint.textContent = 'Still loading; check the TTS status badge or server log.';
+      hint.textContent = 'Még töltődik; ellenőrizd a felső állapotjelzést vagy a szervernaplót.';
       hint.className = 'status-hint status-warn';
     }
   }, 2000);
@@ -532,18 +535,18 @@ async function installSpacy() {
   const btn  = document.getElementById('spacy-install-btn');
   const hint = document.getElementById('spacy-install-hint');
   btn.disabled     = true;
-  hint.textContent = 'Installing… this may take a minute.';
+  hint.textContent = 'Telepítés… this may take a minute.';
   hint.className   = 'status-hint status-warn';
 
   const r = await fetch('/api/settings/spacy-install', { method: 'POST' });
   const d = await r.json();
 
   if (d.ok) {
-    hint.textContent = 'Installed successfully.';
+    hint.textContent = 'Sikeresen telepítve.';
     hint.className   = 'status-hint status-ok';
     checkSpacy();
   } else {
-    hint.textContent = d.message || 'Installation failed.';
+    hint.textContent = d.message || 'A telepítés nem sikerült.';
     hint.className   = 'status-hint status-error';
     btn.disabled     = false;
   }
@@ -551,7 +554,7 @@ async function installSpacy() {
 
 // ── Save ──────────────────────────────────────────────────────────────────────
 
-async function saveSettings() {
+async function saveSettingsValues() {
   const src = document.querySelector('input[name="model_source"]:checked')?.value || 'local';
   const higgsSrc = document.querySelector(
     'input[name="higgs_model_source"]:checked'
@@ -611,16 +614,32 @@ async function saveSettings() {
   });
   const d = await r.json();
   if (d.ok) {
-    hint.textContent = 'Saved.';
+    hint.textContent = 'Beállítások mentve.';
     hint.className   = 'status-hint status-ok';
     localStorage.setItem('theme',      payload.theme);
     localStorage.setItem('fontFamily', payload.font_family);
     localStorage.setItem('fontSize',   payload.font_size);
     localStorage.setItem('lineHeight', payload.line_height);
     setSettingsDirty(false);
+    return true;
   } else {
-    hint.textContent = 'Save failed.';
+    hint.textContent = d.error || 'A mentés nem sikerült.';
     hint.className   = 'status-hint status-error';
+    return false;
+  }
+}
+
+async function saveSettings(apply = false) {
+  const hint = document.getElementById('save-hint');
+  try {
+    if (!_settingsReady) throw new Error('Várd meg a beállítások betöltését.');
+    if (await saveSettingsValues() && apply) {
+      await reloadTTS();
+      hint.textContent = 'Mentve. A beszédmotor újratöltése elindult; állapotát felül követheted.';
+    }
+  } catch (error) {
+    hint.textContent = error.message || 'A szerver nem érhető el. Próbáld újra.';
+    hint.className = 'status-hint status-error';
   }
 }
 
@@ -640,4 +659,6 @@ showSettingsCategory(
     ? initialSettingsCategory : 'speech',
   false
 );
-loadSettings();
+loadSettings().catch(error => {
+  document.getElementById('save-hint').textContent = 'A beállítások nem tölthetők be. Frissítsd az oldalt. ' + error.message;
+});

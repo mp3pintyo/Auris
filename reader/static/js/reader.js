@@ -11,6 +11,7 @@ let fontSize        = parseInt(localStorage.getItem('fontSize') || '18');
 let fontFamily      = localStorage.getItem('fontFamily') || 'serif';
 let lineHeight      = parseFloat(localStorage.getItem('lineHeight') || '1.9');
 let currentTheme    = localStorage.getItem('theme') || 'night';
+let showSpeakerLabels = localStorage.getItem('showSpeakerLabels') === 'true';
 let _progressSaveTimer = null;
 let _scrollProgressTimer = null;
 let _lastSavedProgressKey = '';
@@ -19,6 +20,11 @@ let speakerCharacters = [];
 let editingSpeakerSegmentIndex = null;
 let editingSpeakerRangeEndIndex = null;
 let speakerEditMode = false;
+let _loadedSegIdx = -1;
+let _sleepTimerId = null;
+let _sleepMode = 'off';
+let _activeModal = null;
+let _modalReturnFocus = null;
 
 // Two audio elements for gapless double-buffering
 const _audioA = document.getElementById('tts-audio');
@@ -68,6 +74,58 @@ function pauseAfterSegmentMs(segment, nextSegment = null) {
   return DEFAULT_SEGMENT_PAUSE_MS;
 }
 function _swapAudio() { audio = (audio === _audioA ? _audioB : _audioA); }
+
+function isInteractiveElement(element) {
+  return Boolean(element?.closest?.(
+    'button, a, input, textarea, select, summary, [contenteditable="true"], [role="button"]'
+  ));
+}
+
+function focusableElements(container) {
+  return [...container.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
+    'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )].filter(element => !element.closest('.hidden') && element.getClientRects().length > 0);
+}
+
+function openModal(overlay, initialFocus) {
+  if (!overlay) return;
+  _modalReturnFocus = document.activeElement;
+  _activeModal = overlay;
+  overlay.classList.remove('hidden');
+  (initialFocus || focusableElements(overlay)[0] || overlay).focus?.();
+}
+
+function closeModal(overlay) {
+  if (!overlay || overlay.classList.contains('hidden')) return;
+  overlay.classList.add('hidden');
+  if (_activeModal === overlay) _activeModal = null;
+  const returnFocus = _modalReturnFocus;
+  _modalReturnFocus = null;
+  returnFocus?.focus?.();
+}
+
+function trapModalFocus(event) {
+  if (!_activeModal || event.key !== 'Tab') return false;
+  const focusable = focusableElements(_activeModal);
+  if (!focusable.length) {
+    event.preventDefault();
+    return true;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (!focusable.includes(document.activeElement)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+  return true;
+}
 
 function clampSegmentIndex(idx, segList = segments) {
   const parsed = Number.parseInt(idx, 10);
@@ -194,21 +252,22 @@ async function loadTOC() {
   chapters = await fetch(`/api/books/${BOOK_ID}/chapters`).then(r => r.json());
   const list = document.getElementById('toc-list');
   list.innerHTML = chapters.map(ch => {
-    const wc = ch.word_count ? ch.word_count.toLocaleString() + ' words' : '';
+    const wc = ch.word_count ? ch.word_count.toLocaleString('hu-HU') + ' szó' : '';
     const badge = ch.section_type !== 'chapter'
       ? `<span class="toc-section-badge">${esc(ch.section_type)}</span>` : '';
     const ready = Number(ch.audio_total) > 0 &&
       Number(ch.audio_ready) >= Number(ch.audio_total);
     return `
-      <div class="toc-item" data-id="${ch.id}" onclick="openChapter(${ch.id})">
+      <button type="button" class="toc-item" data-id="${ch.id}" onclick="openChapter(${ch.id})">
         ${badge}
         <span class="toc-item-title">${esc(ch.title)}</span>
         <span class="toc-item-details">
           <span class="toc-item-meta">${wc}</span>
-          <span class="toc-ready-badge${ready ? '' : ' hidden'}">&#10003; Ready</span>
+          <span class="toc-ready-badge${ready ? '' : ' hidden'}">&#10003; Kész</span>
         </span>
-      </div>`;
+      </button>`;
   }).join('');
+  renderExportChapterSelection();
 
   const prog = await fetch(`/api/books/${BOOK_ID}/progress`).then(r => r.json());
   const savedChapterId = Number.parseInt(prog.chapter_id, 10);
@@ -218,7 +277,7 @@ async function loadTOC() {
     openChapter(savedChapterId, {
       resumePosition: savedPosition,
       persistOpened: false,
-      highlightOnLoad: true,
+      highlightOnLoad: false,
     });
   } else if (chapters.length) {
     openChapter(chapters[0].id, {
@@ -264,13 +323,14 @@ async function openChapter(chapterId, options = {}) {
   const wpm = 250;
   const minutes = Math.round((ch.word_count || 0) / wpm);
   const estEl = document.getElementById('reading-estimate');
-  if (estEl) estEl.textContent = minutes > 0 ? `~${minutes} min read` : '';
+  if (estEl) estEl.textContent = minutes > 0 ? `kb. ${minutes} perc olvasás` : '';
 
   [segments, speakerCharacters] = await Promise.all([
     fetch(`/api/tts/segments/${BOOK_ID}/${chapterId}`).then(r => r.json()),
     fetch(`/api/books/${BOOK_ID}/characters`).then(r => r.json()),
   ]);
   renderContent(segments);
+  updateRemainingTime();
   refreshChapterGenerationPanel(chapterId);
 
   document.getElementById('chapter-content').scrollTop = 0;
@@ -281,8 +341,8 @@ async function openChapter(chapterId, options = {}) {
     behavior: 'auto',
     save: persistOpened,
   });
-  _startBackgroundBuffer(startIdx);
-  _prewarmChapter();
+  updateMediaSessionMetadata(ch.title);
+  if (window.matchMedia('(max-width: 768px)').matches) setTOCOpen(false);
 }
 
 // ── Content rendering ─────────────────────────────────────────────────────────
@@ -291,7 +351,7 @@ function renderContent(segs) {
   const container = document.getElementById('chapter-content');
 
   if (!segs || !segs.length) {
-    container.innerHTML = '<div class="placeholder-text">No content available.</div>';
+    container.innerHTML = '<div class="placeholder-text">Ehhez a fejezethez nincs megjeleníthető tartalom.</div>';
     return;
   }
 
@@ -338,23 +398,23 @@ function renderContent(segs) {
       ? `<button class="speaker-label${seg.character_name ? '' : ' unassigned'}"
            type="button"
            title="${seg.character_name
-             ? `${speakerRangeLength} ${speakerRangeLength === 1 ? 'sentence' : 'sentences'} assigned to ${esc(seg.character_name)}`
+             ? `${speakerRangeLength} ${speakerRangeLength === 1 ? 'mondat' : 'mondat'} ehhez rendelve: ${esc(seg.character_name)}`
              : showNarrationLabel
-               ? 'Marked as narration'
-               : 'Possible dialogue without an assigned speaker'} — hover to highlight, click to correct"
+               ? 'Narrációként megjelölve'
+               : 'Lehetséges párbeszéd hozzárendelt beszélő nélkül'} — rámutatással kiemelhető, kattintással javítható"
            onmouseenter="previewStoredSpeakerRange(${i})"
            onmouseleave="clearStoredSpeakerRangePreview()"
            onfocus="previewStoredSpeakerRange(${i})"
            onblur="clearStoredSpeakerRangePreview()"
            onclick="event.stopPropagation();openSpeakerEditor(${i})">
            <span aria-hidden="true">${seg.speaker_source === 'manual' ? '&#10003;' : '&#10022;'}</span>
-           ${esc(seg.character_name || (
-             showNarrationLabel ? 'Narration / no speaker' : 'Assign speaker'
-           ))}
+           <span class="speaker-label-text">${esc(seg.character_name || (
+             showNarrationLabel ? 'Narráció' : 'Beszélő megadása'
+           ))}</span>
          </button>`
       : '';
     const inlineEditor = canEditSpeaker
-      ? `<select class="speaker-inline-select" aria-label="Speaker for this sentence"
+      ? `<select class="speaker-inline-select" aria-label="A mondat beszélője"
                  onclick="event.stopPropagation()"
                  onchange="quickAssignSpeaker(${i},this)">
            ${speakerOptions(seg.character_name)}
@@ -439,14 +499,31 @@ function getSpeakerColor(name) {
 
 function speakerOptions(currentName = '') {
   return [
-    `<option value=""${currentName ? '' : ' selected'}>Narration / no speaker</option>`,
+    `<option value=""${currentName ? '' : ' selected'}>Narráció / nincs beszélő</option>`,
     ...speakerCharacters.map(character => {
       const selected = character.name === currentName ? ' selected' : '';
       return `<option value="${esc(character.name)}"${selected}>${esc(character.name)} · ${Number(character.frequency) || 0}</option>`;
     }),
-    '<option value="__new__">+ New character…</option>',
+    '<option value="__new__">+ Új szereplő…</option>',
   ].join('');
 }
+
+function applySpeakerLabelPreference() {
+  const layout = document.getElementById('reader-layout');
+  const button = document.getElementById('speaker-label-toggle');
+  layout?.classList.toggle('show-speakers', showSpeakerLabels);
+  if (button) {
+    button.setAttribute('aria-pressed', String(showSpeakerLabels));
+    button.classList.toggle('active', showSpeakerLabels);
+    button.textContent = showSpeakerLabels ? 'Beszélők elrejtése' : 'Beszélők';
+  }
+}
+
+document.getElementById('speaker-label-toggle')?.addEventListener('click', () => {
+  showSpeakerLabels = !showSpeakerLabels;
+  localStorage.setItem('showSpeakerLabels', String(showSpeakerLabels));
+  applySpeakerLabelPreference();
+});
 
 function toggleSpeakerEditMode() {
   speakerEditMode = !speakerEditMode;
@@ -454,7 +531,7 @@ function toggleSpeakerEditMode() {
   const banner = document.getElementById('speaker-edit-banner');
   if (button) {
     button.classList.toggle('active', speakerEditMode);
-    button.textContent = speakerEditMode ? 'Editing speakers' : 'Edit speakers';
+    button.textContent = speakerEditMode ? 'Beszélők szerkesztése' : 'Beszélők javítása';
   }
   if (banner) banner.classList.toggle('hidden', !speakerEditMode);
   renderContent(segments);
@@ -472,11 +549,11 @@ function openSpeakerEditor(segmentIndex, proposedSpeakerName = undefined) {
     ? String(seg.character_name || '')
     : String(proposedSpeakerName || '');
   select.innerHTML = [
-    '<option value="">No speaker / narration</option>',
+    '<option value="">Nincs beszélő / narráció</option>',
     ...speakerCharacters.map(character =>
-      `<option value="${esc(character.name)}">${esc(character.name)} (${Number(character.frequency) || 0} lines)</option>`
+      `<option value="${esc(character.name)}">${esc(character.name)} (${Number(character.frequency) || 0} megszólalás)</option>`
     ),
-    '<option value="__new__">+ Add new character…</option>',
+    '<option value="__new__">+ Új szereplő hozzáadása…</option>',
   ].join('');
 
   const known = speakerCharacters.some(character =>
@@ -496,11 +573,11 @@ function openSpeakerEditor(segmentIndex, proposedSpeakerName = undefined) {
   editingSpeakerRangeEndIndex = initialEnd;
   previewSpeakerRange();
   toggleNewSpeakerInput();
-  document.getElementById('speaker-editor-overlay').classList.remove('hidden');
+  const overlay = document.getElementById('speaker-editor-overlay');
   if (select.value === '__new__') {
-    document.getElementById('speaker-editor-new').focus();
+    openModal(overlay, document.getElementById('speaker-editor-new'));
   } else {
-    select.focus();
+    openModal(overlay, select);
   }
 }
 
@@ -516,7 +593,7 @@ function previewSpeakerRange() {
   document.getElementById('speaker-editor-quote').textContent =
     selected.map(segment => segment.text).join(' ');
   document.getElementById('speaker-range-count').textContent =
-    `${selected.length} ${selected.length === 1 ? 'sentence' : 'sentences'}`;
+    `${selected.length} mondat`;
   document.getElementById('speaker-range-end-text').textContent =
     segments[end]?.text || '';
 
@@ -544,7 +621,7 @@ function toggleNewSpeakerInput() {
 }
 
 function closeSpeakerEditor() {
-  document.getElementById('speaker-editor-overlay').classList.add('hidden');
+  closeModal(document.getElementById('speaker-editor-overlay'));
   document.querySelectorAll('.sentence.speaker-range-preview')
     .forEach(element => element.classList.remove('speaker-range-preview'));
   editingSpeakerSegmentIndex = null;
@@ -561,7 +638,7 @@ async function saveSpeakerCorrection() {
     ? document.getElementById('speaker-editor-new').value.trim()
     : select.value;
   if (select.value === '__new__' && !speakerName) {
-    showToast('Enter a character name.', 'err');
+    showToast('Add meg a szereplő nevét.', 'err');
     document.getElementById('speaker-editor-new').focus();
     return;
   }
@@ -614,7 +691,7 @@ async function persistSpeakerCorrection(
       }
     );
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Could not save speaker');
+    if (!response.ok) throw new Error(result.error || 'A beszélő mentése nem sikerült.');
 
     stopPlayback();
     _segCache = new Map();
@@ -631,11 +708,11 @@ async function persistSpeakerCorrection(
     });
     refreshChapterGenerationPanel(currentChapterId);
     const scopeMessage = result.updated_units > 1
-      ? ` (${result.updated_units} sentences)`
+      ? ` (${result.updated_units} mondat)`
       : '';
     showToast(speakerName
-      ? `Speaker saved: ${speakerName}${scopeMessage}`
-      : `Marked as narration${scopeMessage}.`);
+      ? `Beszélő mentve: ${speakerName}${scopeMessage}`
+      : `Narrációként megjelölve${scopeMessage}.`);
   } catch (error) {
     showToast(error.message, 'err');
     renderContent(segments);
@@ -685,31 +762,31 @@ function renderChapterGenerationStatus(state) {
 
   if (isComplete) {
     btn.disabled = true;
-    btn.innerHTML = '&#10003; Ready';
-    status.textContent = `${total}/${total} segments generated`;
+    btn.innerHTML = '&#10003; Kész';
+    status.textContent = `${total}/${total} szakasz elkészült`;
     markChapterReady(currentChapterId, true);
   } else if (isRunning) {
     btn.disabled = true;
-    btn.textContent = 'Generating…';
-    let message = `${done}/${total} segments generated`;
+    btn.textContent = 'Készítés…';
+    let message = `${done}/${total} szakasz elkészült`;
     if (state.eta_sec != null && Number.isFinite(state.eta_sec) && done < total) {
-      message += ` · ~${formatDurationShort(state.eta_sec)} left`;
+      message += ` · kb. ${formatDurationShort(state.eta_sec)} van hátra`;
     }
     status.textContent = message;
   } else if (busyElsewhere) {
     btn.disabled = true;
-    btn.textContent = 'Generator busy';
-    status.textContent = 'Another chapter is being generated.';
+    btn.textContent = 'A generátor foglalt';
+    status.textContent = 'Egy másik fejezet hangja készül.';
   } else if (state.state === 'failed') {
     btn.disabled = false;
-    btn.textContent = 'Retry chapter';
-    status.textContent = state.error || 'Generation failed.';
+    btn.textContent = 'Fejezet újrapróbálása';
+    status.textContent = state.error || 'A hang készítése nem sikerült.';
   } else {
     btn.disabled = !total;
-    btn.textContent = done > 0 ? 'Continue generation' : 'Generate chapter';
+    btn.textContent = done > 0 ? 'Készítés folytatása' : 'Fejezet elkészítése';
     status.textContent = total
-      ? `${done}/${total} segments ready`
-      : 'This chapter has no audio segments.';
+      ? `${done}/${total} szakasz kész`
+      : 'A fejezethez nincs hangszakasz.';
   }
 }
 
@@ -730,7 +807,7 @@ async function refreshChapterGenerationPanel(chapterId) {
   } catch (_) {
     if (Number(chapterId) === Number(currentChapterId)) {
       document.getElementById('chapter-generate-status').textContent =
-        'Could not load generation status.';
+        'A készítés állapota nem tölthető be.';
     }
   }
 }
@@ -758,6 +835,7 @@ async function monitorChapterGeneration(jobId, chapterId) {
     let state;
     try {
       state = await fetch(`/api/chapter-generation/status/${jobId}`).then(r => r.json());
+      if (state.error && !state.state) state.state = 'failed';
     } catch (_) {
       continue;
     }
@@ -765,7 +843,7 @@ async function monitorChapterGeneration(jobId, chapterId) {
     if (Number(currentChapterId) === Number(chapterId)) {
       renderChapterGenerationStatus(state);
     }
-    if (state.state !== 'complete' && state.state !== 'failed') continue;
+    if (!['complete', 'failed', 'cancelled', 'interrupted'].includes(state.state)) continue;
 
     _activeChapterGeneration = null;
     _exportBusy = false;
@@ -773,16 +851,18 @@ async function monitorChapterGeneration(jobId, chapterId) {
       markChapterReady(chapterId, true);
       if (Number(currentChapterId) === Number(chapterId)) {
         segments.forEach(seg => { seg.has_audio = true; });
-        showToast('Chapter audio is ready.');
+        showToast('A fejezet hangja elkészült.');
       }
     } else if (Number(currentChapterId) === Number(chapterId)) {
-      showToast('Chapter generation failed.');
+      showToast(state.state === 'cancelled' ? 'A fejezethang készítése leállítva.' : state.state === 'interrupted' ? 'A fejezethang készítése megszakadt. A Feladatok oldalon folytathatod.' : 'A fejezethang készítése nem sikerült.');
     }
 
     if (currentChapterId) {
       refreshChapterGenerationPanel(currentChapterId);
-      _startBackgroundBuffer(currentSegIdx);
-      _prewarmChapter();
+      if (state.state === 'complete') {
+        _startBackgroundBuffer(currentSegIdx);
+        _prewarmChapter();
+      }
     }
     return;
   }
@@ -920,6 +1000,13 @@ function fetchSegmentData(idx) {
         throw new Error(e.error || `HTTP ${r.status}`);
       }
       return r.json();
+    }).then(data => {
+      if (segments[idx]) {
+        segments[idx].has_audio = true;
+        segments[idx].duration_sec = Number(data.duration_sec) || segments[idx].duration_sec;
+      }
+      updateRemainingTime();
+      return data;
     }).finally(() => {
       if (_ttsAbortControllers.get(idx) === controller) {
         _ttsAbortControllers.delete(idx);
@@ -959,8 +1046,35 @@ async function _schedulePreload(playingIdx) {
   }
 }
 
-async function playSegment(idx) {
+function positionAudio(element, offsetSec, knownDuration = null) {
+  const requested = Math.max(0, Number(offsetSec) || 0);
+  const apply = () => {
+    const duration = Number.isFinite(element.duration)
+      ? element.duration
+      : Number(knownDuration);
+    element.currentTime = Number.isFinite(duration) && duration > 0
+      ? Math.min(requested, Math.max(0, duration - 0.01))
+      : requested;
+  };
+  if (element.readyState >= 1) {
+    apply();
+    return Promise.resolve();
+  }
+  return new Promise(resolve => {
+    const finish = () => {
+      element.removeEventListener('loadedmetadata', finish);
+      element.removeEventListener('error', finish);
+      try { apply(); } catch (_) {}
+      resolve();
+    };
+    element.addEventListener('loadedmetadata', finish, { once: true });
+    element.addEventListener('error', finish, { once: true });
+  });
+}
+
+async function playSegment(idx, options = {}) {
   if (idx >= segments.length) { stopPlayback(); return; }
+  const offsetSec = Math.max(0, Number(options.offsetSec) || 0);
 
   if (_interSegmentTimer) {
     clearTimeout(_interSegmentTimer);
@@ -974,7 +1088,7 @@ async function playSegment(idx) {
 
   const seg = segments[idx];
   const charEl = document.getElementById('pb-character');
-  const charLabel = seg.character_name || 'Narrator';
+  const charLabel = seg.character_name || 'Narrátor';
   charEl.textContent = charLabel;
 
   try {
@@ -997,6 +1111,9 @@ async function playSegment(idx) {
     }
 
     audio.playbackRate = speedMultiplier;
+    await positionAudio(audio, offsetSec, data.duration_sec);
+    if (gen !== _playGen || !isPlaying) return;
+    _loadedSegIdx = idx;
     startWordHighlight(idx, data.duration_sec);
     await audio.play();
 
@@ -1025,6 +1142,10 @@ function _onAudioEnded() {
   }
   else {
     queueProgressSave(currentChapterId, currentSegIdx);
+    if (_sleepMode === 'chapter') {
+      clearSleepTimer();
+      showToast('A lejátszás a fejezet végén leállt.');
+    }
     stopPlayback();
   }
 }
@@ -1068,6 +1189,7 @@ function stopPlayback() {
   _audioA.src = '';
   _audioB.src = '';
   audio = _audioA; // reset active to primary
+  _loadedSegIdx = -1;
   _preloadIdx = -1;
   _preloadData = null;
   if (currentChapterId) queueProgressSave(currentChapterId, currentSegIdx);
@@ -1089,12 +1211,16 @@ function startWordHighlight(segIdx, durationSec) {
   const wordEls = document.querySelectorAll(`.word[data-seg="${segIdx}"]`);
   if (!wordEls.length) return;
 
-  const n      = wordEls.length;
-  const start  = audio.currentTime;
+  const n = wordEls.length;
 
   function tick() {
-    const elapsed   = (audio.currentTime - start) * speedMultiplier;
-    const wordIdx   = Math.min(Math.floor((elapsed / durationSec) * n), n - 1);
+    // audio.currentTime already advances in media time at the selected playbackRate.
+    const wordIdx = AurisListening.wordIndexFromMediaTime(
+      audio.currentTime,
+      0,
+      durationSec,
+      n,
+    );
     wordEls.forEach((el, i) => el.classList.toggle('playing', i === wordIdx));
     if (isPlaying && !audio.paused) _wordRafId = requestAnimationFrame(tick);
   }
@@ -1137,28 +1263,125 @@ function updatePlaybackUI() {
   if (isPlaying) {
     btn.innerHTML = '&#9646;&#9646;';
     btn.classList.remove('paused');
+    btn.setAttribute('aria-label', 'Szünet');
   } else {
     btn.innerHTML = '&#9654;';
     btn.classList.add('paused');
+    btn.setAttribute('aria-label', 'Lejátszás');
   }
   if (segments.length) prog.textContent = `${currentSegIdx + 1} / ${segments.length}`;
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
+  }
+  updateRemainingTime();
+}
+
+function formatClock(seconds) {
+  const safe = Math.max(0, Math.round(Number(seconds) || 0));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+    : `${minutes}:${String(secs).padStart(2, '0')}`;
+}
+
+function updateRemainingTime() {
+  const element = document.getElementById('pb-remaining');
+  if (!element || !segments.length) return;
+  const currentTime = _loadedSegIdx === currentSegIdx ? Number(audio.currentTime) || 0 : 0;
+  const remaining = AurisListening.estimateRemainingAudio(
+    segments,
+    currentSegIdx,
+    currentTime,
+    speedMultiplier,
+  );
+  element.textContent = `Hátralévő idő: ${remaining.estimated ? 'kb. ' : ''}${formatClock(remaining.seconds)}`;
+  element.title = remaining.estimated
+    ? 'Becsült idő: néhány szakasz hangja még nincs elkészítve.'
+    : 'A rendelkezésre álló hangok alapján.';
+  updateMediaSessionPosition();
+}
+
+function pausePlayback() {
+  isPlaying = false;
+  if (_interSegmentTimer) {
+    clearTimeout(_interSegmentTimer);
+    _interSegmentTimer = null;
+  }
+  stopWordHighlight();
+  audio.pause();
+  updatePlaybackUI();
+  queueProgressSave(currentChapterId, currentSegIdx);
+}
+
+async function resumePlayback() {
+  const target = AurisListening.playbackResumeTarget(
+    _pendingSegmentIdx,
+    currentSegIdx,
+    _loadedSegIdx,
+    audio.currentTime,
+  );
+  if (target.segmentIndex !== currentSegIdx) {
+    playSegment(target.segmentIndex);
+    return;
+  }
+  if (_loadedSegIdx === currentSegIdx && audio.src && target.offsetSec > 0) {
+    isPlaying = true;
+    highlightSegment(currentSegIdx);
+    startWordHighlight(currentSegIdx, segments[currentSegIdx]?.duration_sec || audio.duration);
+    updatePlaybackUI();
+    try {
+      await audio.play();
+      _schedulePreload(currentSegIdx);
+    } catch (error) {
+      showToast(error.message, 'err');
+      pausePlayback();
+    }
+    return;
+  }
+  playSegment(_pendingSegmentIdx >= 0 ? _pendingSegmentIdx : currentSegIdx);
+}
+
+async function seekAudioBy(deltaSec) {
+  if (!segments.length) return;
+  const sourceTime = _loadedSegIdx === currentSegIdx ? Number(audio.currentTime) || 0 : 0;
+  const target = AurisListening.seekTarget(segments, currentSegIdx, sourceTime, deltaSec);
+  const wasPlaying = isPlaying;
+
+  if (target.segmentIndex === currentSegIdx && _loadedSegIdx === currentSegIdx) {
+    await positionAudio(audio, target.offsetSec, segments[currentSegIdx]?.duration_sec);
+    highlightSegment(currentSegIdx);
+    if (wasPlaying) startWordHighlight(currentSegIdx, segments[currentSegIdx]?.duration_sec);
+    updateRemainingTime();
+    return;
+  }
+
+  if (wasPlaying) {
+    playSegment(target.segmentIndex, { offsetSec: target.offsetSec });
+    return;
+  }
+
+  setCurrentSegment(target.segmentIndex, { highlight: true, save: true });
+  try {
+    const data = await fetchSegmentData(target.segmentIndex);
+    audio.src = data.audio_url;
+    audio.playbackRate = speedMultiplier;
+    await positionAudio(audio, target.offsetSec, data.duration_sec);
+    _loadedSegIdx = target.segmentIndex;
+    updateRemainingTime();
+  } catch (error) {
+    showToast(error.message, 'err');
+  }
 }
 
 // ── Controls ──────────────────────────────────────────────────────────────────
 
 document.getElementById('btn-play').onclick = () => {
   if (isPlaying) {
-    isPlaying = false;
-    if (_interSegmentTimer) {
-      clearTimeout(_interSegmentTimer);
-      _interSegmentTimer = null;
-    }
-    stopWordHighlight();
-    audio.pause();
-    updatePlaybackUI();
-    queueProgressSave(currentChapterId, currentSegIdx);
+    pausePlayback();
   } else {
-    playSegment(_pendingSegmentIdx >= 0 ? _pendingSegmentIdx : currentSegIdx);
+    resumePlayback();
   }
 };
 
@@ -1178,17 +1401,53 @@ document.getElementById('btn-prev-seg').onclick = () => {
   else { setCurrentSegment(prev, { highlight: true, save: true }); }
 };
 
+document.getElementById('btn-seek-back').onclick = () => seekAudioBy(-15);
+document.getElementById('btn-seek-forward').onclick = () => seekAudioBy(15);
+
 document.getElementById('speed-slider').oninput = function() {
   speedMultiplier = parseFloat(this.value);
   document.getElementById('speed-val').textContent = speedMultiplier.toFixed(1) + '×';
   _audioA.playbackRate = speedMultiplier;
   _audioB.playbackRate = speedMultiplier;
+  updateRemainingTime();
 };
+
+function clearSleepTimer() {
+  if (_sleepTimerId) clearTimeout(_sleepTimerId);
+  _sleepTimerId = null;
+  _sleepMode = 'off';
+  const select = document.getElementById('sleep-timer');
+  if (select) select.value = 'off';
+}
+
+document.getElementById('sleep-timer').addEventListener('change', function setSleepTimer() {
+  if (_sleepTimerId) clearTimeout(_sleepTimerId);
+  _sleepTimerId = null;
+  _sleepMode = this.value;
+  if (_sleepMode === 'off') return;
+  if (_sleepMode === 'chapter') {
+    showToast('A lejátszás a fejezet végén leáll.');
+    return;
+  }
+  const minutes = Number(_sleepMode);
+  _sleepTimerId = setTimeout(() => {
+    pausePlayback();
+    clearSleepTimer();
+    showToast('Az elalvásidőzítő leállította a lejátszást.');
+  }, minutes * 60 * 1000);
+  showToast(`Elalvásidőzítő: ${minutes} perc.`);
+});
 
 // ── Sidebar toggle ────────────────────────────────────────────────────────────
 
+function setTOCOpen(open) {
+  document.getElementById('toc-sidebar').classList.toggle('collapsed', !open);
+  document.getElementById('toc-toggle').setAttribute('aria-expanded', String(open));
+}
+
 function toggleTOC() {
-  document.getElementById('toc-sidebar').classList.toggle('collapsed');
+  const toc = document.getElementById('toc-sidebar');
+  setTOCOpen(toc.classList.contains('collapsed'));
 }
 
 document.getElementById('toc-toggle').onclick = toggleTOC;
@@ -1196,6 +1455,49 @@ document.getElementById('toc-close').onclick = toggleTOC;
 
 function toggleBookmarkPanel() {
   document.getElementById('bookmarks-panel').classList.toggle('collapsed');
+}
+
+function updateMediaSessionMetadata(chapterTitle) {
+  if (!('mediaSession' in navigator) || !('MediaMetadata' in window)) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: chapterTitle || window.BOOK_TITLE,
+    album: window.BOOK_TITLE,
+    artist: 'Auris',
+  });
+}
+
+function updateMediaSessionPosition() {
+  if (!('mediaSession' in navigator) || typeof navigator.mediaSession.setPositionState !== 'function') return;
+  const duration = Number(segments[currentSegIdx]?.duration_sec || audio.duration);
+  if (!Number.isFinite(duration) || duration <= 0 || _loadedSegIdx !== currentSegIdx) return;
+  try {
+    navigator.mediaSession.setPositionState({
+      duration,
+      playbackRate: speedMultiplier,
+      position: Math.min(Math.max(0, Number(audio.currentTime) || 0), duration),
+    });
+  } catch (_) {}
+}
+
+function initMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  const handlers = {
+    play: () => resumePlayback(),
+    pause: () => pausePlayback(),
+    stop: () => stopPlayback(),
+    previoustrack: () => document.getElementById('btn-prev-seg').click(),
+    nexttrack: () => document.getElementById('btn-next-seg').click(),
+    seekbackward: details => seekAudioBy(-(details.seekOffset || 15)),
+    seekforward: details => seekAudioBy(details.seekOffset || 15),
+    seekto: details => {
+      if (_loadedSegIdx !== currentSegIdx) return;
+      positionAudio(audio, details.seekTime, segments[currentSegIdx]?.duration_sec)
+        .then(updateRemainingTime);
+    },
+  };
+  Object.entries(handlers).forEach(([action, handler]) => {
+    try { navigator.mediaSession.setActionHandler(action, handler); } catch (_) {}
+  });
 }
 
 // ── Progress persistence ──────────────────────────────────────────────────────
@@ -1234,6 +1536,71 @@ function scheduleViewportProgressUpdate() {
   _scrollProgressTimer = setTimeout(updateProgressFromViewport, 120);
 }
 
+// ── Whole-book search ────────────────────────────────────────────────────────
+
+function openBookSearch() {
+  const overlay = document.getElementById('book-search-overlay');
+  openModal(overlay, document.getElementById('book-search-input'));
+}
+
+function closeBookSearch() {
+  closeModal(document.getElementById('book-search-overlay'));
+}
+
+async function searchBook(query) {
+  const status = document.getElementById('book-search-status');
+  const list = document.getElementById('book-search-results');
+  const normalized = String(query || '').trim();
+  if (normalized.length < 2) {
+    status.textContent = 'Adj meg legalább két karaktert.';
+    list.replaceChildren();
+    return;
+  }
+
+  status.textContent = 'Keresés…';
+  list.replaceChildren();
+  try {
+    const response = await fetch(`/api/books/${BOOK_ID}/search?q=${encodeURIComponent(normalized)}`);
+    const results = await response.json();
+    if (!response.ok) throw new Error(results.error || 'A keresés nem sikerült.');
+    status.textContent = results.length ? `${results.length} találat` : 'Nincs találat.';
+    results.forEach(result => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'search-result';
+      const title = document.createElement('span');
+      title.className = 'search-result-title';
+      title.textContent = result.chapter_title || 'Névtelen fejezet';
+      const excerpt = document.createElement('span');
+      excerpt.className = 'search-result-excerpt';
+      excerpt.textContent = result.excerpt || '';
+      button.append(title, excerpt);
+      button.addEventListener('click', () => {
+        closeBookSearch();
+        openChapter(Number(result.chapter_id), {
+          resumePosition: Number(result.segment_index) || 0,
+          persistCurrent: true,
+          persistOpened: true,
+          highlightOnLoad: true,
+        });
+      });
+      list.appendChild(button);
+    });
+  } catch (error) {
+    status.textContent = error.message;
+  }
+}
+
+document.getElementById('book-search-btn').addEventListener('click', openBookSearch);
+document.getElementById('book-search-close').addEventListener('click', closeBookSearch);
+document.getElementById('book-search-overlay').addEventListener('click', event => {
+  if (event.target === event.currentTarget) closeBookSearch();
+});
+document.getElementById('book-search-form').addEventListener('submit', event => {
+  event.preventDefault();
+  searchBook(document.getElementById('book-search-input').value);
+});
+
 // ── Bookmarks ─────────────────────────────────────────────────────────────────
 
 let _bookmarks = [];
@@ -1246,19 +1613,21 @@ async function loadBookmarks() {
 function renderBookmarks() {
   const list = document.getElementById('bookmark-list');
   if (!_bookmarks.length) {
-    list.innerHTML = '<div style="padding:16px;font-size:.8rem;color:var(--text3);font-style:italic">No bookmarks yet.</div>';
+    list.innerHTML = '<div style="padding:16px;font-size:.8rem;color:var(--text3);font-style:italic">Még nincs könyvjelző.</div>';
     return;
   }
   list.innerHTML = _bookmarks.map(bm => `
-    <div class="bookmark-item" onclick="gotoBookmark(${bm.chapter_id}, ${bm.segment_index})">
-      <div class="bookmark-text">${esc(bm.text_excerpt || bm.label || '(no excerpt)')}</div>
-      <div class="bookmark-loc">${esc(bm.chapter_title || '')} &middot; seg ${bm.segment_index + 1}</div>
-      <button class="bookmark-del" onclick="removeBookmark(event,${bm.id})">&times;</button>
+    <div class="bookmark-item">
+      <button class="bookmark-goto" type="button" onclick="gotoBookmark(${bm.chapter_id}, ${bm.segment_index})">
+        <span class="bookmark-text">${esc(bm.text_excerpt || bm.label || '(nincs részlet)')}</span>
+        <span class="bookmark-loc">${esc(bm.chapter_title || '')} &middot; ${bm.segment_index + 1}. szakasz</span>
+      </button>
+      <button class="bookmark-del" aria-label="Könyvjelző törlése" onclick="removeBookmark(event,${bm.id})">&times;</button>
     </div>`).join('');
 }
 
 async function addBookmark() {
-  if (!currentChapterId) { showToast('Open a chapter first.'); return; }
+  if (!currentChapterId) { showToast('Előbb nyiss meg egy fejezetet.'); return; }
   const seg = segments[currentSegIdx];
   const excerpt = seg ? seg.text.slice(0, 120) : '';
   const r = await fetch(`/api/books/${BOOK_ID}/bookmarks`, {
@@ -1271,7 +1640,7 @@ async function addBookmark() {
     }),
   });
   if (r.ok) {
-    showToast('Bookmark added');
+    showToast('Könyvjelző hozzáadva.');
     loadBookmarks();
     const btn = document.getElementById('bookmark-btn');
     btn.textContent = '★';
@@ -1306,58 +1675,143 @@ let _exportBusy = false;
 function formatDurationShort(sec) {
   if (sec == null || !Number.isFinite(sec) || sec < 0) return '';
   const s = Math.round(sec);
-  if (s < 60) return `${s}s`;
+  if (s < 60) return `${s} mp`;
   const m = Math.floor(s / 60);
   const r = s % 60;
-  if (m < 60) return `${m}m ${String(r).padStart(2, '0')}s`;
+  if (m < 60) return `${m} p ${String(r).padStart(2, '0')} mp`;
   const h = Math.floor(m / 60);
-  return `${h}h ${String(m % 60).padStart(2, '0')}m`;
+  return `${h} ó ${String(m % 60).padStart(2, '0')} p`;
 }
 
 function formatExportStatus(sr) {
-  if (!sr) return 'Working…';
+  if (!sr) return 'Feldolgozás…';
   const done = typeof sr.done === 'number' ? sr.done : null;
   const total = typeof sr.total === 'number' ? sr.total : null;
-  let msg = sr.message || 'Working…';
+  let msg = sr.message || 'Feldolgozás…';
 
   // Always rebuild a clear progress line so a stale server message cannot hide ETA.
   if (sr.state === 'running' && total != null && total > 0 && done != null) {
-    msg = `Generating audio (${done}/${total})`;
+    msg = `Hang készítése (${done}/${total})`;
     if (sr.eta_sec != null && Number.isFinite(sr.eta_sec) && done < total) {
-      msg += ` · ~${formatDurationShort(sr.eta_sec)} left`;
+      msg += ` · kb. ${formatDurationShort(sr.eta_sec)} van hátra`;
     } else if (done < total) {
-      msg += ' · working…';
+      msg += ' · feldolgozás…';
     }
   } else if (
     sr.state === 'running' &&
     sr.eta_sec != null &&
     Number.isFinite(sr.eta_sec) &&
-    !/left/i.test(msg)
+    !/hátra/i.test(msg)
   ) {
-    msg += ` · ~${formatDurationShort(sr.eta_sec)} left`;
+    msg += ` · kb. ${formatDurationShort(sr.eta_sec)} van hátra`;
   }
   return msg;
 }
 
+function renderExportChapterSelection() {
+  const list = document.getElementById('exp-chapter-list');
+  if (!list) return;
+  list.innerHTML = chapters.map((chapter, index) => `
+    <label>
+      <input type="checkbox" name="exp-chapter" value="${index + 1}" checked>
+      <span>${index + 1}. ${esc(chapter.title)}</span>
+    </label>
+  `).join('');
+}
+
+function setExportRadio(name, value) {
+  const input = document.querySelector(`input[name="${name}"][value="${value}"]`);
+  if (input) input.checked = true;
+}
+
+function updateExportScope() {
+  const selected = document.querySelector('input[name="exp-mode"]:checked').value;
+  document.getElementById('chapter-selection-wrap')
+    .classList.toggle('hidden', selected !== 'chapterwise');
+}
+
+function selectAllExportChapters(checked) {
+  document.querySelectorAll('input[name="exp-chapter"]')
+    .forEach(input => { input.checked = checked; });
+}
+
+function applyExportPreset(preset) {
+  if (preset === 'custom') return;
+  if (preset === 'chapter-wav') {
+    setExportRadio('exp-mode', 'chapter');
+    setExportRadio('exp-audio', 'wav');
+    setExportRadio('exp-sub', 'none');
+  } else if (preset === 'selected-mp3') {
+    setExportRadio('exp-mode', 'chapterwise');
+    setExportRadio('exp-audio', 'mp3');
+    setExportRadio('exp-sub', 'none');
+  } else if (preset === 'book-m4b') {
+    setExportRadio('exp-mode', 'chapterwise');
+    setExportRadio('exp-audio', 'm4b');
+    setExportRadio('exp-sub', 'none');
+    selectAllExportChapters(true);
+  }
+  updateExportScope();
+}
+
+function selectedExportChapters() {
+  const all = [...document.querySelectorAll('input[name="exp-chapter"]')];
+  const checked = all.filter(input => input.checked).map(input => input.value);
+  if (!checked.length) return '';
+  return checked.length === all.length ? 'all' : checked.join(',');
+}
+
+function appendExportLink(container, href, label) {
+  if (!href) return;
+  const link = document.createElement('a');
+  link.href = href;
+  link.textContent = label;
+  link.setAttribute('download', '');
+  container.appendChild(link);
+}
+
+function renderExportLinks(result, jobId) {
+  const container = document.getElementById('export-links');
+  container.replaceChildren();
+  appendExportLink(container, result?.download, 'Export letöltése');
+  appendExportLink(container, result?.zip_download, 'Csomag letöltése');
+  appendExportLink(container, result?.audio_download, 'Hangfájl letöltése');
+  appendExportLink(container, result?.subtitle_download, 'Felirat letöltése');
+  const jobs = document.createElement('a');
+  jobs.href = `/jobs#job-${encodeURIComponent(jobId)}`;
+  jobs.textContent = 'Export megnyitása a Feladatok oldalon';
+  container.appendChild(jobs);
+}
+
 document.getElementById('export-btn').onclick = () => {
-  document.getElementById('export-dropdown').classList.toggle('hidden');
+  const dropdown = document.getElementById('export-dropdown');
+  const open = dropdown.classList.toggle('hidden') === false;
+  document.getElementById('export-btn').setAttribute('aria-expanded', String(open));
+  if (open) document.getElementById('export-preset').focus();
 };
 
 document.querySelectorAll('input[name="exp-mode"]').forEach(input => {
-  input.addEventListener('change', () => {
-    const selected = document.querySelector('input[name="exp-mode"]:checked').value;
-    document.getElementById('chapter-selection-wrap')
-      .classList.toggle('hidden', selected !== 'chapterwise');
-  });
+  input.addEventListener('change', updateExportScope);
 });
 
+document.getElementById('export-preset').addEventListener('change', event => {
+  applyExportPreset(event.target.value);
+});
+document.getElementById('select-all-chapters').addEventListener('click', () => selectAllExportChapters(true));
+document.getElementById('select-no-chapters').addEventListener('click', () => selectAllExportChapters(false));
+
 document.getElementById('do-export-btn').onclick = async () => {
-  if (!currentChapterId) { showToast('Open a chapter first.'); return; }
+  if (!currentChapterId) { showToast('Előbb nyiss meg egy fejezetet.'); return; }
 
   const mode      = document.querySelector('input[name="exp-mode"]:checked').value;
   const audioFmt  = document.querySelector('input[name="exp-audio"]:checked').value;
   const subInput  = document.querySelector('input[name="exp-sub"]:checked');
-  const subFmt    = subInput ? subInput.value : 'srt';
+  const subFmt    = subInput ? subInput.value : 'none';
+  const selectedChapters = mode === 'chapterwise' ? selectedExportChapters() : null;
+  if (mode === 'chapterwise' && !selectedChapters) {
+    showToast('Jelölj ki legalább egy fejezetet.', 'err');
+    return;
+  }
 
   const status    = document.getElementById('export-status');
   const progWrap  = document.getElementById('export-progress-wrap');
@@ -1367,7 +1821,8 @@ document.getElementById('do-export-btn').onclick = async () => {
   doBtn.disabled = true;
   progWrap.classList.add('active');
   progFill.style.width = '0%';
-  status.textContent = 'Starting export…';
+  status.textContent = 'Az export indítása…';
+  document.getElementById('export-links').replaceChildren();
   // Stop background single-segment prewarm so export can batch on the GPU.
   _exportBusy = true;
   _bufferGenId++;
@@ -1382,11 +1837,8 @@ document.getElementById('do-export-btn').onclick = async () => {
   const finish = (msg) => {
     _exportBusy = false;
     status.textContent = msg;
-    setTimeout(() => {
-      progWrap.classList.remove('active');
-      progFill.style.width = '0%';
-      doBtn.disabled = false;
-    }, 2000);
+    progWrap.classList.remove('active');
+    doBtn.disabled = false;
   };
 
   try {
@@ -1396,15 +1848,14 @@ document.getElementById('do-export-btn').onclick = async () => {
       body: JSON.stringify({
         audio_fmt: audioFmt,
         sub_fmt: subFmt,
-        chapters: mode === 'chapterwise'
-          ? document.getElementById('exp-chapters').value
-          : null,
+        chapters: selectedChapters,
       }),
     });
     const d = await r.json();
     if (d.error) { finish(d.error); return; }
 
     const jobId = d.job_id;
+    renderExportLinks(null, jobId);
 
     // Client-side ETA fallback if server has not reported one yet.
     let clientT0 = Date.now();
@@ -1415,6 +1866,7 @@ document.getElementById('do-export-btn').onclick = async () => {
       let sr;
       try { sr = await fetch(`/api/export/status/${jobId}`).then(r => r.json()); }
       catch(_) { continue; }
+      if (sr.error && !sr.state) sr.state = 'failed';
 
       if (sr.total > 0) {
         const pct = Math.min(Math.round((sr.done / sr.total) * 95), 95);
@@ -1445,21 +1897,15 @@ document.getElementById('do-export-btn').onclick = async () => {
 
       if (sr.state === 'complete') {
         progFill.style.width = '100%';
-        const res = sr.result;
-        if (res.zip_download) {
-          window.location.href = res.zip_download;
-        } else {
-          if (res.audio_download)    window.open(res.audio_download);
-          if (res.subtitle_download) setTimeout(() => window.open(res.subtitle_download), 500);
-        }
-        if (res.export_path) {
-          finish(`Done. ${res.chapter_count} chapter(s) saved to ${res.export_path}`);
-        } else {
-          finish('Done. Downloading…');
-        }
+        const res = sr.result || {};
+        renderExportLinks(res, jobId);
+        finish('Az export elkészült. A fájlok lent tölthetők le.');
         break;
       } else if (sr.state === 'failed') {
-        finish('Export failed: ' + (sr.error || 'Unknown error'));
+        finish('Az export nem sikerült: ' + (sr.error || 'Ismeretlen hiba'));
+        break;
+      } else if (['cancelled', 'interrupted'].includes(sr.state)) {
+        finish(sr.state === 'cancelled' ? 'Az export leállítva. A Feladatok oldalon folytathatod.' : 'Az export megszakadt. A Feladatok oldalon folytathatod.');
         break;
       }
     }
@@ -1471,8 +1917,24 @@ document.getElementById('do-export-btn').onclick = async () => {
 // ── Keyboard shortcuts ────────────────────────────────────────────────────────
 
 document.addEventListener('keydown', e => {
-  const tag = document.activeElement.tagName.toLowerCase();
-  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+  if (e.key === 'Tab' && trapModalFocus(e)) return;
+  if (e.key === 'Escape') {
+    closeSpeakerEditor();
+    closeBookSearch();
+    hideShortcuts();
+    const exportDropdown = document.getElementById('export-dropdown');
+    if (!exportDropdown.classList.contains('hidden')) {
+      exportDropdown.classList.add('hidden');
+      document.getElementById('export-btn').setAttribute('aria-expanded', 'false');
+      document.getElementById('export-btn').focus();
+    }
+    if (window.matchMedia('(max-width: 768px)').matches) {
+      setTOCOpen(false);
+      document.getElementById('bookmarks-panel').classList.add('collapsed');
+    }
+    return;
+  }
+  if (_activeModal || isInteractiveElement(document.activeElement)) return;
 
   switch(e.key) {
     case ' ':
@@ -1502,16 +1964,16 @@ document.addEventListener('keydown', e => {
     case '?':
       showShortcuts();
       break;
-    case 'Escape':
-      closeSpeakerEditor();
-      hideShortcuts();
-      document.getElementById('export-dropdown').classList.add('hidden');
-      break;
   }
 });
 
-function showShortcuts()  { document.getElementById('shortcuts-overlay').classList.remove('hidden'); }
-function hideShortcuts()  { document.getElementById('shortcuts-overlay').classList.add('hidden'); }
+function showShortcuts() {
+  const overlay = document.getElementById('shortcuts-overlay');
+  openModal(overlay, overlay.querySelector('.shortcuts-panel'));
+}
+function hideShortcuts() {
+  closeModal(document.getElementById('shortcuts-overlay'));
+}
 
 // ── Toasts ────────────────────────────────────────────────────────────────────
 
@@ -1534,12 +1996,25 @@ function esc(s) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('scroll', scheduleViewportProgressUpdate, { passive: true });
-window.addEventListener('pagehide', () => flushProgressSave({ useBeacon: true, force: true }));
+window.addEventListener('pagehide', () => {
+  flushProgressSave({ useBeacon: true, force: true });
+  _bufferGenId++;
+  for (const controller of _ttsAbortControllers.values()) controller.abort();
+  _ttsAbortControllers.clear();
+  navigator.sendBeacon('/api/tts/cancel');
+});
 window.addEventListener('beforeunload', () => flushProgressSave({ useBeacon: true, force: true }));
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     flushProgressSave({ useBeacon: true, force: true });
   }
 });
+
+_audioA.addEventListener('timeupdate', updateRemainingTime);
+_audioB.addEventListener('timeupdate', updateRemainingTime);
+setTOCOpen(!window.matchMedia('(max-width: 768px)').matches);
+applySpeakerLabelPreference();
+applyExportPreset(document.getElementById('export-preset').value);
+initMediaSession();
 
 loadTOC();

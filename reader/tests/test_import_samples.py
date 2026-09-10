@@ -49,7 +49,7 @@ class ImportSampleTest(unittest.TestCase):
         """Hungarian PDF uses 'I. FEJEZET' at near-body font size — must not
         require the title-page mega font threshold to detect chapters."""
         try:
-            import fitz  # noqa: F401
+            import pymupdf  # noqa: F401
         except ImportError:
             self.skipTest('PyMuPDF not installed')
 
@@ -67,11 +67,11 @@ class ImportSampleTest(unittest.TestCase):
 
     def test_hungarian_pdf_removes_centered_page_numbers(self):
         try:
-            import fitz
+            import pymupdf
         except ImportError:
             self.skipTest('PyMuPDF not installed')
 
-        doc = fitz.open(SAMPLES / 'Rejto_Jeno-14-karatos-auto.pdf')
+        doc = pymupdf.open(SAMPLES / 'Rejto_Jeno-14-karatos-auto.pdf')
         try:
             blocks = pdf_parser._collect_blocks(doc)
         finally:

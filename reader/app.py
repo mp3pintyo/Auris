@@ -5,11 +5,18 @@ Offline Ebook Reader — Flask application.
 import base64
 import logging
 import os
+import shutil
 import threading
 import uuid
+import sys
+import re
+
+# Blueprint services must share this module's engine and locks when launched as a script.
+if __name__ == '__main__':
+    sys.modules['app'] = sys.modules[__name__]
 
 from flask import (
-    Flask, jsonify, render_template, request,
+    Flask, g, jsonify, render_template, request,
     send_file,
 )
 
@@ -19,7 +26,7 @@ from core.tts_engine import TTSExportPool
 from core.tts_router import TTSEngineRouter
 from core import characters as char_module
 from core import llm_characters
-from core import enrichment, exporter, structure, settings as app_settings
+from core import enrichment, exporter, jobs, structure, settings as app_settings
 from core.parser import epub_parser, pdf_parser, txt_parser
 
 logging.basicConfig(level=logging.INFO,
@@ -58,6 +65,140 @@ _startup_complete = False
 _character_analysis_lock = threading.Lock()
 _character_analysis_state_lock = threading.Lock()
 _character_analysis_pending = 0
+_work_dispatch_lock = threading.RLock()
+_interactive_request_count = 0
+
+_WORK_BUSY_MESSAGE = (
+    'Másik generálás, export vagy elemzés fut. '
+    'Várd meg vagy állítsd le a Feladatok oldalon.'
+)
+_INTERACTIVE_BUSY_MESSAGE = (
+    'Interaktív hangkészítés fut. Próbáld újra, amikor befejeződött.'
+)
+_INTERACTIVE_ENDPOINTS = {
+    'preview_character', 'preview_narrator',
+}
+_GATED_MUTATION_ENDPOINTS = {
+    'import_book', 'delete_book', 'update_speaker_annotation',
+    'upload_ref_audio',
+    'delete_ref_audio', 'upload_narrator_ref_audio',
+    'delete_narrator_ref_audio', 'save_settings', 'tts_load', 'tts_reload',
+}
+_VOICE_MUTATION_ENDPOINTS = {'update_character', 'update_narrator'}
+_CONSISTENT_READ_ENDPOINTS = {'get_chapter', 'get_segments', 'tts_generate'}
+
+
+class JobCancelled(RuntimeError):
+    """Raised at cooperative job boundaries after cached work is persisted."""
+
+
+def _legacy_job(stored: dict) -> dict:
+    """Return the mutable shape consumed by the existing progress helpers."""
+    return {
+        'job_id': stored['id'],
+        'type': stored['type'],
+        'book_id': stored.get('book_id'),
+        'chapter_id': stored.get('chapter_id'),
+        'input': stored.get('input') or {},
+        'state': stored['state'],
+        'message': stored.get('message') or '',
+        'done': int(stored.get('done') or 0),
+        'total': int(stored.get('total') or 0),
+        'eta_sec': None,
+        'elapsed_sec': None,
+        't0': None,
+        'synth_t0': None,
+        'synth_done': 0,
+        'result': stored.get('result'),
+        'error': stored.get('error'),
+    }
+
+
+def _persist_job(job: dict) -> dict:
+    stored = jobs.update_job(
+        job['job_id'],
+        state=job.get('state', 'running'),
+        message=job.get('message') or '',
+        done=int(job.get('done') or 0),
+        total=int(job.get('total') or 0),
+        error=job.get('error'),
+        result=job.get('result'),
+    )
+    return stored
+
+
+def _check_job_cancelled(job: dict | None) -> None:
+    if job is not None and jobs.is_cancel_requested(job['job_id']):
+        raise JobCancelled('Cancellation requested')
+
+
+def _active_durable_jobs(*, book_id: int | None = None) -> list[dict]:
+    jobs.ensure_jobs()
+    return [
+        item for item in jobs.list_jobs(book_id=book_id)
+        if item['state'] in ('pending', 'running')
+    ]
+
+
+def _work_conflict_response():
+    """Return a consistent 409 response while the caller owns the gate."""
+    if _active_durable_jobs():
+        return jsonify({'error': _WORK_BUSY_MESSAGE}), 409
+    if _interactive_request_count:
+        return jsonify({'error': _INTERACTIVE_BUSY_MESSAGE}), 409
+    return None
+
+
+@app.before_request
+def _coordinate_work_request():
+    """Reserve interactive work or serialize short database mutations/reads."""
+    global _interactive_request_count
+    _startup()
+    endpoint = request.endpoint
+    if endpoint in _INTERACTIVE_ENDPOINTS:
+        with _work_dispatch_lock:
+            if _active_durable_jobs():
+                return jsonify({'error': _WORK_BUSY_MESSAGE}), 409
+            _interactive_request_count += 1
+            g._auris_interactive_reserved = True
+        return None
+    if (
+        endpoint in _GATED_MUTATION_ENDPOINTS
+        or endpoint in _VOICE_MUTATION_ENDPOINTS
+        or endpoint in _CONSISTENT_READ_ENDPOINTS
+    ):
+        _work_dispatch_lock.acquire()
+        g._auris_work_gate_held = True
+        if endpoint in _GATED_MUTATION_ENDPOINTS or endpoint in _VOICE_MUTATION_ENDPOINTS:
+            # Voice instructions/profiles may change while an old interactive
+            # render finishes: affected segment rows are deleted, so its late
+            # UPDATE becomes a harmless no-op. Bulk jobs must still remain
+            # isolated because they own a stable book-wide configuration.
+            if endpoint in _VOICE_MUTATION_ENDPOINTS and _active_durable_jobs():
+                conflict = jsonify({'error': _WORK_BUSY_MESSAGE}), 409
+            else:
+                conflict = (
+                    None
+                    if endpoint in _VOICE_MUTATION_ENDPOINTS
+                    else _work_conflict_response()
+                )
+            if conflict is not None:
+                g._auris_work_gate_held = False
+                _work_dispatch_lock.release()
+                return conflict
+    return None
+
+
+@app.teardown_request
+def _release_work_request(_error=None):
+    global _interactive_request_count
+    if getattr(g, '_auris_interactive_reserved', False):
+        with _work_dispatch_lock:
+            _interactive_request_count = max(0, _interactive_request_count - 1)
+        g._auris_interactive_reserved = False
+    if getattr(g, '_auris_work_gate_held', False):
+        g._auris_work_gate_held = False
+        _work_dispatch_lock.release()
 
 
 def _export_exclusive_begin() -> None:
@@ -116,6 +257,7 @@ def _startup():
             return
         try:
             init_db()
+            jobs.init_jobs()
             # Old persisted prompts may contain [surprise-oh]/[question-oh],
             # which ask OmniVoice to vocalize an "oh" before the sentence.
             expression_policy_changed = (
@@ -254,6 +396,10 @@ def _compute_segments_for_chapter(
         chapter_title=ch['title'],
         speaker_annotations=speaker_annotations,
     )
+    from core import experience
+    rules = experience.list_rules(book_id)
+    for seg in segs:
+        seg['enriched_text'] = experience.apply_pronunciation(seg['enriched_text'], book_id, rules=rules)
     return segs
 
 
@@ -316,6 +462,139 @@ def _ensure_chapter_segments(book_id: int, chapter_id: int):
     return rows
 
 
+def _launch_durable_job_unlocked(stored: dict) -> bool:
+    """Attach a persisted pending job to its worker without changing its input."""
+    global _chapter_generation_active_job_id
+    job = _legacy_job(stored)
+    job_id = job['job_id']
+    payload = job['input']
+    job_type = stored['type']
+    target = None
+    args: tuple = ()
+    if job_type == 'generate_chapter':
+        book_id = int(payload['book_id'])
+        chapter_id = int(payload['chapter_id'])
+        with _chapter_generation_lock:
+            _chapter_generation_jobs[job_id] = job
+            _chapter_generation_by_chapter[(book_id, chapter_id)] = job_id
+            _chapter_generation_active_job_id = job_id
+        target = _run_chapter_generation
+        args = (job_id, book_id, chapter_id)
+    elif job_type == 'export_chapter':
+        _export_jobs[job_id] = job
+        target = _run_chapter_export
+        args = (
+            job_id, int(payload['book_id']), int(payload['chapter_id']),
+            payload.get('audio_fmt', 'wav'), payload.get('sub_fmt', 'srt'),
+        )
+    elif job_type == 'export_book':
+        _export_jobs[job_id] = job
+        target = _run_chapterwise_export
+        args = (
+            job_id, int(payload['book_id']), payload.get('audio_fmt', 'wav'),
+            payload.get('sub_fmt', 'srt'), list(payload.get('chapter_numbers') or []),
+        )
+    elif job_type == 'reanalyze':
+        target = _run_reanalysis_job
+        args = (job_id, int(payload['book_id']), list(payload['chapter_ids']))
+    elif job_type == 'initial_analysis':
+        book_id = int(payload['book_id'])
+        with get_conn() as conn:
+            book = conn.execute(
+                'SELECT title, author FROM books WHERE id=?', (book_id,)
+            ).fetchone()
+            chapters = conn.execute(
+                'SELECT id, title, content FROM chapters WHERE book_id=? ORDER BY order_num',
+                (book_id,),
+            ).fetchall()
+        if not book:
+            jobs.update_job(
+                job_id, state='failed', error='A könyv nem található',
+                message='Ez a feladat nem folytatható',
+            )
+            return False
+        data = {
+            'title': book['title'], 'author': book['author'],
+            'chapters': [dict(chapter) for chapter in chapters],
+        }
+        target = _detect_characters
+        args = (
+            book_id, data, payload.get('mode', 'legacy'),
+            app_settings.load(), job_id,
+        )
+    else:
+        jobs.update_job(
+            job_id, state='failed', error=f'Unsupported job type: {job_type}',
+            message='Ez a feladat nem folytatható',
+        )
+        return False
+    threading.Thread(target=target, args=args, daemon=True).start()
+    return True
+
+
+def _launch_durable_job(stored: dict) -> bool:
+    """Dispatch one claimed job under the shared work-start gate."""
+    with _work_dispatch_lock:
+        return _launch_durable_job_unlocked(stored)
+
+
+@app.route('/api/jobs')
+def durable_jobs_list():
+    jobs.ensure_jobs()
+    book_id = request.args.get('book_id', type=int)
+    return jsonify(jobs.list_jobs(book_id=book_id))
+
+
+@app.route('/api/jobs/<job_id>/cancel', methods=['POST'])
+def durable_job_cancel(job_id):
+    jobs.ensure_jobs()
+    job = jobs.cancel_job(job_id)
+    if job is None:
+        return jsonify({'error': 'Ismeretlen feladat'}), 404
+    return jsonify(job)
+
+
+@app.route('/api/jobs/<job_id>/resume', methods=['POST'])
+def durable_job_resume(job_id):
+    jobs.ensure_jobs()
+    with _work_dispatch_lock:
+        current = jobs.get_job(job_id)
+        if current is None:
+            return jsonify({'error': 'Ismeretlen feladat'}), 404
+        if _active_durable_jobs():
+            return jsonify({'error': _WORK_BUSY_MESSAGE}), 409
+        if _interactive_request_count:
+            return jsonify({'error': _INTERACTIVE_BUSY_MESSAGE}), 409
+        try:
+            resumed = jobs.resume_job(job_id)
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 409
+        _launch_durable_job(resumed)
+        return jsonify(jobs.get_job(job_id))
+
+
+@app.route('/api/jobs/<job_id>/download/<artifact>')
+def durable_job_download(job_id, artifact):
+    jobs.ensure_jobs()
+    job = jobs.get_job(job_id)
+    result = (job or {}).get('result') or {}
+    key = {
+        'audio': 'audio_path',
+        'subtitle': 'subtitle_path',
+        'export': 'download_path',
+    }.get(artifact)
+    path = result.get(key) if key else None
+    if not isinstance(path, str) or not path:
+        return jsonify({'error': 'A feladat eredménye nem található'}), 404
+    exports_dir = os.path.abspath(exporter.EXPORTS_DIR)
+    abs_path = os.path.abspath(path)
+    if os.path.commonpath((exports_dir, abs_path)) != exports_dir:
+        return jsonify({'error': 'Forbidden'}), 403
+    if not os.path.isfile(abs_path):
+        return jsonify({'error': 'Az eredményfájl hiányzik'}), 404
+    return send_file(abs_path, as_attachment=True)
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Page routes
 # ════════════════════════════════════════════════════════════════════════════
@@ -329,7 +608,7 @@ def library_page():
 def reader_page(book_id):
     book = _load_book(book_id)
     if not book:
-        return 'Book not found', 404
+        return 'A könyv nem található', 404
     book_data = dict(book)
     book_data['narrator_instruct'] = _book_narrator_instruct(book_data)
     book_data['single_narrator_mode'] = _book_single_narrator_mode(book_data)
@@ -342,7 +621,7 @@ def reader_page(book_id):
 def voice_studio_page(book_id):
     book = _load_book(book_id)
     if not book:
-        return 'Book not found', 404
+        return 'A könyv nem található', 404
     book_data = dict(book)
     book_data['narrator_instruct'] = _book_narrator_instruct(book_data)
     book_data['single_narrator_mode'] = _book_single_narrator_mode(book_data)
@@ -444,7 +723,8 @@ def import_book():
             detection_config.get('single_narrator_mode', False)
         )
 
-    dest = os.path.join(UPLOAD_DIR, f.filename)
+    original_name = f.filename.replace('\\', '/').rsplit('/', 1)[-1]
+    dest = os.path.join(UPLOAD_DIR, f'{uuid.uuid4().hex}_{original_name}')
     f.save(dest)
 
     try:
@@ -455,9 +735,27 @@ def import_book():
         else:
             data = txt_parser.parse(dest)
     except Exception as e:
+        _delete_file_if_exists(dest)
         return jsonify({'error': f'Parse error: {e}'}), 500
 
-    chapters = structure.enrich_chapters(data['chapters'])
+    parsed_chapters = data.get('chapters') or []
+    if not any(str(chapter.get('content') or '').strip() for chapter in parsed_chapters):
+        _delete_file_if_exists(dest)
+        return jsonify({
+            'error': (
+                'A dokumentum nem tartalmaz olvasható szöveget. '
+                'Aurisba importálás előtt OCR szükséges.'
+            )
+        }), 400
+    chapters = [
+        chapter for chapter in structure.enrich_chapters(parsed_chapters)
+        if str(chapter.get('content') or '').strip()
+    ]
+    if not chapters:
+        _delete_file_if_exists(dest)
+        return jsonify({
+            'error': 'Nem található importálható fejezet; előzetes OCR szükséges.'
+        }), 400
 
     analysis_status = (
         'queued' if detection_mode == 'llm'
@@ -489,31 +787,25 @@ def import_book():
                  ch['content'], ch['word_count'])
             )
 
-    # A local LLM owns the available GPU memory during analysis. Hosted OpenAI
-    # analysis does not need to interrupt local TTS playback.
-    if detection_mode == 'llm' and llm_config['provider'] == 'local':
-        _character_analysis_reserve()
-        tts.unload()
-
     if detection_mode == 'none':
+        analysis_job_id = None
         _set_character_analysis_status(
             book_id,
             'skipped',
             'Single narrator selected — character analysis skipped.',
         )
     else:
-        # Detect characters / attribute dialogue in the background.
-        threading.Thread(
-            target=_detect_characters,
-            args=(book_id, data, detection_mode, detection_config),
-            daemon=True,
-        ).start()
+        # The durable record is committed before its worker thread can start.
+        analysis_job_id = _detect_characters(
+            book_id, data, detection_mode, detection_config
+        )
 
     return jsonify({
         'book_id': book_id,
         'title': data['title'],
         'chapters': len(chapters),
         'analysis_status': analysis_status,
+        'analysis_job_id': analysis_job_id,
         'narration_mode': 'single' if single_narrator_mode else 'multi',
     })
 
@@ -523,24 +815,58 @@ def _detect_characters(
     data: dict,
     mode: str | None = None,
     config: dict | None = None,
+    job_id: str | None = None,
 ):
     config = config or app_settings.load()
     mode = str(
         mode or config.get('character_detection_mode', 'legacy') or 'legacy'
     ).lower()
+    if job_id is None:
+        jobs.ensure_jobs()
+        with _work_dispatch_lock:
+            conflict = _work_conflict_response()
+            if conflict is not None:
+                raise RuntimeError(
+                    _WORK_BUSY_MESSAGE if _active_durable_jobs()
+                    else _INTERACTIVE_BUSY_MESSAGE
+                )
+            stored = jobs.create_job(
+                'initial_analysis',
+                {'book_id': book_id, 'mode': mode},
+                book_id=book_id,
+                total=len(data.get('chapters') or []),
+            )
+            _launch_durable_job(stored)
+            return stored['id']
+    analysis_job = _legacy_job(jobs.get_job(job_id))
+    analysis_job.update(state='running', message='Szereplőelemzés előkészítése…')
+    _persist_job(analysis_job)
     if mode != 'llm':
         try:
+            _check_job_cancelled(analysis_job)
             full_text = ' '.join(ch['content'] for ch in data['chapters'])
             chars = char_module.extract_characters(full_text, top_n=20)
             _store_character_analysis(
                 book_id, chars, [], 'complete', 'Legacy detection complete.'
             )
+            analysis_job.update(
+                state='complete', done=len(data.get('chapters') or []),
+                message='Legacy detection complete.', result={'book_id': book_id},
+            )
+            _persist_job(analysis_job)
+        except JobCancelled:
+            jobs.mark_cancelled(job_id, 'Character analysis cancelled')
         except Exception as exc:
             _set_character_analysis_status(book_id, 'failed', str(exc))
+            analysis_job.update(state='failed', error=str(exc), message='Az elemzés nem sikerült')
+            _persist_job(analysis_job)
         return
 
     llm_config = _selected_llm_config(config)
     uses_local_llm = llm_config['provider'] == 'local'
+    if uses_local_llm:
+        _character_analysis_reserve()
+        tts.unload()
     try:
         with _character_analysis_lock:
             if uses_local_llm and not tts.wait_until_unloaded(timeout=600):
@@ -562,11 +888,17 @@ def _detect_characters(
             parsed_chapters = [dict(row) for row in rows]
 
             def progress(current: int, total: int, chapter_title: str):
+                _check_job_cancelled(analysis_job)
                 _set_character_analysis_status(
                     book_id,
                     'running',
                     f'Analyzing chapter {current}/{total}: {chapter_title}',
                 )
+                analysis_job.update(
+                    done=max(0, current - 1), total=total,
+                    message=f'Analyzing chapter {current}/{total}: {chapter_title}',
+                )
+                _persist_job(analysis_job)
 
             result = llm_characters.analyze_book(
                 title=str(data.get('title') or ''),
@@ -598,9 +930,19 @@ def _detect_characters(
                 final_status,
                 message,
             )
+            analysis_job.update(
+                state='complete', done=len(parsed_chapters), total=len(parsed_chapters),
+                message=message,
+                result={'book_id': book_id, 'failed_batches': failed_batches},
+            )
+            _persist_job(analysis_job)
+    except JobCancelled:
+        jobs.mark_cancelled(job_id, 'Character analysis cancelled after current batch')
     except Exception as exc:
         log.exception('LLM character analysis failed for book %s', book_id)
         _set_character_analysis_status(book_id, 'failed', str(exc))
+        analysis_job.update(state='failed', error=str(exc), message='Az elemzés nem sikerült')
+        _persist_job(analysis_job)
     finally:
         if uses_local_llm:
             _character_analysis_release()
@@ -694,6 +1036,190 @@ def _store_character_analysis(
         )
 
 
+def _capture_position_anchors(book_id: int, chapter_id: int) -> dict:
+    with get_conn() as conn:
+        segments = conn.execute(
+            'SELECT segment_index, text FROM tts_segments '
+            'WHERE book_id=? AND chapter_id=? ORDER BY segment_index',
+            (book_id, chapter_id),
+        ).fetchall()
+        progress = conn.execute(
+            'SELECT position FROM reading_progress WHERE book_id=? AND chapter_id=?',
+            (book_id, chapter_id),
+        ).fetchone()
+        bookmarks = conn.execute(
+            'SELECT id, segment_index, text_excerpt FROM bookmarks '
+            'WHERE book_id=? AND chapter_id=?',
+            (book_id, chapter_id),
+        ).fetchall()
+    by_index = {int(row['segment_index']): row['text'] for row in segments}
+    return {
+        'progress_text': by_index.get(int(progress['position'])) if progress else None,
+        'bookmarks': [
+            (row['id'], row['text_excerpt'] or by_index.get(int(row['segment_index'])))
+            for row in bookmarks
+        ],
+    }
+
+
+def _best_segment_index(segments: list[dict], text: str | None) -> int | None:
+    needle = ' '.join(str(text or '').casefold().split())
+    if not needle:
+        return None
+    for index, segment in enumerate(segments):
+        candidate = ' '.join(str(segment.get('text') or '').casefold().split())
+        if needle == candidate or needle in candidate or candidate in needle:
+            return index
+    return None
+
+
+def _store_reanalysis_chapter(
+    book_id: int,
+    chapter_id: int,
+    chars: list[dict],
+    annotations: list[dict],
+) -> None:
+    """Replace automatic chapter analysis while preserving human voice choices."""
+    anchors = _capture_position_anchors(book_id, chapter_id)
+    with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM speaker_annotations WHERE book_id=? AND chapter_id=? "
+            "AND COALESCE(source, 'automatic') <> 'manual'",
+            (book_id, chapter_id),
+        )
+        for character in chars:
+            conn.execute(
+                'INSERT INTO characters '
+                '(book_id, name, gender, frequency, instruct, color_hex) '
+                'VALUES (?,?,?,?,?,?) ON CONFLICT(book_id, name) DO NOTHING',
+                (
+                    book_id, character['name'], character.get('gender', 'unknown'),
+                    int(character.get('frequency') or 0), character.get('instruct'),
+                    character.get('color_hex'),
+                ),
+            )
+        for annotation in annotations:
+            if int(annotation.get('chapter_id') or chapter_id) != chapter_id:
+                continue
+            conn.execute(
+                'INSERT INTO speaker_annotations '
+                '(book_id, chapter_id, unit_index, unit_text, speaker_name, confidence, source) '
+                "VALUES (?,?,?,?,?,?,'automatic') "
+                'ON CONFLICT(chapter_id, unit_index) DO NOTHING',
+                (
+                    book_id, chapter_id, annotation['unit_index'],
+                    annotation['unit_text'], annotation['speaker_name'],
+                    annotation.get('confidence', 1.0),
+                ),
+            )
+        conn.execute(
+            'UPDATE characters SET frequency=('
+            'SELECT COUNT(*) FROM speaker_annotations a '
+            'WHERE a.book_id=characters.book_id '
+            'AND a.speaker_name=characters.name COLLATE NOCASE) WHERE book_id=?',
+            (book_id,),
+        )
+        conn.execute(
+            'DELETE FROM tts_segments WHERE book_id=? AND chapter_id=?',
+            (book_id, chapter_id),
+        )
+
+    rebuilt = _compute_segments_for_chapter(book_id, chapter_id)
+    if rebuilt:
+        _store_segments(book_id, chapter_id, rebuilt)
+    with get_conn() as conn:
+        progress_index = _best_segment_index(rebuilt, anchors['progress_text'])
+        if progress_index is not None:
+            conn.execute(
+                'UPDATE reading_progress SET position=?, updated_at=datetime(\'now\') '
+                'WHERE book_id=? AND chapter_id=?',
+                (progress_index, book_id, chapter_id),
+            )
+        for bookmark_id, text in anchors['bookmarks']:
+            bookmark_index = _best_segment_index(rebuilt, text)
+            if bookmark_index is not None:
+                conn.execute(
+                    'UPDATE bookmarks SET segment_index=? WHERE id=? AND book_id=?',
+                    (bookmark_index, bookmark_id, book_id),
+                )
+
+
+def _run_reanalysis_job(job_id: str, book_id: int, chapter_ids: list[int]) -> None:
+    job = _legacy_job(jobs.get_job(job_id))
+    config = app_settings.load()
+    llm_config = _selected_llm_config(config)
+    uses_local_llm = llm_config['provider'] == 'local'
+    failures: list[dict] = []
+    if uses_local_llm:
+        _character_analysis_reserve()
+        tts.unload()
+    try:
+        job.update(state='running', total=len(chapter_ids), message='Újraelemzés előkészítése…')
+        _persist_job(job)
+        with _character_analysis_lock:
+            if uses_local_llm and not tts.wait_until_unloaded(timeout=600):
+                raise RuntimeError('Timed out waiting for the TTS model to release VRAM.')
+            with get_conn() as conn:
+                book = conn.execute(
+                    'SELECT title, author FROM books WHERE id=?', (book_id,)
+                ).fetchone()
+                chapter_rows = conn.execute(
+                    'SELECT id, title, content FROM chapters WHERE book_id=? '
+                    f"AND id IN ({','.join('?' for _ in chapter_ids)}) ORDER BY order_num",
+                    (book_id, *chapter_ids),
+                ).fetchall()
+            for row in chapter_rows:
+                _check_job_cancelled(job)
+                chapter = dict(row)
+                jobs.set_chapter_analysis_state(book_id, chapter['id'], 'running', None)
+                job['message'] = f"Elemzés: {chapter['title']}"
+                _persist_job(job)
+                try:
+                    result = llm_characters.analyze_book(
+                        title=book['title'], author=book['author'], chapters=[chapter],
+                        base_url=llm_config['base_url'], api_key=llm_config['api_key'],
+                        model=llm_config['model'],
+                        timeout=float(config.get('llm_timeout_sec', 600)),
+                        max_tokens=int(config.get('llm_max_output_tokens', 8192)),
+                        max_characters=int(config.get('llm_max_characters', 60)),
+                        batch_chars=int(config.get('llm_batch_chars', 10000)),
+                        provider=llm_config['provider'],
+                    )
+                    if result.get('errors'):
+                        raise RuntimeError(result['errors'][0].get('message') or 'Az elemzés nem sikerült')
+                    _store_reanalysis_chapter(
+                        book_id, chapter['id'], result['characters'], result['annotations']
+                    )
+                    jobs.set_chapter_analysis_state(book_id, chapter['id'], 'complete', None)
+                except Exception as exc:
+                    log.exception('Chapter reanalysis failed for book %s chapter %s', book_id, chapter['id'])
+                    jobs.set_chapter_analysis_state(book_id, chapter['id'], 'failed', str(exc))
+                    failures.append({'chapter_id': chapter['id'], 'error': str(exc)})
+                job['done'] += 1
+                _persist_job(job)
+                _check_job_cancelled(job)
+        status = 'partial' if failures else 'complete'
+        message = (
+            f'Az újraelemzés elkészült; {len(failures)} fejezet hibás.'
+            if failures else 'Az újraelemzés elkészült.'
+        )
+        _set_character_analysis_status(book_id, status, message)
+        job.update(
+            state='complete', message=message,
+            result={'book_id': book_id, 'failed_chapters': failures}, error=None,
+        )
+        _persist_job(job)
+    except JobCancelled:
+        jobs.mark_cancelled(job_id, 'Újraelemzés leállítva az aktuális fejezet után')
+    except Exception as exc:
+        log.exception('Reanalysis job %s failed', job_id)
+        job.update(state='failed', error=str(exc), message='Az újraelemzés nem sikerült')
+        _persist_job(job)
+    finally:
+        if uses_local_llm:
+            _character_analysis_release()
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Library API
 # ════════════════════════════════════════════════════════════════════════════
@@ -705,7 +1231,8 @@ def list_books():
             'SELECT b.id, b.title, b.author, b.file_type, b.cover_b64, b.added_at, '
             'b.last_read, b.total_chapters, b.character_analysis_status, '
             'b.character_analysis_message, b.character_analysis_provider, '
-            'b.character_analysis_model, rp.chapter_id AS progress_chapter_id, '
+            'b.character_analysis_model, b.collection, b.series, b.reading_state, '
+            'b.source_url, rp.chapter_id AS progress_chapter_id, '
             'rp.position AS progress_position, c.title AS progress_chapter_title '
             'FROM books b '
             'LEFT JOIN reading_progress rp ON rp.book_id = b.id '
@@ -742,8 +1269,59 @@ def character_analysis_status(book_id):
             (book_id,),
         ).fetchone()
     if not row:
-        return jsonify({'error': 'Book not found'}), 404
+        return jsonify({'error': 'A könyv nem található'}), 404
     return jsonify(dict(row))
+
+
+@app.route('/api/books/<int:book_id>/reanalyze', methods=['POST'])
+def reanalyze_book(book_id):
+    jobs.ensure_jobs()
+    body = request.get_json(silent=True) or {}
+    requested = body.get('chapter_ids')
+    failed_only = bool(body.get('failed_only', False))
+    if requested is not None and not isinstance(requested, list):
+        return jsonify({'error': 'chapter_ids must be an array'}), 400
+    try:
+        requested_ids = [int(value) for value in requested] if requested is not None else None
+    except (TypeError, ValueError):
+        return jsonify({'error': 'chapter_ids must contain integers'}), 400
+
+    with get_conn() as conn:
+        book = conn.execute('SELECT id FROM books WHERE id=?', (book_id,)).fetchone()
+        rows = conn.execute(
+            'SELECT id FROM chapters WHERE book_id=? ORDER BY order_num', (book_id,)
+        ).fetchall()
+    if not book:
+        return jsonify({'error': 'A könyv nem található'}), 404
+    existing_ids = [int(row['id']) for row in rows]
+    if requested_ids is not None and not set(requested_ids).issubset(existing_ids):
+        return jsonify({'error': 'One or more chapters do not belong to this book'}), 400
+    selected = requested_ids if requested_ids is not None else existing_ids
+    if failed_only:
+        failed = set(jobs.failed_chapter_ids(book_id))
+        selected = [chapter_id for chapter_id in selected if chapter_id in failed]
+    selected = list(dict.fromkeys(selected))
+    if not selected:
+        return jsonify({'error': 'Nincs újraelemzésre kijelölt vagy hibás fejezet'}), 400
+
+    config = app_settings.load()
+    llm_config = _selected_llm_config(config)
+    if not llm_config['base_url'] or not llm_config['model']:
+        return jsonify({'error': 'Az újraelemzéshez előbb állíts be nyelvi modellt.'}), 400
+    if llm_config['provider'] == 'openai' and not llm_config['api_key']:
+        return jsonify({'error': 'Az OpenAI-elemzéshez API-kulcs szükséges.'}), 400
+    with _work_dispatch_lock:
+        conflict = _work_conflict_response()
+        if conflict is not None:
+            return conflict
+        stored = jobs.create_job(
+            'reanalyze',
+            {'book_id': book_id, 'chapter_ids': selected, 'failed_only': failed_only},
+            book_id=book_id,
+            total=len(selected),
+        )
+        _launch_durable_job(stored)
+        return jsonify(stored), 202
 
 
 @app.route('/api/books/<int:book_id>/cover')
@@ -759,9 +1337,10 @@ def book_cover(book_id):
 
 @app.route('/api/books/<int:book_id>', methods=['DELETE'])
 def delete_book(book_id):
-    with get_conn() as conn:
-        conn.execute('DELETE FROM books WHERE id=?', (book_id,))
-    return jsonify({'ok': True})
+    # Keep the legacy DELETE URL, but use the storage-aware removal path so
+    # completed export downloads and their title snapshot remain available.
+    from core.experience_api import remove_book
+    return remove_book(book_id)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -822,7 +1401,7 @@ def update_speaker_annotation(book_id, chapter_id):
             (chapter_id, book_id),
         ).fetchone()
         if not chapter:
-            return jsonify({'error': 'Chapter not found'}), 404
+            return jsonify({'error': 'A fejezet nem található'}), 404
 
         units = enrichment.build_speaker_units(chapter['content'])
         if unit_index < 0 or unit_index >= len(units):
@@ -1006,7 +1585,8 @@ def save_progress(book_id):
             'position=excluded.position, updated_at=excluded.updated_at',
             (book_id, body.get('chapter_id'), body.get('position', 0))
         )
-        conn.execute('UPDATE books SET last_read=datetime("now") WHERE id=?', (book_id,))
+        conn.execute('UPDATE books SET last_read=datetime("now"), '
+                     "reading_state=CASE WHEN reading_state='finished' THEN 'finished' ELSE 'reading' END WHERE id=?", (book_id,))
     return jsonify({'ok': True})
 
 
@@ -1034,7 +1614,7 @@ def list_characters(book_id):
                 (chapter_id, book_id),
             ).fetchone()
         if not chapter:
-            return jsonify({'error': 'Chapter not found'}), 404
+            return jsonify({'error': 'A fejezet nem található'}), 404
         chapter_character_names = {
             str(segment['character_name']).casefold()
             for segment in _compute_segments_for_chapter(
@@ -1101,15 +1681,18 @@ def preview_character(book_id, char_id):
     ref_audio = row['ref_audio_path'] if row['ref_audio_path'] else None
     requested_ref_text = body.get('ref_text', row['ref_text'])
     ref_text = requested_ref_text.strip() if ref_audio and isinstance(requested_ref_text, str) and requested_ref_text.strip() else None
-    sample_text = (
-        f'Hello. I am {row["name"]}. '
-        'This preview should sound clear, steady, and easy to understand.'
-    )
+    book = _load_book(book_id)
+    language = book['language'] or 'hu'
+    sample_text = str(body.get('text') or (
+        'A délutáni fényben csendesen lapoztam a könyvet. Új történet kezdődik.'
+        if language == 'hu' else VOICE_PREVIEW_TEXT
+    )).strip()[:1500]
 
     try:
         result = tts.generate_preview(
             instruct=instruct,
             sample_text=sample_text,
+            language=language,
             ref_audio=ref_audio,
             ref_text=ref_text,
         )
@@ -1206,7 +1789,11 @@ def preview_narrator(book_id):
     try:
         result = tts.generate_preview(
             instruct=instruct,
-            sample_text=VOICE_PREVIEW_TEXT,
+            sample_text=str(body.get('text') or (
+                'A délutáni fényben csendesen lapoztam a könyvet. Új történet kezdődik.'
+                if (book['language'] or 'hu') == 'hu' else VOICE_PREVIEW_TEXT
+            )).strip()[:1500],
+            language=book['language'] or 'hu',
             ref_audio=narrator_ref,
             ref_text=narrator_ref_text,
         )
@@ -1392,7 +1979,7 @@ def tts_generate():
                 ).fetchone()
             if not seg:
                 if not _build_segments_for_chapter(book_id, chapter_id):
-                    return jsonify({'error': 'Chapter not found'}), 404
+                    return jsonify({'error': 'A fejezet nem található'}), 404
                 with get_conn() as conn:
                     seg = conn.execute(
                         'SELECT * FROM tts_segments WHERE book_id=? AND chapter_id=? AND segment_index=?',
@@ -1413,6 +2000,25 @@ def tts_generate():
             'segment_index': segment_index,
             'cached': True,
         })
+
+    # Cache misses reserve interactive synthesis until the response teardown,
+    # including the late tts_segments write. The dispatch lock is held only
+    # while changing the counter, so InteractiveTTSBatcher can still coalesce.
+    global _interactive_request_count
+    with _work_dispatch_lock:
+        if _active_durable_jobs():
+            return jsonify({
+                'error': 'Háttérben futó hangkészítés vagy elemzés mellett az interaktív hang várakozik.',
+                'export_busy': True,
+            }), 503
+        _interactive_request_count += 1
+        g._auris_interactive_reserved = True
+        # The request-level read gate protected segment lookup/build and the
+        # cache decision. Release it before GPU work; the reservation counter
+        # now prevents mutations and new background dispatches.
+        if getattr(g, '_auris_work_gate_held', False):
+            g._auris_work_gate_held = False
+            _work_dispatch_lock.release()
 
     # Do not steal the GPU from a running full-book/chapter export with
     # single-segment synth (reader prewarm / playback buffer).
@@ -1545,9 +2151,18 @@ def _store_segments(book_id, chapter_id, segs):
 @app.route('/api/audio/<cache_key>')
 def serve_audio(cache_key):
     from core.tts_engine import AUDIO_CACHE_DIR
+    if not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', cache_key):
+        return '', 404
     path = os.path.join(AUDIO_CACHE_DIR, f'{cache_key}.wav')
     if not os.path.exists(path):
-        return '', 404
+        # Portable backups restore audio to new managed paths, retaining cache identity.
+        from pathlib import Path
+        with get_conn() as conn:
+            row = conn.execute('SELECT audio_path FROM tts_segments WHERE cache_key=? AND audio_path IS NOT NULL', (cache_key,)).fetchone()
+        restored = Path(row['audio_path']).resolve() if row else None
+        if not restored or not restored.is_relative_to((Path(UPLOAD_DIR) / 'restored').resolve()) or not restored.is_file():
+            return '', 404
+        path = str(restored)
     return send_file(path, mimetype='audio/wav')
 
 
@@ -1605,7 +2220,7 @@ def _refresh_export_job_fields(job: dict | None) -> None:
     job['eta_sec'] = eta_sec
 
     if total > 0:
-        msg = f'Generating audio ({done}/{total})'
+        msg = f'Hang készítése ({done}/{total})'
         if eta_sec is not None and done < total:
             msg += f' · ~{_fmt_eta(eta_sec)} left'
         elif done < total and synth_done == 0 and done > 0:
@@ -1614,7 +2229,7 @@ def _refresh_export_job_fields(job: dict | None) -> None:
             msg += ' · working…'
         job['message'] = msg
     else:
-        job['message'] = job.get('message') or 'Generating audio…'
+        job['message'] = job.get('message') or 'Hang készítése…'
 
 
 def _bump_export_progress(job: dict | None, n: int = 1, *, synthesized: bool = False) -> None:
@@ -1632,6 +2247,8 @@ def _bump_export_progress(job: dict | None, n: int = 1, *, synthesized: bool = F
             job['synth_t0'] = now
         job['synth_done'] = int(job.get('synth_done') or 0) + n
     _refresh_export_job_fields(job)
+    if job.get('job_id'):
+        _persist_job(job)
 
 
 def _ensure_audio_for_chapter(
@@ -1647,6 +2264,7 @@ def _ensure_audio_for_chapter(
     efficiently. Quality is controlled by settings ``tts_num_step``.
     Progress is updated after every finished segment (including mid-batch).
     """
+    _check_job_cancelled(job)
     with get_conn() as conn:
         book = conn.execute('SELECT language FROM books WHERE id=?', (book_id,)).fetchone()
         language = book['language'] if book and book['language'] else None
@@ -1662,6 +2280,7 @@ def _ensure_audio_for_chapter(
     pending_items: list[dict] = []
 
     for i, seg in enumerate(segs):
+        _check_job_cancelled(job)
         if seg.get('audio_path') and os.path.exists(seg['audio_path']):
             _bump_export_progress(job, 1, synthesized=False)
             continue
@@ -1739,6 +2358,7 @@ def _ensure_audio_for_chapter(
                 synthesized=not bool(result.get('cache_hit')),
             )
             _flush_db(force=False)
+            _check_job_cancelled(job)
 
     try:
         def on_item(local_i: int, result: dict) -> None:
@@ -1750,7 +2370,7 @@ def _ensure_audio_for_chapter(
             with result_lock:
                 done = job.get('done', 0)
                 total = job.get('total', 0)
-                job['message'] = f'Generating audio ({done}/{total}) · {msg}'
+                job['message'] = f'Hang készítése ({done}/{total}) · {msg}'
 
         if job is not None:
             on_status(f'preparing {len(pending_items)} pending segments…')
@@ -1768,6 +2388,11 @@ def _ensure_audio_for_chapter(
                 on_item=on_item,
                 on_status=on_status,
             )
+        _check_job_cancelled(job)
+    except JobCancelled:
+        with result_lock:
+            _flush_db(force=True)
+        raise
     except Exception as e:
         if export_pool is not None and export_pool.worker_count > 1:
             export_pool.close()
@@ -1777,6 +2402,7 @@ def _ensure_audio_for_chapter(
             chapter_id, len(pending_items), e,
         )
         for local_i, item in enumerate(pending_items):
+            _check_job_cancelled(job)
             # Skip items already filled by a partial batch before the exception.
             if segs[pending_idx[local_i]].get('audio_path') and os.path.exists(
                 segs[pending_idx[local_i]]['audio_path']
@@ -1808,7 +2434,7 @@ def _start_export_pool(job: dict) -> TTSExportPool:
         requested = 0
     pool = TTSExportPool(tts, requested_workers=requested)
     if requested != 1:
-        job['message'] = 'Loading second GPU worker…'
+        job['message'] = 'Második GPU-feldolgozó betöltése…'
     workers = pool.start()
     job['workers'] = workers
     log.info('Export TTS worker count=%d (requested=%d)', workers, requested)
@@ -1875,12 +2501,14 @@ def _run_chapter_generation(job_id: str, book_id: int, chapter_id: int) -> None:
     generation_pool: TTSExportPool | None = None
     _export_exclusive_begin()
     try:
+        _check_job_cancelled(job)
         job['state'] = 'running'
-        job['message'] = 'Loading chapter segments...'
+        job['message'] = 'Fejezetszöveg betöltése…'
+        _persist_job(job)
         segs = _get_chapter_segments(chapter_id, book_id)
         job['total'] = len(segs)
         job['done'] = 0
-        job['message'] = f'Generating audio (0/{len(segs)})'
+        job['message'] = f'Hang készítése (0/{len(segs)})'
         generation_pool = _start_export_pool(job)
         _ensure_audio_for_chapter(
             book_id,
@@ -1896,18 +2524,23 @@ def _run_chapter_generation(job_id: str, book_id: int, chapter_id: int) -> None:
             )
         job['done'] = total
         job['state'] = 'complete'
-        job['message'] = 'Ready'
+        job['message'] = 'Elkészült'
         job['result'] = {
             'book_id': book_id,
             'chapter_id': chapter_id,
             'ready': ready,
             'total': total,
         }
+        _persist_job(job)
+    except JobCancelled:
+        jobs.mark_cancelled(job_id, 'Generation cancelled after current batch')
+        job['state'] = 'cancelled'
     except Exception as exc:
         log.exception('Chapter generation job %s failed', job_id)
         job['state'] = 'failed'
         job['error'] = str(exc)
-        job['message'] = 'Generation failed'
+        job['message'] = 'A hang készítése nem sikerült'
+        _persist_job(job)
     finally:
         if generation_pool is not None:
             generation_pool.close()
@@ -1928,7 +2561,7 @@ def chapter_generation_status(book_id, chapter_id):
             (chapter_id, book_id),
         ).fetchone()
     if not exists:
-        return jsonify({'error': 'Chapter not found'}), 404
+        return jsonify({'error': 'A fejezet nem található'}), 404
     return jsonify(_chapter_generation_snapshot(book_id, chapter_id))
 
 
@@ -1945,8 +2578,9 @@ def generate_chapter_audio(book_id, chapter_id):
             (chapter_id, book_id),
         ).fetchone()
     if not exists:
-        return jsonify({'error': 'Chapter not found'}), 404
+        return jsonify({'error': 'A fejezet nem található'}), 404
 
+    jobs.ensure_jobs()
     key = (book_id, chapter_id)
     with _chapter_generation_lock:
         existing_id = _chapter_generation_by_chapter.get(key)
@@ -1964,16 +2598,13 @@ def generate_chapter_audio(book_id, chapter_id):
                 'busy_job_id': active_id,
                 'busy_chapter_id': active.get('chapter_id'),
             }), 409
-        if any(
-            job.get('state') in ('pending', 'running')
-            for job in list(_export_jobs.values())
-        ):
+        if _active_durable_jobs():
             return jsonify({'error': 'An audio export is already running.'}), 409
 
     if _export_exclusive_active():
         return jsonify({'error': 'Audio generation or export is already running.'}), 409
     if tts.status()['state'] != 'ready':
-        return jsonify({'error': 'TTS model not ready'}), 503
+        return jsonify({'error': 'A beszédmotor még nem áll készen'}), 503
 
     segs = _get_chapter_segments(chapter_id, book_id)
     ready, total = _chapter_audio_counts(segs)
@@ -1989,57 +2620,42 @@ def generate_chapter_audio(book_id, chapter_id):
             'chapter_id': chapter_id,
         })
 
-    job_id = str(uuid.uuid4())
-    job = {
-        'job_id': job_id,
-        'book_id': book_id,
-        'chapter_id': chapter_id,
-        'state': 'pending',
-        'message': 'Starting...',
-        'done': ready,
-        'total': total,
-        'eta_sec': None,
-        'elapsed_sec': None,
-        't0': None,
-        'synth_t0': None,
-        'synth_done': 0,
-        'result': None,
-        'error': None,
-    }
-    with _chapter_generation_lock:
-        # Re-check after segment preparation: another request may have reserved
-        # the single bulk-generation slot in the meantime.
-        active_id = _chapter_generation_active_job_id
-        active = _chapter_generation_jobs.get(active_id) if active_id else None
-        if active and active.get('state') in ('pending', 'running'):
-            return jsonify({
-                'error': 'Another chapter or export is already generating audio.',
-                'busy_job_id': active_id,
-                'busy_chapter_id': active.get('chapter_id'),
-            }), 409
-        if any(
-            export_job.get('state') in ('pending', 'running')
-            for export_job in list(_export_jobs.values())
-        ):
-            return jsonify({'error': 'An audio export is already running.'}), 409
-        _chapter_generation_jobs[job_id] = job
-        _chapter_generation_by_chapter[key] = job_id
-        _chapter_generation_active_job_id = job_id
-
-    threading.Thread(
-        target=_run_chapter_generation,
-        args=(job_id, book_id, chapter_id),
-        daemon=True,
-    ).start()
-    return jsonify(dict(job))
+    with _work_dispatch_lock:
+        conflict = _work_conflict_response()
+        if conflict is not None:
+            return conflict
+        with _chapter_generation_lock:
+            active_id = _chapter_generation_active_job_id
+            active = _chapter_generation_jobs.get(active_id) if active_id else None
+            if active and active.get('state') in ('pending', 'running'):
+                return jsonify({
+                    'error': 'Another chapter or export is already generating audio.',
+                    'busy_job_id': active_id,
+                    'busy_chapter_id': active.get('chapter_id'),
+                }), 409
+        stored = jobs.create_job(
+            'generate_chapter',
+            {'book_id': book_id, 'chapter_id': chapter_id},
+            book_id=book_id,
+            chapter_id=chapter_id,
+            done=ready,
+            total=total,
+        )
+        _launch_durable_job(stored)
+        return jsonify(_legacy_job(stored))
 
 
 @app.route('/api/chapter-generation/status/<job_id>')
 def chapter_generation_job_status(job_id):
     job = _chapter_generation_jobs.get(job_id)
     if not job:
-        return jsonify({'error': 'Unknown job'}), 404
+        stored = jobs.get_job(job_id)
+        if not stored or stored['type'] != 'generate_chapter':
+            return jsonify({'error': 'Ismeretlen feladat'}), 404
+        return jsonify(stored)
     _refresh_export_job_fields(job)
+    if job.get('job_id'):
+        _persist_job(job)
     snapshot = dict(job)
     total = int(snapshot.get('total') or 0)
     done = int(snapshot.get('done') or 0)
@@ -2071,21 +2687,15 @@ def _get_chapter_segments(chapter_id, book_id):
     return [dict(r) for r in rows]
 
 
-def _make_export_job() -> tuple[str, dict]:
-    job_id = str(uuid.uuid4())
-    job: dict = {
-        'state': 'pending',
-        'message': 'Starting...',
-        'done': 0,
-        'total': 0,
-        'eta_sec': None,
-        'elapsed_sec': None,
-        't0': None,
-        'synth_t0': None,
-        'synth_done': 0,
-        'result': None,
-        'error': None,
-    }
+def _make_export_job(job_type: str, input_data: dict) -> tuple[str, dict]:
+    stored = jobs.create_job(
+        job_type,
+        input_data,
+        book_id=input_data.get('book_id'),
+        chapter_id=input_data.get('chapter_id'),
+    )
+    job_id = stored['id']
+    job = _legacy_job(stored)
     _export_jobs[job_id] = job
     return job_id, job
 
@@ -2095,8 +2705,10 @@ def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: s
     export_pool: TTSExportPool | None = None
     _export_exclusive_begin()
     try:
+        _check_job_cancelled(job)
         job['state'] = 'running'
-        job['message'] = 'Loading segments...'
+        job['message'] = 'Szövegrészek betöltése…'
+        _persist_job(job)
         with get_conn() as conn:
             ch = conn.execute('SELECT * FROM chapters WHERE id=? AND book_id=?',
                               (chapter_id, book_id)).fetchone()
@@ -2105,39 +2717,60 @@ def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: s
             ).fetchone()
         if not ch:
             job['state'] = 'failed'
-            job['error'] = 'Chapter not found'
+            job['error'] = 'A fejezet nem található'
             return
         segs = _get_chapter_segments(chapter_id, book_id)
         job['total'] = len(segs)
         job['done'] = 0
-        job['message'] = f'Generating audio (0/{len(segs)})'
+        job['message'] = f'Hang készítése (0/{len(segs)})'
         export_pool = _start_export_pool(job)
         _ensure_audio_for_chapter(
             book_id, chapter_id, segs, job, export_pool=export_pool
         )
-        job['message'] = 'Merging audio...'
+        _check_job_cancelled(job)
+        job['message'] = 'Hangok összefűzése…'
         colors = _get_char_colors(book_id)
         mastering = bool(app_settings.get('audio_mastering', True))
         job['message'] = (
-            'Merging and mastering audio...' if mastering else 'Merging audio...'
+            'Merging and mastering audio...' if mastering else 'Hangok összefűzése…'
         )
-        result = exporter.export_single_chapter(
-            ch['title'], book['title'], segs, colors, audio_fmt, sub_fmt,
-            mastering=mastering,
-            book_author=book['author'],
-        )
+        if audio_fmt == 'm4b':
+            result = exporter.export_m4b(
+                book['title'], [{
+                    'chapter_number': 1,
+                    'chapter_title': ch['title'],
+                    'segments': segs,
+                }], colors, sub_fmt=sub_fmt, book_author=book['author'],
+            )
+        else:
+            result = exporter.export_single_chapter(
+                ch['title'], book['title'], segs, colors, audio_fmt, sub_fmt,
+                mastering=mastering,
+                book_author=book['author'],
+            )
         job['state'] = 'complete'
-        job['message'] = 'Done'
+        job['message'] = 'Elkészült'
         job['result'] = {
-            'audio_download': f'/api/export/download?path={result["audio_path"]}',
-            'subtitle_download': f'/api/export/download?path={result["subtitle_path"]}',
+            'audio_path': result['audio_path'],
+            'subtitle_path': result.get('subtitle_path'),
+            'audio_download': f'/api/jobs/{job_id}/download/audio',
+            'subtitle_download': (
+                f'/api/jobs/{job_id}/download/subtitle'
+                if result.get('subtitle_path') else None
+            ),
             'mastering_applied': result.get('mastering_applied', False),
             'mastering_warning': result.get('mastering_warning'),
         }
+        _persist_job(job)
+    except JobCancelled:
+        jobs.mark_cancelled(job_id, 'Export cancelled after current batch')
+        job['state'] = 'cancelled'
     except Exception as e:
         log.exception('Export job %s failed', job_id)
         job['state'] = 'failed'
         job['error'] = str(e)
+        job['message'] = 'Az export nem sikerült'
+        _persist_job(job)
     finally:
         if export_pool is not None:
             export_pool.close()
@@ -2155,8 +2788,10 @@ def _run_chapterwise_export(
     export_pool: TTSExportPool | None = None
     _export_exclusive_begin()
     try:
+        _check_job_cancelled(job)
         job['state'] = 'running'
-        job['message'] = 'Loading chapters...'
+        job['message'] = 'Fejezetek betöltése…'
+        _persist_job(job)
         with get_conn() as conn:
             book = conn.execute('SELECT * FROM books WHERE id=?', (book_id,)).fetchone()
             chapters = conn.execute(
@@ -2177,9 +2812,10 @@ def _run_chapterwise_export(
         total = sum(len(c['segments']) for c in chapters_data)
         job['total'] = total
         job['done'] = 0
-        job['message'] = f'Generating audio (0/{total})'
+        job['message'] = f'Hang készítése (0/{total})'
         export_pool = _start_export_pool(job)
         for ch_data in chapters_data:
+            _check_job_cancelled(job)
             _ensure_audio_for_chapter(
                 book_id,
                 ch_data['ch_id'],
@@ -2187,33 +2823,57 @@ def _run_chapterwise_export(
                 job,
                 export_pool=export_pool,
             )
+        _check_job_cancelled(job)
         mastering = bool(app_settings.get('audio_mastering', True))
         job['message'] = (
             'Writing and mastering chapter files...'
             if mastering else 'Writing chapter files...'
         )
         colors = _get_char_colors(book_id)
-        result = exporter.export_chapter_folder(
-            book['title'],
-            [c for c in chapters_data if c['segments']],
-            colors, audio_fmt, sub_fmt,
-            mastering=mastering,
-            book_author=book['author'],
-        )
+        export_chapters = [c for c in chapters_data if c['segments']]
+        if audio_fmt == 'm4b':
+            result = exporter.export_m4b(
+                book['title'], export_chapters, colors,
+                sub_fmt=sub_fmt, book_author=book['author'],
+            )
+            download_path = result['audio_path']
+        else:
+            result = exporter.export_chapter_folder(
+                book['title'], export_chapters,
+                colors, audio_fmt, sub_fmt,
+                mastering=mastering,
+                book_author=book['author'],
+            )
+            download_path = shutil.make_archive(
+                result['directory_path'], 'zip', result['directory_path']
+            )
         job['state'] = 'complete'
-        job['message'] = 'Done'
+        job['message'] = 'Elkészült'
         job['result'] = {
-            'export_path': result['directory_path'],
-            'chapter_count': len(result['chapters']),
+            'export_path': result.get('directory_path') or result.get('audio_path'),
+            'download_path': download_path,
+            'download': f'/api/jobs/{job_id}/download/export',
+            'subtitle_path': result.get('subtitle_path'),
+            'subtitle_download': (
+                f'/api/jobs/{job_id}/download/subtitle'
+                if result.get('subtitle_path') else None
+            ),
+            'chapter_count': result.get('chapter_count', len(export_chapters)),
             'mastered_chapters': sum(
                 1 for chapter in result['chapters']
                 if chapter.get('mastering_applied')
-            ),
+            ) if result.get('chapters') else 0,
         }
+        _persist_job(job)
+    except JobCancelled:
+        jobs.mark_cancelled(job_id, 'Export cancelled after current batch')
+        job['state'] = 'cancelled'
     except Exception as e:
         log.exception('Export job %s failed', job_id)
         job['state'] = 'failed'
         job['error'] = str(e)
+        job['message'] = 'Az export nem sikerült'
+        _persist_job(job)
     finally:
         if export_pool is not None:
             export_pool.close()
@@ -2221,6 +2881,8 @@ def _run_chapterwise_export(
 
 
 def _resolve_sub_fmt(book_id: int, requested: str) -> str:
+    if requested == 'none':
+        return 'none'
     book = _load_book(book_id)
     if book and _book_single_narrator_mode(dict(book)):
         return 'srt'
@@ -2229,63 +2891,81 @@ def _resolve_sub_fmt(book_id: int, requested: str) -> str:
 
 @app.route('/api/books/<int:book_id>/export/chapter/<int:chapter_id>', methods=['POST'])
 def export_chapter(book_id, chapter_id):
+    jobs.ensure_jobs()
     body = request.get_json(force=True) or {}
     audio_fmt = body.get('audio_fmt', 'wav')
     sub_fmt = _resolve_sub_fmt(book_id, body.get('sub_fmt', 'srt'))
 
-    if tts.status()['state'] != 'ready':
-        return jsonify({'error': 'TTS model not ready'}), 503
+    if audio_fmt not in ('wav', 'mp3', 'm4b') or sub_fmt not in ('srt', 'ass', 'none'):
+        return jsonify({'error': 'Nem támogatott exportformátum'}), 400
 
-    with _chapter_generation_lock:
-        active_id = _chapter_generation_active_job_id
-        active = _chapter_generation_jobs.get(active_id) if active_id else None
-        if active and active.get('state') in ('pending', 'running'):
-            return jsonify({'error': 'Chapter audio generation is already running.'}), 409
-        job_id, _ = _make_export_job()
-    threading.Thread(
-        target=_run_chapter_export,
-        args=(job_id, book_id, chapter_id, audio_fmt, sub_fmt),
-        daemon=True,
-    ).start()
-    return jsonify({'job_id': job_id})
+    if tts.status()['state'] != 'ready':
+        return jsonify({'error': 'A beszédmotor még nem áll készen'}), 503
+
+    with _work_dispatch_lock:
+        conflict = _work_conflict_response()
+        if conflict is not None:
+            return conflict
+        with _chapter_generation_lock:
+            active_id = _chapter_generation_active_job_id
+            active = _chapter_generation_jobs.get(active_id) if active_id else None
+            if active and active.get('state') in ('pending', 'running'):
+                return jsonify({'error': 'Egy fejezethang már készül.'}), 409
+        job_id, _ = _make_export_job('export_chapter', {
+            'book_id': book_id, 'chapter_id': chapter_id,
+            'audio_fmt': audio_fmt, 'sub_fmt': sub_fmt,
+        })
+        _launch_durable_job(jobs.get_job(job_id))
+        return jsonify({'job_id': job_id})
 
 
 @app.route('/api/books/<int:book_id>/export/full', methods=['POST'])
 def export_full(book_id):
+    jobs.ensure_jobs()
     body = request.get_json(force=True) or {}
     audio_fmt = body.get('audio_fmt', 'wav')
     sub_fmt = _resolve_sub_fmt(book_id, body.get('sub_fmt', 'srt'))
 
+    if audio_fmt not in ('wav', 'mp3', 'm4b') or sub_fmt not in ('srt', 'ass', 'none'):
+        return jsonify({'error': 'Nem támogatott exportformátum'}), 400
+
     if tts.status()['state'] != 'ready':
-        return jsonify({'error': 'TTS model not ready'}), 503
+        return jsonify({'error': 'A beszédmotor még nem áll készen'}), 503
 
     with get_conn() as conn:
         chapter_count = conn.execute(
             'SELECT COUNT(*) FROM chapters WHERE book_id=?', (book_id,)
         ).fetchone()[0]
     chapter_numbers = exporter.parse_chapter_selection('all', chapter_count)
-    with _chapter_generation_lock:
-        active_id = _chapter_generation_active_job_id
-        active = _chapter_generation_jobs.get(active_id) if active_id else None
-        if active and active.get('state') in ('pending', 'running'):
-            return jsonify({'error': 'Chapter audio generation is already running.'}), 409
-        job_id, _ = _make_export_job()
-    threading.Thread(
-        target=_run_chapterwise_export,
-        args=(job_id, book_id, audio_fmt, sub_fmt, chapter_numbers),
-        daemon=True,
-    ).start()
-    return jsonify({'job_id': job_id})
+    with _work_dispatch_lock:
+        conflict = _work_conflict_response()
+        if conflict is not None:
+            return conflict
+        with _chapter_generation_lock:
+            active_id = _chapter_generation_active_job_id
+            active = _chapter_generation_jobs.get(active_id) if active_id else None
+            if active and active.get('state') in ('pending', 'running'):
+                return jsonify({'error': 'Egy fejezethang már készül.'}), 409
+        job_id, _ = _make_export_job('export_book', {
+            'book_id': book_id, 'audio_fmt': audio_fmt, 'sub_fmt': sub_fmt,
+            'chapter_numbers': chapter_numbers,
+        })
+        _launch_durable_job(jobs.get_job(job_id))
+        return jsonify({'job_id': job_id})
 
 
 @app.route('/api/books/<int:book_id>/export/chapterwise', methods=['POST'])
 def export_chapterwise(book_id):
+    jobs.ensure_jobs()
     body = request.get_json(force=True) or {}
     audio_fmt = body.get('audio_fmt', 'wav')
     sub_fmt = _resolve_sub_fmt(book_id, body.get('sub_fmt', 'srt'))
 
+    if audio_fmt not in ('wav', 'mp3', 'm4b') or sub_fmt not in ('srt', 'ass', 'none'):
+        return jsonify({'error': 'Nem támogatott exportformátum'}), 400
+
     if tts.status()['state'] != 'ready':
-        return jsonify({'error': 'TTS model not ready'}), 503
+        return jsonify({'error': 'A beszédmotor még nem áll készen'}), 503
 
     with get_conn() as conn:
         chapter_count = conn.execute(
@@ -2298,25 +2978,31 @@ def export_chapterwise(book_id):
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
 
-    with _chapter_generation_lock:
-        active_id = _chapter_generation_active_job_id
-        active = _chapter_generation_jobs.get(active_id) if active_id else None
-        if active and active.get('state') in ('pending', 'running'):
-            return jsonify({'error': 'Chapter audio generation is already running.'}), 409
-        job_id, _ = _make_export_job()
-    threading.Thread(
-        target=_run_chapterwise_export,
-        args=(job_id, book_id, audio_fmt, sub_fmt, chapter_numbers),
-        daemon=True,
-    ).start()
-    return jsonify({'job_id': job_id})
+    with _work_dispatch_lock:
+        conflict = _work_conflict_response()
+        if conflict is not None:
+            return conflict
+        with _chapter_generation_lock:
+            active_id = _chapter_generation_active_job_id
+            active = _chapter_generation_jobs.get(active_id) if active_id else None
+            if active and active.get('state') in ('pending', 'running'):
+                return jsonify({'error': 'Egy fejezethang már készül.'}), 409
+        job_id, _ = _make_export_job('export_book', {
+            'book_id': book_id, 'audio_fmt': audio_fmt, 'sub_fmt': sub_fmt,
+            'chapter_numbers': chapter_numbers,
+        })
+        _launch_durable_job(jobs.get_job(job_id))
+        return jsonify({'job_id': job_id})
 
 
 @app.route('/api/export/status/<job_id>')
 def export_job_status(job_id):
     job = _export_jobs.get(job_id)
     if not job:
-        return jsonify({'error': 'Unknown job'}), 404
+        stored = jobs.get_job(job_id)
+        if not stored or stored['type'] not in ('export_chapter', 'export_book'):
+            return jsonify({'error': 'Ismeretlen feladat'}), 404
+        return jsonify(stored)
     # Recompute ETA on every poll so the UI keeps moving while a GPU batch runs.
     _refresh_export_job_fields(job)
     return jsonify(job)
@@ -2327,7 +3013,7 @@ def export_download():
     path = request.args.get('path', '')
     exports_dir = os.path.abspath(exporter.EXPORTS_DIR)
     abs_path = os.path.abspath(path)
-    if not abs_path.startswith(exports_dir):
+    if os.path.commonpath((exports_dir, abs_path)) != exports_dir:
         return 'Forbidden', 403
     if not os.path.exists(abs_path):
         return 'Not found', 404
@@ -2634,6 +3320,9 @@ def check_model_path():
 # ════════════════════════════════════════════════════════════════════════════
 # Run
 # ════════════════════════════════════════════════════════════════════════════
+
+from core.experience_api import bp as experience_blueprint
+app.register_blueprint(experience_blueprint)
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=7860, debug=False, threaded=True)

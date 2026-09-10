@@ -27,7 +27,7 @@ from core.tts_router import TTSEngineRouter
 from core import characters as char_module
 from core import llm_characters
 from core import enrichment, exporter, jobs, structure, settings as app_settings
-from core.parser import epub_parser, pdf_parser, txt_parser
+from core.parser import docx_parser, epub_parser, pdf_parser, txt_parser
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(name)s: %(message)s')
@@ -690,7 +690,11 @@ def import_book():
         return jsonify({'error': 'Empty filename'}), 400
 
     ext = f.filename.rsplit('.', 1)[-1].lower()
-    if ext not in ('epub', 'pdf', 'txt'):
+    if ext == 'doc':
+        return jsonify({
+            'error': 'Ez egy régi .doc fájl. Nyisd meg Wordben, és mentsd .docx formátumban.'
+        }), 400
+    if ext not in ('epub', 'pdf', 'docx', 'txt'):
         return jsonify({'error': f'Unsupported format: {ext}'}), 400
 
     detection_config = app_settings.load()
@@ -732,6 +736,8 @@ def import_book():
             data = epub_parser.parse(dest)
         elif ext == 'pdf':
             data = pdf_parser.parse(dest)
+        elif ext == 'docx':
+            data = docx_parser.parse(dest)
         else:
             data = txt_parser.parse(dest)
     except Exception as e:

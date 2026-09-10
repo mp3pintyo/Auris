@@ -1,6 +1,6 @@
 # Auris
 
-Local-first audiobook reader for EPUB, PDF, TXT, and public web articles with selectable local
+Local-first audiobook reader for EPUB, PDF, DOCX, TXT, and public web articles with selectable local
 OmniVoice or Higgs TTS 3 speech, character-aware voices, per-book narrator
 control, and duration-based estimated word highlighting.
 
@@ -28,8 +28,9 @@ labels and the updated workflows described below and in the built-in help.
 
 ## Highlights
 
-- Preview and import EPUB, PDF, TXT, or a public HTTP(S) article; edit title,
+- Preview and import EPUB, PDF, DOCX, TXT, or a public HTTP(S) article; edit title,
   author, and language before confirming.
+- Split DOCX books by Word heading styles when the document provides them.
 - Extract web articles with Trafilatura. Auris does not run page JavaScript and
   blocks localhost, private-network, oversized, and excessive-redirect URLs.
 - Detect duplicate source content with SHA-256 while keeping same-named uploads
@@ -301,6 +302,7 @@ Auris/
 - Flask
 - ebooklib
 - PyMuPDF
+- python-docx
 - Trafilatura
 - spaCy
 - pydub

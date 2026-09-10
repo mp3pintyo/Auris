@@ -50,6 +50,7 @@ desktop.ini
 # ── IDE ───────────────────────────────────────────────────────────────────────
 .idea/
 .vscode/
+.worktrees/
 *.swp
 *.swo
 # Local LLM evaluation output

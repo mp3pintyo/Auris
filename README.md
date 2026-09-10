@@ -1,5 +1,11 @@
 # Auris
 
+[![Latest release](https://img.shields.io/github/v/release/mp3pintyo/Auris?label=verzi%C3%B3)](https://github.com/mp3pintyo/Auris/releases/latest)
+
+Current version: [`VERSION`](VERSION). See the complete Hungarian
+[`CHANGELOG.md`](CHANGELOG.md) and the [`RELEASING.md`](RELEASING.md) guide for
+the versioning and release process.
+
 Local-first audiobook reader for EPUB, PDF, DOCX, TXT, and public web articles with selectable local
 OmniVoice or Higgs TTS 3 speech, character-aware voices, per-book narrator
 control, and duration-based estimated word highlighting.

@@ -53,9 +53,7 @@ let _playGen = 0;
 // Cancellation token for the background buffer loop — incremented on each
 // chapter open so the previous loop exits without touching the new chapter.
 let _bufferGenId = 0;
-let _prewarmFrontier = 0;
-const TTS_PREWARM_CHUNK = 12;
-const TTS_PREWARM_LOW_WATER = 5;
+const TTS_PLAYBACK_PRIORITY_AHEAD = 2;
 let _activeChapterGeneration = null;
 // All in-flight interactive TTS requests. Stop aborts the HTTP wait and also
 // asks the server-side Higgs token loop to terminate.
@@ -304,7 +302,6 @@ async function openChapter(chapterId, options = {}) {
 
   stopPlayback();
   _segCache = new Map();
-  _prewarmFrontier = 0;
   segments = [];           // clear immediately so stale segments can't be played
   currentChapterId = chapterId;
   currentSegIdx    = 0;
@@ -721,11 +718,10 @@ async function persistSpeakerCorrection(
 
 async function _prewarmChapter() {
   if (!segments.length) return;
-  if (_exportBusy) return;
-  const bufferId = _bufferGenId;
-  const chapterId = currentChapterId;
-  if (!await _waitForTtsReady(bufferId, chapterId)) return;
-  _extendPrewarm(currentSegIdx);
+  if (_exportBusy || isPlaying) return;
+  // Keep idle prewarming sequential as well. A user can press Play at any
+  // moment, so a large background pack must not hold the next audio request.
+  _startBackgroundBuffer(currentSegIdx + 1);
 }
 
 // ── Whole-chapter generation ─────────────────────────────────────────────────
@@ -920,23 +916,6 @@ document.getElementById('chapter-generate-btn').onclick = async () => {
   }
 };
 
-// Keep a chunk of concurrent HTTP requests ahead of playback.  The server
-// coalesces requests arriving together into one OmniVoice generate_many()
-// call, so the configured GPU batch size is also used during reading.
-function _extendPrewarm(fromIdx) {
-  if (!segments.length) return;
-  const start = Math.max(0, fromIdx);
-  if (_prewarmFrontier < start) _prewarmFrontier = start;
-  const target = Math.min(
-    segments.length,
-    Math.max(_prewarmFrontier, start) + TTS_PREWARM_CHUNK,
-  );
-  for (let i = _prewarmFrontier; i < target; i++) {
-    fetchSegmentData(i);
-  }
-  _prewarmFrontier = target;
-}
-
 // Sequentially generates TTS audio for every segment from fromIdx onward.
 // Waits until playback is idle before firing each request so it never
 // competes with the active playback pipeline at the server TTS lock.
@@ -983,14 +962,20 @@ async function _startBackgroundBuffer(fromIdx) {
   }
 }
 
-function fetchSegmentData(idx) {
+function fetchSegmentData(idx, options = {}) {
+  const playbackPriority = Boolean(options.playbackPriority);
   if (!_segCache.has(idx)) {
     const controller = new AbortController();
     _ttsAbortControllers.set(idx, controller);
     const p = fetch('/api/tts/generate', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ book_id: BOOK_ID, chapter_id: currentChapterId, segment_index: idx }),
+      body: JSON.stringify({
+        book_id: BOOK_ID,
+        chapter_id: currentChapterId,
+        segment_index: idx,
+        playback_priority: playbackPriority,
+      }),
       signal: controller.signal,
     }).then(async r => {
       if (!r.ok) {
@@ -1024,14 +1009,19 @@ async function _schedulePreload(playingIdx) {
   const nextIdx = playingIdx + 1;
   if (nextIdx >= segments.length) return;
 
-  // Refill in chunks instead of adding one isolated request per sentence.
-  // This keeps real GPU batches queued even for short, alternating dialogue.
-  if (nextIdx + TTS_PREWARM_LOW_WATER >= _prewarmFrontier) {
-    _extendPrewarm(nextIdx);
+  // Keep the next two segments in the low-latency lane. Idle background
+  // prewarming is deliberately sequential, so no look-ahead batch can block
+  // the next audio boundary.
+  const priorityData = [];
+  for (let offset = 0; offset < TTS_PLAYBACK_PRIORITY_AHEAD; offset++) {
+    const idx = nextIdx + offset;
+    if (idx < segments.length) {
+      priorityData.push(fetchSegmentData(idx, { playbackPriority: true }));
+    }
   }
 
   try {
-    const data = await fetchSegmentData(nextIdx);
+    const data = await priorityData[0];
     if (!isPlaying) return;
 
     if (_preloadIdx !== nextIdx) {
@@ -1103,7 +1093,7 @@ async function playSegment(idx, options = {}) {
     } else {
       // Show buffering indicator while TTS generates
       charEl.textContent = `⏳ ${charLabel}`;
-      data = await fetchSegmentData(idx);
+      data = await fetchSegmentData(idx, { playbackPriority: true });
       // Bail out if a newer playSegment or stopPlayback has since taken over
       if (gen !== _playGen || !isPlaying) return;
       charEl.textContent = charLabel;

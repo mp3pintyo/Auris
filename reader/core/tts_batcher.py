@@ -18,6 +18,7 @@ from typing import Callable
 class _PendingCall:
     key: object
     item: dict
+    priority: bool = False
     event: threading.Event = field(default_factory=threading.Event)
     result: dict | None = None
     error: Exception | None = None
@@ -41,7 +42,7 @@ class InteractiveTTSBatcher:
         self._by_key: dict[object, _PendingCall] = {}
         self._worker_running = False
 
-    def submit(self, key: object, item: dict) -> dict:
+    def submit(self, key: object, item: dict, *, priority: bool = False) -> dict:
         """Queue one item and wait for its individual batch result.
 
         Identical in-flight keys share the same result, preventing duplicate
@@ -50,9 +51,13 @@ class InteractiveTTSBatcher:
         with self._lock:
             call = self._by_key.get(key)
             if call is None:
-                call = _PendingCall(key=key, item=dict(item))
+                call = _PendingCall(key=key, item=dict(item), priority=bool(priority))
                 self._by_key[key] = call
                 self._queue.append(call)
+            elif priority:
+                # A playback request can arrive after the same segment was
+                # queued by look-ahead. Promote it before the worker drains.
+                call.priority = True
             if not self._worker_running:
                 self._worker_running = True
                 threading.Thread(target=self._drain, daemon=True).start()
@@ -98,12 +103,20 @@ class InteractiveTTSBatcher:
                 for call in batch:
                     self._finish(call, error=error)
             else:
-                # The first arrival is the segment closest to playback.  A
-                # large model batch only returns after every sentence has been
-                # synthesized, which can leave the player silent for a minute.
-                # Release that latency-sensitive segment first, then retain
-                # batching throughput for the remaining look-ahead requests.
-                priority_batches = [batch] if len(batch) == 1 else [batch[:1], batch[1:]]
+                # Playback-critical calls must not wait behind a large
+                # look-ahead pack: the model returns a batch only after every
+                # sentence is synthesized. Run priority calls individually,
+                # then retain batching throughput for look-ahead requests.
+                priority_calls = [call for call in batch if call.priority]
+                lookahead_calls = [call for call in batch if not call.priority]
+                if not priority_calls:
+                    # Preserve the original latency behavior for callers that
+                    # do not yet provide an explicit priority marker.
+                    priority_calls = batch[:1]
+                    lookahead_calls = batch[1:]
+                priority_batches = [[call] for call in priority_calls]
+                if lookahead_calls:
+                    priority_batches.append(lookahead_calls)
                 for work_batch in priority_batches:
                     returned: list[dict] | None = None
 

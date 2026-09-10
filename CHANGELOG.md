@@ -12,6 +12,20 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+## [3.2.2] - 2026-09-10
+
+### Magyar
+
+#### Javítva
+
+- Lejátszás közben a következő két TTS-szegmens prioritással, egyenként készül, így a hosszú háttér-előtöltés nem okoz 30–40 másodperces hangszünetet.
+
+### English
+
+#### Fixed
+
+- During playback, the next two TTS segments now use a priority, one-at-a-time path, preventing long background prewarming from causing 30–40 second audio gaps.
+
 ## [3.2.1] - 2026-09-10
 
 ### Magyar

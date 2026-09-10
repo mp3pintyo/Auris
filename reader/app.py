@@ -2042,6 +2042,7 @@ def tts_generate():
     book_id = body.get('book_id')
     chapter_id = body.get('chapter_id')
     segment_index = body.get('segment_index', 0)
+    playback_priority = bool(body.get('playback_priority', False))
 
     status = tts.status()
     if status['state'] != 'ready':
@@ -2146,7 +2147,11 @@ def tts_generate():
         language,
     )
     try:
-        result = _interactive_tts_batcher.submit(request_key, item)
+        result = _interactive_tts_batcher.submit(
+            request_key,
+            item,
+            priority=playback_priority,
+        )
     except RuntimeError as e:
         return jsonify({'error': str(e)}), 503
 

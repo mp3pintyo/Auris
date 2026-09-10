@@ -7,6 +7,14 @@ vagy inkompatibilis változás.
 
 ## [Unreleased]
 
+## [3.1.2] - 2026-09-10
+
+### Fixed
+
+- A GitHub Actions tag-szűrője már ténylegesen elindítja a kiadási workflow-t
+  a `vX.Y.Z` tagekre; a kiadási eszköz továbbra is szigorúan ellenőrzi a tag
+  és a `VERSION` egyezését.
+
 ## [3.1.1] - 2026-09-10
 
 ### Release process

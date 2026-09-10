@@ -2,7 +2,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/mp3pintyo/Auris?label=verzi%C3%B3)](https://github.com/mp3pintyo/Auris/releases/latest)
 
-Current version: [`VERSION`](VERSION). See the complete Hungarian
+Current version: [`VERSION`](VERSION). See the complete bilingual
 [`CHANGELOG.md`](CHANGELOG.md) and the [`RELEASING.md`](RELEASING.md) guide for
 the versioning and release process.
 

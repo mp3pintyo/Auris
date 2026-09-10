@@ -35,13 +35,22 @@ class ReleaseFileTest(unittest.TestCase):
         self.version = self.root / "VERSION"
         self.changelog = self.root / "CHANGELOG.md"
 
-    def write(self, version="3.1.0", unreleased="### Added\n- Új funkció.\n"):
+    def write(
+        self,
+        version="3.1.0",
+        unreleased=(
+            "### Magyar\n\n#### Hozzáadva\n\n- Új funkció.\n\n"
+            "### English\n\n#### Added\n\n- New feature.\n"
+        ),
+    ):
         self.version.write_text(version + "\n", encoding="utf-8")
         self.changelog.write_text(
             "# Változásnapló\n\n"
             "## [Unreleased]\n\n"
             + unreleased
-            + "\n## [3.1.0] - 2026-09-10\n\n### Added\n- Előző kiadás.\n",
+            + "\n## [3.1.0] - 2026-09-10\n\n"
+            "### Magyar\n\n#### Hozzáadva\n\n- Előző kiadás.\n\n"
+            "### English\n\n#### Added\n\n- Previous release.\n",
             encoding="utf-8",
         )
 
@@ -54,7 +63,8 @@ class ReleaseFileTest(unittest.TestCase):
         self.assertEqual(self.version.read_text(encoding="utf-8"), "3.1.1\n")
         text = self.changelog.read_text(encoding="utf-8")
         self.assertIn("## [Unreleased]\n\n## [3.1.1] - 2026-09-11", text)
-        self.assertIn("### Added\n- Új funkció.", text)
+        self.assertIn("### Magyar\n\n#### Hozzáadva\n\n- Új funkció.", text)
+        self.assertIn("### English\n\n#### Added\n\n- New feature.", text)
 
     def test_prepare_rejects_empty_unreleased_section(self):
         self.write(unreleased="")
@@ -93,9 +103,19 @@ class ReleaseFileTest(unittest.TestCase):
     def test_release_notes_extract_exact_section(self):
         self.write()
         notes = release.release_notes(self.changelog, "3.1.0")
-        self.assertEqual(notes, "### Added\n- Előző kiadás.")
+        self.assertIn("### Magyar", notes)
+        self.assertIn("### English", notes)
         with self.assertRaisesRegex(ValueError, "2.0.0"):
             release.release_notes(self.changelog, "2.0.0")
+
+    def test_release_notes_rejects_a_single_language_section(self):
+        self.write(
+            unreleased="### Magyar\n\n#### Hozzáadva\n\n- Csak magyarul.\n"
+        )
+        with self.assertRaisesRegex(ValueError, "Magyar.*English"):
+            release.prepare_release(
+                self.version, self.changelog, "patch", "2026-09-11"
+            )
 
 
 if __name__ == "__main__":

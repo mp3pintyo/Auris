@@ -10,7 +10,7 @@
 
 ## Változásnapló
 
-- [ ] Frissítettem a `CHANGELOG.md` `Unreleased` szakaszát.
+- [ ] Frissítettem a `CHANGELOG.md` `Unreleased` szakaszát magyarul és angolul.
 - [ ] A változás nem érinti a felhasználókat, ezért nem igényel bejegyzést.
 
 ## Ellenőrzés

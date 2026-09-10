@@ -23,6 +23,7 @@ HEADING_PATTERN = re.compile(
     r"(?: - (\d{4}-\d{2}-\d{2}))?[ \t]*$",
     re.MULTILINE,
 )
+LANGUAGE_HEADING_PATTERN = re.compile(r"^### (Magyar|English)[ \t]*$", re.MULTILINE)
 
 
 def parse_version(value: str) -> tuple[int, int, int]:
@@ -80,6 +81,16 @@ def _write_atomic(path: Path, text: str) -> None:
     os.replace(temporary, path)
 
 
+def _validate_bilingual(body: str, section: str) -> None:
+    """Require explicit Hungarian and English release-note sections."""
+    languages = set(LANGUAGE_HEADING_PATTERN.findall(body))
+    if languages != {"Magyar", "English"}:
+        raise ValueError(
+            f"A(z) {section} szakasznak ### Magyar és ### English részt is "
+            "tartalmaznia kell."
+        )
+
+
 def prepare_release(
     version_path: Path,
     changelog_path: Path,
@@ -99,6 +110,7 @@ def prepare_release(
     heading, body = _section(text, "Unreleased")
     if not body:
         raise ValueError("Az Unreleased szakasz üres; nincs mit kiadni.")
+    _validate_bilingual(body, "Unreleased")
     if any(item.group(1) == target for item in HEADING_PATTERN.finditer(text)):
         raise ValueError(f"A {target} verzió már szerepel a CHANGELOG.md fájlban.")
 
@@ -129,6 +141,7 @@ def release_notes(changelog_path: Path, version: str) -> str:
     _, body = _section(_read_changelog(changelog_path), version)
     if not body:
         raise ValueError(f"A {version} kiadási szakasz üres.")
+    _validate_bilingual(body, version)
     return body
 
 

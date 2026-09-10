@@ -50,15 +50,23 @@ def _book(conn, book_id):
 
 def update_metadata(book_id, values):
     allowed = {"title", "author", "language", "collection", "series", "reading_state"}
-    updates = {k: str(v).strip() for k, v in values.items() if k in allowed}
+    updates = {}
+    for key, value in values.items():
+        if key not in allowed:
+            continue
+        if not isinstance(value, str):
+            raise ValueError(f"A(z) {key} mezőnek szövegnek kell lennie.")
+        updates[key] = value.strip()
     if "title" in updates and not updates["title"]:
         raise ValueError("A cím nem lehet üres.")
+    if "author" in updates and not updates["author"]:
+        updates["author"] = "Ismeretlen szerző"
     if any(len(v) > 300 for v in updates.values()):
         raise ValueError("Egy mező legfeljebb 300 karakter lehet.")
-    if "language" in updates and not re.fullmatch(
-        r"[a-z]{2,3}(?:-[A-Za-z]{2,4})?", updates["language"]
-    ):
-        raise ValueError("Érvényes nyelvkód szükséges, például hu vagy en.")
+    if "language" in updates:
+        updates["language"] = updates["language"].lower()
+        if not re.fullmatch(r"[a-z]{2,3}(?:-[a-z]{2,4})?", updates["language"]):
+            raise ValueError("Érvényes nyelvkód szükséges, például hu vagy en.")
     if updates.get("reading_state", "new") not in {"new", "reading", "finished"}:
         raise ValueError("Ismeretlen olvasási állapot.")
     with get_conn() as conn:
@@ -70,9 +78,14 @@ def update_metadata(book_id, values):
                 + " WHERE id=?",
                 (*updates.values(), book_id),
             )
-        if "language" in updates and updates["language"] != previous["language"]:
+        language_changed = "language" in updates and updates["language"] != (
+            previous.get("language") or ""
+        ).strip().lower()
+        if language_changed:
             conn.execute("DELETE FROM tts_segments WHERE book_id=?", (book_id,))
-        return _book(conn, book_id)
+        result = _book(conn, book_id)
+        result["segments_cleared"] = language_changed
+        return result
 
 
 def list_rules(book_id=None):

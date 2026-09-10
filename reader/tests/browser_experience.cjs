@@ -78,7 +78,10 @@ const path = require("node:path");
     await page.locator("#library-search").fill(title);
     await page.locator(".book-card").first().waitFor();
     assert.equal(await page.locator(".book-card").count(), 1);
+    await shot("02b-library-card");
     await page.getByRole("button", { name: "Adatok", exact: true }).click();
+    assert.equal(await page.locator("#details-language").inputValue(), "hu");
+    await shot("02c-book-details");
     await page.locator("#details-collection").fill("Próbák");
     await page
       .locator("#book-details")
@@ -91,6 +94,13 @@ const path = require("node:path");
       .first()
       .getAttribute("href");
     const bid = readerPath.split("/").pop();
+    const cardInfo = await page.locator(".book-info").first().boundingBox();
+    assert.ok(cardInfo, "book card information is visible");
+    await Promise.all([
+      page.waitForURL(base + readerPath),
+      page.mouse.click(cardInfo.x + cardInfo.width / 2, cardInfo.y + 10),
+    ]);
+    assert.equal(new URL(page.url()).pathname, readerPath, "whole card opens the reader");
     await page.goto(base + "/settings#dictionary");
     await page.locator("#settings-dictionary").waitFor({ state: "visible" });
     await page

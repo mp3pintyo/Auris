@@ -1,7 +1,8 @@
 let libraryBooks = [],
   importPreview = null,
   importSettings = null,
-  deletingBook = null;
+  deletingBook = null,
+  editingOriginalLanguage = "";
 const $ = (id) => document.getElementById(id);
 function esc(value) {
   return String(value ?? "").replace(
@@ -90,7 +91,7 @@ function renderBooks() {
       `<div><span class="eyebrow">Ahol abbahagytad</span><h2>${esc(recent.title)}</h2><p>${esc(recent.progress_chapter_title || "Mentett hely")}</p></div><a class="btn btn-primary" href="/reader/${recent.id}">Folytatom</a>`;
   if (!books.length) {
     $("book-grid").innerHTML =
-      `<div class="empty-library"><p>${libraryBooks.length ? "Nincs a szűrésnek megfelelő könyv." : "Válaszd ki az első történeted."}</p><p class="sub">EPUB, PDF, TXT vagy webcikk — a tartalmat import előtt ellenőrizheted.</p></div>`;
+      `<div class="empty-library"><p>${libraryBooks.length ? "Nincs a szűrésnek megfelelő könyv." : "Válaszd ki az első történeted."}</p><p class="sub">EPUB, PDF, DOCX, TXT vagy webcikk — a tartalmat import előtt ellenőrizheted.</p></div>`;
     return;
   }
   const labels = {
@@ -231,6 +232,8 @@ async function openBookDetails(id) {
   $("details-id").value = id;
   $("details-book-title").value = b.title;
   $("details-author").value = b.author;
+  editingOriginalLanguage = String(b.language || "").trim().toLowerCase();
+  $("details-language").value = editingOriginalLanguage || "hu";
   $("details-series").value = b.series || "";
   $("details-collection").value = b.collection || "";
   $("details-state").value = effectiveState(b);
@@ -272,12 +275,21 @@ async function openBookDetails(id) {
 }
 async function saveBookDetails() {
   try {
-    await api(`/api/books/${$("details-id").value}/metadata`, {
+    const language = $("details-language").value.trim().toLowerCase();
+    if (
+      language !== editingOriginalLanguage &&
+      !window.confirm(
+        "A nyelv módosítása törli a könyv korábban létrehozott hangjait. Folytatod?",
+      )
+    )
+      return;
+    const result = await api(`/api/books/${$("details-id").value}/metadata`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: $("details-book-title").value,
         author: $("details-author").value,
+        language,
         series: $("details-series").value,
         collection: $("details-collection").value,
         reading_state: $("details-state").value,
@@ -285,6 +297,8 @@ async function saveBookDetails() {
     });
     $("book-details").close();
     await loadBooks();
+    if (result.segments_cleared)
+      status("A nyelv megváltozott; a hangok az új kiejtéssel készülnek el újra.");
   } catch (e) {
     $("details-error").textContent = e.message;
   }

@@ -1,0 +1,50 @@
+name: GitHub Release publikálása
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Forrás letöltése
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Python beállítása
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Kiadási eszköz tesztelése
+        run: python -m unittest discover -s reader/tests -p "test_release_tool.py"
+
+      - name: Tag és változásnapló ellenőrzése
+        run: python scripts/release.py check --tag "$GITHUB_REF_NAME"
+
+      - name: Main ághoz tartozás ellenőrzése
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - name: Kiadási jegyzet összeállítása
+        run: python scripts/release.py notes --version "${GITHUB_REF_NAME#v}" > release-notes.md
+
+      - name: GitHub Release létrehozása
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "A $GITHUB_REF_NAME kiadás már létezik."
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --verify-tag \
+              --title "Auris ${GITHUB_REF_NAME#v}" \
+              --notes-file release-notes.md
+          fi

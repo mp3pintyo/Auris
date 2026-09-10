@@ -1,0 +1,25 @@
+changelog:
+  exclude:
+    labels:
+      - skip-changelog
+    authors:
+      - dependabot
+      - app
+  categories:
+    - title: Törő változások
+      labels:
+        - breaking-change
+    - title: Új képességek
+      labels:
+        - feature
+        - enhancement
+    - title: Javítások
+      labels:
+        - bug
+        - fix
+    - title: Dokumentáció
+      labels:
+        - documentation
+    - title: Egyéb változások
+      labels:
+        - "*"

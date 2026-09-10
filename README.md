@@ -239,6 +239,32 @@ On RTX 3090-class GPUs, leave **Settings → Parallel export workers** on
 temporarily and runs two CUDA streams. If VRAM is insufficient or either
 worker fails, Auris automatically continues on the primary model.
 
+## Inference acceleration and benchmarking
+
+For reproducible OmniVoice performance measurements, run from the repository root:
+
+```powershell
+reader\.venv\Scripts\python.exe scripts\benchmark_tts.py --output reader/data/performance/run.json
+```
+
+The benchmark generates real Hungarian audio without audio-cache hits, records
+first-call latency separately from five warm runs, and saves JSON plus WAV samples.
+Use `--ref-audio reference.wav --ref-text transcript.txt` for voice cloning.
+It does not save changes to application settings.
+
+Acceleration **Auto** selects CUDA Graph on NVIDIA and optimized PyTorch on
+AMD ROCm, Apple MPS and CPU. **Off** still uses the available GPU. Triton/hybrid
+is an explicit experimental NVIDIA option. Variable-length audio no longer enables
+cuDNN's costly convolution algorithm search. See the built-in **Documentation →
+Performance** and [measurement report](docs/performance/2026-09-10-tts.md).
+
+AMD users must first install the GPU/OS/Python-compatible torch and torchaudio
+pair from [AMD's ROCm instructions](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/).
+The installer preserves a working ROCm runtime; it does not choose AMD wheels
+automatically. NVIDIA/Windows was measured locally; the updated ROCm/MPS paths
+still require physical-device validation. These acceleration modes apply to
+OmniVoice, not the separate Higgs engine.
+
 ## Voice design caveats
 
 OmniVoice does not produce clean output for every voice-design combination. The upstream docs note that some attribute mixes are unreliable, especially without reference audio.

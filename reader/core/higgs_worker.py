@@ -141,6 +141,7 @@ def main() -> None:
             "event": "ready",
             "source": source,
             "device": device,
+            "backend": "rocm" if device == "cuda" and torch.version.hip else device,
             "dtype": str(dtype),
             "sample_rate": sample_rate,
             "transformers": transformers.__version__,

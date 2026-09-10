@@ -3288,7 +3288,7 @@ def save_settings():
         updates['tts_coalesce_chars'] = 0
     if 'tts_accel' in updates:
         mode = str(updates['tts_accel'] or 'auto').strip().lower()
-        if mode not in ('off', 'auto', 'cuda_graph', 'triton', 'hybrid'):
+        if mode not in ('off', 'auto', 'eager', 'cuda_graph', 'triton', 'hybrid'):
             mode = 'auto'
         updates['tts_accel'] = mode
     if 'tts_export_workers' in updates:

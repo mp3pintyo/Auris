@@ -13,6 +13,15 @@ if "experience" not in application.app.blueprints:
 
 
 class ExperienceApiTest(unittest.TestCase):
+    def test_setup_status_identifies_apple_mps(self):
+        import torch
+        with patch.object(torch.cuda, 'is_available', return_value=False), \
+             patch.object(torch.backends.mps, 'is_available', return_value=True), \
+             patch.object(application.tts, 'status', return_value={'state': 'not_loaded'}):
+            response = self.client.get('/api/setup/status')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()['device'], 'Apple Metal (MPS)')
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)

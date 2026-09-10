@@ -100,7 +100,7 @@ def detect_cuda_version():
             timeout=10,
         )
         if result.returncode == 0:
-            match = re.search(r"CUDA Version:\s*(\d+\.\d+)", result.stdout)
+            match = re.search(r"CUDA (?:UMD )?Version:\s*(\d+\.\d+)", result.stdout)
             if match:
                 return match.group(1)
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -152,6 +152,20 @@ def detect_hardware():
     if is_apple_silicon():
         ok("Apple Silicon (MPS) detected")
         return "mps"
+
+    # AMD wheels are GPU/OS/Python-specific. Preserve an already installed,
+    # working vendor pair rather than replacing it with a generic CPU wheel.
+    try:
+        existing = subprocess.run(
+            [sys.executable, "-c", "import torch, torchaudio; "
+             "assert torch.version.hip and torch.cuda.is_available()"],
+            capture_output=True, timeout=30,
+        )
+        if existing.returncode == 0:
+            ok("Working AMD ROCm PyTorch runtime detected; preserving it")
+            return "rocm"
+    except (OSError, subprocess.TimeoutExpired):
+        pass
 
     cuda_version = detect_cuda_version()
     if cuda_version:
@@ -218,6 +232,9 @@ def pip_install(*args, no_index=False, index_url=None, extra_index_url=None):
 def install_torch(hw_tag):
     step("Installing PyTorch + torchaudio")
 
+    if hw_tag == "rocm":
+        verify_torch(hw_tag)
+        return
     if hw_tag == "mps":
         pip_install("torch", "torchaudio")
     elif hw_tag == "cpu":
@@ -265,6 +282,12 @@ def verify_torch(hw_tag):
         code += (
             "assert torch.version.cuda and torch.cuda.is_available(), "
             "'CUDA is unavailable: check the PyTorch build and NVIDIA driver'; "
+            "print('GPU:', torch.cuda.get_device_name(0))"
+        )
+    elif hw_tag == "rocm":
+        code += (
+            "assert torch.version.hip and torch.cuda.is_available(), "
+            "'ROCm is unavailable: install the AMD-supported torch/torchaudio pair'; "
             "print('GPU:', torch.cuda.get_device_name(0))"
         )
     run([sys.executable, "-c", code])
@@ -368,6 +391,7 @@ def install_spacy_model():
 
 def print_summary(hw_tag):
     device_label = {
+        "rocm": "AMD GPU (ROCm)",
         "mps": "Apple Silicon (MPS)",
         "cpu": "CPU only",
     }.get(hw_tag, f"NVIDIA GPU ({hw_tag})")

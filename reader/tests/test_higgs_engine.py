@@ -14,6 +14,15 @@ from core.tts_router import TTSEngineRouter
 
 
 class HiggsPromptTests(unittest.TestCase):
+    def test_ready_status_reports_actual_device_and_dtype(self):
+        engine = HiggsTTSEngine()
+        engine._ready = True
+        engine._load_metadata = {'device': 'mps', 'backend': 'mps', 'dtype': 'torch.float32'}
+        status = engine.status()['accel']
+        self.assertEqual(status['device'], 'mps')
+        self.assertEqual(status['dtype'], 'torch.float32')
+        self.assertEqual(status['probe']['backend'], 'mps')
+
     def test_worker_reply_parser_tolerates_progress_tail_and_prefix(self):
         line = (
             "\rLoading weights 100% "

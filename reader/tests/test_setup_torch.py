@@ -10,6 +10,25 @@ spec.loader.exec_module(installer)
 
 
 class TorchInstallTests(unittest.TestCase):
+    def test_new_nvidia_smi_umd_version_is_detected(self):
+        from types import SimpleNamespace
+        result = SimpleNamespace(returncode=0, stdout='CUDA UMD Version: 13.4')
+        with patch.object(installer.subprocess, 'run', return_value=result):
+            self.assertEqual(installer.detect_cuda_version(), '13.4')
+
+    def test_rocm_install_preserves_verified_vendor_runtime(self):
+        with patch.object(installer, 'verify_torch') as verify, \
+             patch.object(installer, 'pip_install') as pip, \
+             patch.object(installer, 'run'):
+            installer.install_torch('rocm')
+        verify.assert_called_once_with('rocm')
+        pip.assert_not_called()
+
+    def test_rocm_validation_requires_hip(self):
+        with patch.object(installer, 'run') as run:
+            installer.verify_torch('rocm')
+        self.assertIn('torch.version.hip', run.call_args.args[0][-1])
+
     def test_cuda_wheels_are_selected_without_pypi_and_installed_as_exact_files(self):
         commands = []
 

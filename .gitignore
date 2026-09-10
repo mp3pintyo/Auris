@@ -22,6 +22,7 @@ reader/data/reader.db
 reader/data/settings.json
 reader/data/backups/
 reader/data/voice_profiles/
+reader/data/performance/
 reader/data/reader.db-wal
 reader/data/reader.db-shm
 

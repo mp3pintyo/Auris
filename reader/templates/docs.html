@@ -537,7 +537,7 @@
             <tr><td>Speech quality</td><td>12/16/24/32 iteratív dekódolási lépés; több lépés lassabb és finomabb.</td><td><strong>16</strong></td></tr>
             <tr><td>GPU batch size</td><td>Egy generate hívásban együtt, de külön hullámformaként feldolgozott szövegegységek száma.</td><td><strong>Auto</strong></td></tr>
             <tr><td>Exact spoken-line boundaries</td><td>Minden szövegegység külön hangfájlt kap; nincs karakterszám alapján visszavágott, összekevert rövid sor.</td><td><strong>Bekapcsolva</strong></td></tr>
-            <tr><td>GPU acceleration</td><td>Plain PyTorch, CUDA Graph, Triton vagy Hybrid útvonal.</td><td>Gépenként mérendő</td></tr>
+            <tr><td>GPU-gyorsítás</td><td>Alap vagy optimalizált PyTorch, NVIDIA CUDA Graph, kísérleti Triton/hibrid.</td><td>Automatikus; munkaterhelésenként mérendő</td></tr>
             <tr><td>Parallel export workers</td><td>Második modell csak nagyobb voice-clone export idejére.</td><td><strong>Auto</strong></td></tr>
           </tbody>
         </table>
@@ -885,7 +885,7 @@
             <tr><td>Speech quality</td><td><strong>16 step</strong></td><td><strong>8 step</strong></td></tr>
             <tr><td>GPU batch size</td><td><strong>8 vagy Auto</strong></td><td><strong>8 vagy Auto</strong></td></tr>
             <tr><td>Exact spoken-line boundaries</td><td><strong>Bekapcsolva</strong></td><td><strong>Bekapcsolva</strong></td></tr>
-            <tr><td>GPU acceleration</td><td><strong>Off a mért gépen</strong></td><td><strong>Off a mért gépen</strong></td></tr>
+            <tr><td>GPU-gyorsítás</td><td><strong>Auto; saját méréssel ellenőrizve</strong></td><td><strong>Auto; saját méréssel ellenőrizve</strong></td></tr>
             <tr><td>Parallel export workers</td><td><strong>2</strong></td><td><strong>2</strong></td></tr>
           </tbody>
         </table>
@@ -919,6 +919,45 @@
           </p>
         </div>
       </div>
+      <div class="docs-two-column" id="performance-platforms" style="grid-template-columns:1fr"><div>
+      <h3>Új mérési eredmények és platformok (2026. szeptember 10.)</h3>
+      <p>A változó hanghosszak miatt kikapcsoltuk a cuDNN költséges algoritmuskeresését.
+        Az RTX 3090 / Windows 11 / PyTorch 2.11 + CUDA 12.8 próbában egy új, négy magyar
+        szöveges csomag első futása körülbelül 27 másodpercről 2,4 másodpercre csökkent.
+        A már bemelegített futás mindkét esetben körülbelül 2,4 másodperc volt.
+        Ez az új bemenet előkészítési késleltetésének javulása, nem minden generálásra
+        érvényes tízszeres gyorsulás. A próba 16 dekódolási lépéssel készült.</p>
+      <div class="settings-guide-wrap">
+        <table class="settings-guide">
+          <thead><tr><th>Rendszer</th><th>Automatikus működés</th><th>Ellenőrzés és feltétel</th></tr></thead>
+          <tbody>
+            <tr><td>NVIDIA / Windows, Linux</td><td>CUDA + CUDA Graph; capture-hibánál optimalizált PyTorch.</td><td>RTX 3090 / Windows 11 helyben mérve. Rövid szövegnél a Graph hasznos; nagyobb kötegnél külön mérendő.</td></tr>
+            <tr><td>AMD / ROCm</td><td>ROCm + optimalizált PyTorch. Az NVIDIA-specifikus Graph/Triton mód helyett is ezt használja.</td><td>AMD által támogatott GPU, operációs rendszer, Python és torch/torchaudio páros szükséges. Hardveres Auris-mérés még nincs.</td></tr>
+            <tr><td>Apple Silicon / macOS</td><td>MPS + optimalizált PyTorch, alapból FP32. Nincs CUDA Graph vagy Triton.</td><td>MPS-képes PyTorch szükséges. A mostani módosítás fizikai Macen még nincs lemérve.</td></tr>
+            <tr><td>CPU</td><td>Optimalizált PyTorch.</td><td>GPU nélkül is használható, de a mostani sebességadatok nem CPU-mérések.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Az <strong>Alap PyTorch</strong> opció is GPU-n fut, ha az rendelkezésre áll;
+        csak az extra OmniVoice-optimalizálásokat tiltja le. A Triton/hibrid mód
+        kísérleti, nem automatikus választás. A Higgs külön motor: az OmniVoice
+        gyorsítási módjai és az alábbi benchmark nem vonatkoznak rá.</p>
+      <p>AMD-n először a <a href="https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/">gyártó kompatibilitási útmutatója</a>
+        szerinti ROCm PyTorch/torchaudio párost telepítsd az Auris környezetébe.
+        A telepítő a működő ROCm-környezetet felismeri és megőrzi; önállóan nem
+        választ AMD-illesztőprogramot vagy GPU-specifikus wheel-csomagot.</p>
+      <h3>Megismételhető saját sebességmérés</h3>
+      <p>A projekt gyökeréből futtasd. A mérés valódi hangot generál, megkerüli a
+        kész hangok gyorsítótárát, külön tárolja az első és az öt bemelegített
+        futást, és nem menti át a beállításaidat. Az RTF a generálási idő osztva
+        az elkészült hang hosszával; kisebb érték gyorsabb.</p>
+      <div class="code-block"><pre><code>reader\.venv\Scripts\python.exe scripts\benchmark_tts.py --output reader/data/performance/sajat-meres.json</code></pre></div>
+      <p>Macen vagy Linuxon a környezet <code>reader/.venv/bin/python</code>
+        futtatható állományát használd. Klónozás méréséhez add meg a
+        <code>--ref-audio minta.wav --ref-text atirat.txt</code> kapcsolókat;
+        az átirat UTF-8 szöveg legyen. Más minőségi szintet a <code>--steps</code>
+        paraméterrel mérhetsz, de az eltérő lépésszám hangminőségi különbséget is okozhat.</p>
+      </div></div>
     </section>
 
     <section class="docs-section" id="troubleshooting">

@@ -430,6 +430,8 @@ def setup_status():
                     torch.cuda.get_device_properties(0).total_memory / 1024**3, 1
                 ),
             }
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            hardware = {"device": "Apple Metal (MPS)", "vram_gb": 0}
     except Exception:
         pass
     return jsonify(

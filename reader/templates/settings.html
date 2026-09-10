@@ -368,12 +368,13 @@
       <label>GPU-gyorsítás</label>
       <select id="tts-accel" class="select-input">
         <option value="auto">Automatikus</option>
-        <option value="cuda_graph">CUDA Graph — Windows alatt kísérleti</option>
+        <option value="eager">Optimalizált PyTorch</option>
+        <option value="cuda_graph">CUDA Graph — NVIDIA (Windows / Linux)</option>
         <option value="hybrid">Hibrid — Triton + CUDA Graph (WSL/Linux)</option>
         <option value="triton">Csak Triton</option>
-        <option value="off">Kikapcsolva — PyTorch</option>
+        <option value="off">Alap PyTorch — extra optimalizálás nélkül</option>
       </select>
-      <span class="muted" style="font-size:.78rem" id="tts-accel-hint">A mért RTX 3090 + Windows 11 konfiguráción a PyTorch kissé gyorsabb volt. Javasolt:<strong>Kikapcsolva</strong> amíg saját mérés mást nem indokol. A teljes Triton/hibrid módhoz szükséges:<code>omnivoice-triton</code>(hivatalosan WSL2/Linux; natív Windowson:<code>pip install triton-windows</code> majd <code>pip install omnivoice-triton</code>). Módosítás után használd a <strong>Beszédmotor újratöltése</strong> gombot.</span>
+      <span class="muted" style="font-size:.78rem" id="tts-accel-hint">Az automatikus mód NVIDIA-n CUDA Graphot, AMD ROCm-on és Apple MPS-en optimalizált PyTorch-ot választ. Az alap PyTorch mód is használja az elérhető GPU-t. A CUDA Graph első futása és az új szöveghosszak előkészítése többletidőt igényel; a gyorsulás a szövegtől és a kötegmérettől függ. A Triton/hibrid mód külön telepítést és saját mérést igénylő NVIDIA-kísérlet. AMD-n megfelelő ROCm PyTorch szükséges; Macen az MPS automatikusan működik. Módosítás után használd a <strong>Beszédmotor újratöltése</strong> gombot. Részletek: <a href="/docs#performance">Teljesítmény és mérés</a>.</span>
       <div id="tts-accel-status" class="muted" style="font-size:.78rem;margin-top:.35rem"></div>
     </div>
     <div class="setting-row">

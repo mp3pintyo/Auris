@@ -496,13 +496,17 @@ async function refreshAccelStatus(st) {
     if (!st) st = await fetch('/api/tts/status').then(r => r.json());
     const a = st.accel || {};
     const probe = a.probe || {};
+    const backends = { cuda: 'NVIDIA CUDA', rocm: 'AMD ROCm', mps: 'Apple Metal (MPS)', cpu: 'CPU' };
+    const modes = { off: 'Alap PyTorch', eager: 'Optimalizált PyTorch', cuda_graph: 'CUDA Graph',
+      triton: 'Triton', hybrid: 'Triton + CUDA Graph', transformers: 'Higgs Transformers' };
     const parts = [
-      `Engine: ${st.engine || 'omnivoice'}`,
-      `Active: ${a.effective || 'off'}`,
+      `Beszédmotor: ${st.engine || 'omnivoice'}`,
+      st.state === 'ready' ? `Aktív: ${modes[a.effective] || a.effective || 'Alap PyTorch'}` : 'A modell nincs betöltve',
+      backends[probe.backend] || backends[a.device] || '',
+      probe.device_name || '',
+      a.dtype || '',
       a.message || '',
-      probe.triton ? 'triton:yes' : 'triton:no',
-      probe.omnivoice_triton ? 'omnivoice-triton:yes' : 'omnivoice-triton:no',
-      `os:${probe.platform || '?'}`,
+      probe.platform || '',
     ].filter(Boolean);
     el.textContent = parts.join(' · ');
   } catch (_) {

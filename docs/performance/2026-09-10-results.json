@@ -1,0 +1,273 @@
+{
+  "graph-cold-search-on": {
+    "first": [
+      [
+        "cuda_graph",
+        1,
+        9.0287,
+        5.32
+      ],
+      [
+        "cuda_graph",
+        4,
+        27.6235,
+        42.62
+      ]
+    ],
+    "warm": [
+      {
+        "mode": "cuda_graph",
+        "batch": 1,
+        "median_seconds": 0.24493230000007316,
+        "median_rtf": 0.04603990601505134,
+        "min_seconds": 0.24430690000008326,
+        "max_seconds": 0.2568405999991228
+      },
+      {
+        "mode": "cuda_graph",
+        "batch": 4,
+        "median_seconds": 2.337081499998021,
+        "median_rtf": 0.05483532379160068,
+        "min_seconds": 2.336685000002035,
+        "max_seconds": 2.3611450999997032
+      }
+    ]
+  },
+  "graph-cold-search-off": {
+    "first": [
+      [
+        "cuda_graph",
+        1,
+        0.6774,
+        5.32
+      ],
+      [
+        "cuda_graph",
+        4,
+        2.5295,
+        42.62
+      ]
+    ],
+    "warm": [
+      {
+        "mode": "cuda_graph",
+        "batch": 1,
+        "median_seconds": 0.24339580000014394,
+        "median_rtf": 0.045751090225590964,
+        "min_seconds": 0.24311699999816483,
+        "max_seconds": 0.24492889999964973
+      },
+      {
+        "mode": "cuda_graph",
+        "batch": 4,
+        "median_seconds": 2.344246100001328,
+        "median_rtf": 0.05500342796812126,
+        "min_seconds": 2.3357298000009905,
+        "max_seconds": 2.346792699998332
+      }
+    ]
+  },
+  "clone-after": {
+    "first": [
+      [
+        "off",
+        1,
+        1.0336,
+        4.95
+      ],
+      [
+        "off",
+        4,
+        3.1713,
+        42.12
+      ],
+      [
+        "eager",
+        1,
+        0.501,
+        5.13
+      ],
+      [
+        "eager",
+        4,
+        3.2299,
+        42.12
+      ],
+      [
+        "cuda_graph",
+        1,
+        0.4741,
+        5.13
+      ],
+      [
+        "cuda_graph",
+        4,
+        3.4166,
+        42.12
+      ]
+    ],
+    "warm": [
+      {
+        "mode": "off",
+        "batch": 1,
+        "median_seconds": 0.5067319000008865,
+        "median_rtf": 0.1023700808082599,
+        "min_seconds": 0.48709489999964717,
+        "max_seconds": 0.5365826999986893
+      },
+      {
+        "mode": "off",
+        "batch": 4,
+        "median_seconds": 3.172588400000677,
+        "median_rtf": 0.07532261158596099,
+        "min_seconds": 3.166082900002948,
+        "max_seconds": 3.193262400000094
+      },
+      {
+        "mode": "eager",
+        "batch": 1,
+        "median_seconds": 0.5225757000007434,
+        "median_rtf": 0.10186660818727941,
+        "min_seconds": 0.5046144999978424,
+        "max_seconds": 0.6243699000006018
+      },
+      {
+        "mode": "eager",
+        "batch": 4,
+        "median_seconds": 3.2660697999999684,
+        "median_rtf": 0.07754201804368395,
+        "min_seconds": 3.201229099999182,
+        "max_seconds": 3.270290100001148
+      },
+      {
+        "mode": "cuda_graph",
+        "batch": 1,
+        "median_seconds": 0.4197106000028725,
+        "median_rtf": 0.08181493177443909,
+        "min_seconds": 0.4178328000016336,
+        "max_seconds": 0.42609409999931813
+      },
+      {
+        "mode": "cuda_graph",
+        "batch": 4,
+        "median_seconds": 3.244387700000516,
+        "median_rtf": 0.0770272483380939,
+        "min_seconds": 3.228595000000496,
+        "max_seconds": 3.2616168999993533
+      }
+    ]
+  },
+  "clone-search-on": {
+    "first": [
+      [
+        "cuda_graph",
+        1,
+        9.3388,
+        5.13
+      ],
+      [
+        "cuda_graph",
+        4,
+        28.9466,
+        42.12
+      ]
+    ],
+    "warm": [
+      {
+        "mode": "cuda_graph",
+        "batch": 1,
+        "median_seconds": 0.4044188000007125,
+        "median_rtf": 0.07883407407421297,
+        "min_seconds": 0.40119829999821377,
+        "max_seconds": 0.40946850000182167
+      },
+      {
+        "mode": "cuda_graph",
+        "batch": 4,
+        "median_seconds": 3.0895863000005193,
+        "median_rtf": 0.07335200142451374,
+        "min_seconds": 3.086635600000591,
+        "max_seconds": 3.110622500000318
+      }
+    ]
+  },
+  "clone-search-off": {
+    "first": [
+      [
+        "cuda_graph",
+        1,
+        0.8506,
+        5.13
+      ],
+      [
+        "cuda_graph",
+        4,
+        3.3288,
+        42.12
+      ]
+    ],
+    "warm": [
+      {
+        "mode": "cuda_graph",
+        "batch": 1,
+        "median_seconds": 0.4038335000004736,
+        "median_rtf": 0.07871998050691494,
+        "min_seconds": 0.40286900000137393,
+        "max_seconds": 0.40605649999997695
+      },
+      {
+        "mode": "cuda_graph",
+        "batch": 4,
+        "median_seconds": 3.0853852999971423,
+        "median_rtf": 0.07325226258302805,
+        "min_seconds": 3.071726400001353,
+        "max_seconds": 3.107183199997962
+      }
+    ]
+  },
+  "environment": {
+    "gpu": "NVIDIA GeForce RTX 3090 (24 GB)",
+    "os": "Windows 11 (build 26200)",
+    "driver": "616.56",
+    "torch": "2.11.0+cu128",
+    "python": "3.11.4",
+    "omnivoice": "0.2.1",
+    "steps": 16,
+    "seed": 123,
+    "warm_repetitions": 5,
+    "cache_bypassed": true,
+    "clone_reference": "Synthetic voice generated by the baseline, 5.26 seconds; exact benchmark text #1."
+  },
+  "waveform_parity": [
+    {
+      "file": "cuda_graph-b1-0.wav",
+      "same_length": true,
+      "max_abs_diff": 0.00079345703125,
+      "correlation": 0.9999995445404216
+    },
+    {
+      "file": "cuda_graph-b4-0.wav",
+      "same_length": true,
+      "max_abs_diff": 0.00103759765625,
+      "correlation": 0.9999995072546923
+    },
+    {
+      "file": "cuda_graph-b4-1.wav",
+      "same_length": true,
+      "max_abs_diff": 0.000457763671875,
+      "correlation": 0.9999999101721346
+    },
+    {
+      "file": "cuda_graph-b4-2.wav",
+      "same_length": true,
+      "max_abs_diff": 0.00146484375,
+      "correlation": 0.9999993177601947
+    },
+    {
+      "file": "cuda_graph-b4-3.wav",
+      "same_length": true,
+      "max_abs_diff": 0.00146484375,
+      "correlation": 0.9999996210374384
+    }
+  ]
+}

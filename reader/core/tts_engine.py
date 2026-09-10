@@ -322,11 +322,14 @@ def _enable_cuda_fast_paths() -> None:
     try:
         import torch
 
-        if not torch.cuda.is_available():
+        if not torch.cuda.is_available() or getattr(torch.version, 'hip', None):
             return
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
+        # Speech waveforms have changing lengths. Exhaustive cuDNN convolution
+        # search repeats for new codec shapes (measured 27s vs 2.4s first pack
+        # on RTX 3090), with no material warm-throughput benefit.
+        torch.backends.cudnn.benchmark = False
         try:
             torch.set_float32_matmul_precision("high")
         except Exception:
@@ -620,9 +623,17 @@ class TTSEngine:
         if self._error:
             return {"state": "error", "message": self._error}
         if self._ready:
+            accel = dict(self._accel_status)
+            wrapper = getattr(self.model, '_auris_cuda_graph', None)
+            if wrapper is not None and wrapper.disabled_reason:
+                accel.update(
+                    cuda_graph=False,
+                    effective='triton' if accel.get('triton') else 'eager',
+                    message='CUDA Graph fallback: ' + wrapper.disabled_reason,
+                )
             return {
                 "state": "ready",
-                "accel": self._accel_status,
+                "accel": accel,
             }
         if self._loading:
             return {"state": "loading"}
@@ -802,13 +813,14 @@ class TTSEngine:
 
             # Optional CUDA Graph / Triton acceleration (settings: tts_accel).
             self._accel_status = {"effective": "off", "message": "not applied"}
-            if device == "cuda":
+            if device in ("cuda", "mps", "cpu"):
                 try:
                     from core.settings import get as _settings_get
                     from core.tts_accel import apply_acceleration
 
                     accel_mode = _settings_get("tts_accel", "auto")
                     self._accel_status = apply_acceleration(self.model, accel_mode)
+                    self._accel_status.update(device=device, dtype=str(dtype))
                 except Exception as accel_exc:
                     log.warning("TTS acceleration skipped: %s", accel_exc)
                     self._accel_status = {
@@ -1608,6 +1620,9 @@ class TTSExportPool:
             import torch
 
             if not torch.cuda.is_available():
+                return 1
+            # Dual model/stream auto tuning was measured only on NVIDIA.
+            if getattr(torch.version, 'hip', None):
                 return 1
             free_b, total_b = torch.cuda.mem_get_info()
             total_gb = total_b / (1024**3)

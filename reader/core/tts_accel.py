@@ -4,8 +4,8 @@ Two layers (can be combined):
 
 1. **CUDA Graph** (native Windows + Linux, pure PyTorch)
    Captures OmniVoice.forward for each tensor shape and replays it across
-   the 16/32 iterative unmasking steps. This is the main speedup (~2–3x on
-   consumer GPUs). Inspired by omnivoice-triton FasterRunner.
+   the iterative unmasking steps. Benefit depends on shape reuse and workload;
+   measure cold capture separately from warm replay.
 
 2. **Triton kernels** (Linux / WSL2; optional native Windows via triton-windows)
    Fuses RMSNorm / SwiGLU / residual+norm via ``omnivoice-triton``.
@@ -32,7 +32,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-ACCEL_MODES = ("off", "auto", "cuda_graph", "triton", "hybrid")
+ACCEL_MODES = ("off", "auto", "eager", "cuda_graph", "triton", "hybrid")
 # Long-form generation produces several shapes as OmniVoice chunks long text.
 # Keeping every graph alive is counterproductive: each graph retains a large
 # logits buffer and its CUDA-private allocations.
@@ -49,14 +49,22 @@ class CUDAGraphForward:
     def __init__(self, model: Any) -> None:
         self._model = model
         self._original_forward = model.forward
-        self._graphs: dict[tuple[int, ...], dict] = {}
-        # Captures are replayed serially under TTSEngine._lock, so their
-        # private allocations can safely share one CUDA graph pool.
+        self._graphs: dict[tuple, dict] = {}
+        self.disabled_reason = ""
+        # TTSEngine serializes calls and consumes outputs before the next
+        # replay. Independent shape graphs can share their private pool.
         self._pool = None
 
     @staticmethod
-    def _shape_key(input_ids) -> tuple[int, ...]:
-        return tuple(input_ids.shape)
+    def _shape_key(input_ids, audio_mask=None, attention_mask=None,
+                   document_ids=None, position_ids=None) -> tuple:
+        # Optional masks and positions change the captured computation even
+        # when input_ids has exactly the same shape.
+        return tuple(
+            None if tensor is None else
+            (tuple(tensor.shape), tuple(tensor.stride()), tensor.dtype, tensor.device)
+            for tensor in (input_ids, audio_mask, attention_mask, document_ids, position_ids)
+        )
 
     def _capture(
         self,
@@ -68,8 +76,13 @@ class CUDAGraphForward:
     ) -> dict:
         import torch
 
-        key = self._shape_key(input_ids)
+        key = self._shape_key(input_ids, audio_mask, attention_mask, document_ids, position_ids)
         log.info("CUDA Graph capture for shape %s …", key)
+
+        # Release the oldest graph before allocating a new one, limiting peak
+        # memory as well as the number of resident shapes.
+        if len(self._graphs) >= MAX_CACHED_GRAPHS:
+            del self._graphs[next(iter(self._graphs))]
 
         static_input_ids = input_ids.clone()
         static_audio_mask = audio_mask.clone()
@@ -116,12 +129,6 @@ class CUDAGraphForward:
             "static_pos_ids": static_pos_ids,
             "static_output": static_output,
         }
-        # Evict oldest if cache grows too large (each graph holds large masks).
-        if len(self._graphs) >= MAX_CACHED_GRAPHS:
-            old_key = next(iter(self._graphs))
-            del self._graphs[old_key]
-            log.info("CUDA Graph cache full; evicted shape %s", old_key)
-
         self._graphs[key] = entry
         try:
             allocated = torch.cuda.memory_allocated() / (1024**3)
@@ -157,17 +164,28 @@ class CUDAGraphForward:
                 position_ids,
             )
 
-        key = self._shape_key(input_ids)
-        if key not in self._graphs:
-            entry = self._capture(
-                input_ids,
-                audio_mask,
-                attention_mask,
-                document_ids,
-                position_ids,
+        if self.disabled_reason or document_ids is not None:
+            return self._original_forward(
+                input_ids, audio_mask, labels, attention_mask, document_ids, position_ids
             )
+
+        key = self._shape_key(input_ids, audio_mask, attention_mask, document_ids, position_ids)
+        if key not in self._graphs:
+            try:
+                entry = self._capture(
+                    input_ids, audio_mask, attention_mask, document_ids, position_ids,
+                )
+            except RuntimeError as exc:
+                self.clear()
+                self.disabled_reason = str(exc)
+                log.warning("CUDA Graph capture disabled until reload: %s", exc)
+                return self._original_forward(
+                    input_ids, audio_mask, labels, attention_mask, document_ids, position_ids
+                )
         else:
-            entry = self._graphs[key]
+            # Refresh LRU order so frequently reused shapes stay resident.
+            entry = self._graphs.pop(key)
+            self._graphs[key] = entry
 
         entry["static_input_ids"].copy_(input_ids)
         entry["static_audio_mask"].copy_(audio_mask)
@@ -210,8 +228,9 @@ def _fast_predict_tokens_with_scoring(
         guided_logits = c_logits
     log_probs = F.log_softmax(guided_logits, dim=-1)
     log_probs[..., model.config.audio_mask_id] = -float("inf")
-    pred_tokens = torch.argmax(log_probs, dim=-1)
-    confidence_scores = torch.max(log_probs, dim=-1).values
+    # max returns both values and indices: avoid a second full vocabulary
+    # reduction for argmax at every decoding step.
+    confidence_scores, pred_tokens = torch.max(log_probs, dim=-1)
     return pred_tokens, confidence_scores
 
 
@@ -236,7 +255,7 @@ def triton_available() -> bool:
         import triton  # noqa: F401
 
         return True
-    except ImportError:
+    except (ImportError, OSError, RuntimeError):
         return False
 
 
@@ -245,7 +264,7 @@ def omnivoice_triton_available() -> bool:
         from omnivoice_triton.models.patching import apply_triton_kernels  # noqa: F401
 
         return True
-    except ImportError:
+    except (ImportError, OSError, RuntimeError):
         return False
 
 
@@ -254,26 +273,41 @@ def probe_accel() -> dict:
     import platform
 
     cuda = False
+    backend = "cpu"
+    device_name = "CPU"
+    torch_version = ""
     try:
         import torch
 
+        torch_version = torch.__version__
         cuda = bool(torch.cuda.is_available())
+        if cuda:
+            backend = "rocm" if getattr(torch.version, "hip", None) else "cuda"
+            device_name = torch.cuda.get_device_name()
+        elif getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+            backend = "mps"
+            device_name = "Apple Metal (MPS)"
     except ImportError:
         pass
+    has_triton = triton_available()
+    has_ovt = omnivoice_triton_available()
     return {
         "cuda": cuda,
-        "triton": triton_available(),
-        "omnivoice_triton": omnivoice_triton_available(),
+        "backend": backend,
+        "device_name": device_name,
+        "torch_version": torch_version,
+        "triton": has_triton,
+        "omnivoice_triton": has_ovt,
         "platform": platform.system(),
-        "recommended": _recommend_mode(cuda, triton_available(), omnivoice_triton_available()),
+        "recommended": _recommend_mode(backend == "cuda", has_triton, has_ovt),
     }
 
 
 def _recommend_mode(cuda: bool, has_triton: bool, has_ovt: bool) -> str:
     if not cuda:
-        return "off"
-    if has_triton and has_ovt:
-        return "hybrid"
+        return "eager"
+    # Optional kernels being importable is not a speed/compatibility test.
+    # Keep hybrid an explicit opt-in on all NVIDIA architectures.
     return "cuda_graph"
 
 
@@ -282,11 +316,11 @@ def resolve_accel_mode(requested: str | None) -> str:
     mode = (requested or "auto").strip().lower()
     if mode not in ACCEL_MODES:
         mode = "auto"
-    if mode == "off":
-        return "off"
+    if mode in ("off", "eager"):
+        return mode
     probe = probe_accel()
-    if not probe["cuda"]:
-        return "off"
+    if probe.get("backend", "cuda" if probe["cuda"] else "cpu") != "cuda":
+        return "eager"
     if mode == "auto":
         return probe["recommended"]
     if mode == "triton" and not (probe["triton"] and probe["omnivoice_triton"]):
@@ -359,6 +393,10 @@ def apply_acceleration(model, mode: str | None = "auto") -> dict:
 
     status["scoring_opt"] = apply_scoring_optimization(model)
 
+    if effective == "eager":
+        status["message"] = "PyTorch scoring optimization (no CUDA Graph / Triton)"
+        return status
+
     if effective in ("triton", "hybrid"):
         status["triton"] = apply_triton_to_omnivoice(model)
 
@@ -399,6 +437,9 @@ def apply_acceleration(model, mode: str | None = "auto") -> dict:
             status["effective"] = "hybrid"
         elif status["triton"]:
             status["message"] = "Triton kernels enabled"
+        elif status["cuda_graph"]:
+            status["message"] = "CUDA Graph (Triton patch unavailable)"
+            status["effective"] = "cuda_graph"
         else:
             status["message"] = "Triton not available"
             status["effective"] = "off"

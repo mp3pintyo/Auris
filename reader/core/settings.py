@@ -100,8 +100,9 @@ DEFAULTS: dict = {
     # Higher = better quality but slower. 16 is a good default; 32 is max quality.
     'tts_num_step': 16,
 
-    # Inference acceleration: off | auto | cuda_graph | triton | hybrid
-    # cuda_graph = pure PyTorch, works on native Windows (~2–3x).
+    # Inference acceleration: off | auto | eager | cuda_graph | triton | hybrid
+    # Auto: NVIDIA CUDA Graph; ROCm/MPS/CPU portable scoring optimization.
+    # cuda_graph = pure PyTorch; speed depends on workload and shape reuse.
     # triton/hybrid need omnivoice-triton (+ triton or triton-windows).
     'tts_accel': 'auto',
 

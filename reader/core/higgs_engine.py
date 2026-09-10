@@ -178,7 +178,10 @@ class HiggsTTSEngine:
                 "generating": self._generating.is_set(),
                 "accel": {
                     "effective": "transformers",
-                    "message": "Higgs generate_speech (BF16 on CUDA)",
+                    "message": "Higgs generate_speech",
+                    "device": self._load_metadata.get('device', 'unknown'),
+                    "dtype": self._load_metadata.get('dtype', 'unknown'),
+                    "probe": {"backend": self._load_metadata.get('backend', '')},
                 },
             }
         if self._loading:

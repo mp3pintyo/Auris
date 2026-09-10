@@ -104,7 +104,7 @@
           <h3>Beszéd és tartalomkészítés</h3>
           <ul class="docs-check-list">
             <li>Lejátszás, szünet, valódi generálás-megszakítás, előző/következő szegmens.</li>
-            <li>Előtöltés és háttér-pufferelés a folyamatosabb hallgatáshoz.</li>
+            <li>A Lejátszás után induló előtöltés és háttér-pufferelés a folyamatosabb hallgatáshoz.</li>
             <li>Egynarrátoros vagy szereplőnként eltérő hangú felolvasás.</li>
             <li>Narrátor- és szereplőhang előnézete a Voice Studioban.</li>
             <li>Aktuális vagy kiválasztott fejezetek exportja WAV/MP3, illetve egyetlen fejezetes M4B formátumban; ASS/SRT felirat kérhető vagy elhagyható.</li>
@@ -692,7 +692,7 @@
           <ul class="docs-check-list">
             <li>Az előző motor leáll és felszabadítja a modellt/VRAM-ot.</li>
             <li>Az új motor a saját modellel és függőségekkel töltődik be.</li>
-            <li>Betöltés közben az olvasó nem küld sikertelen generálási áradatot.</li>
+            <li>A fejezet megnyitása önmagában nem indít hanggenerálást; az előtöltés a Lejátszás után kezdődik.</li>
             <li>A modell cache-ben marad az interaktív használathoz.</li>
             <li>Hangot befolyásoló beállításváltás friss szegmenshangokat készít.</li>
           </ul>
@@ -897,7 +897,7 @@
       <div class="faq-list">
         <details>
           <summary>A Lejátszás gomb után „A modell még nem áll készen” jelenik meg</summary>
-          <div><p>Várd meg a <strong>Hang kész</strong> állapotot. Első Higgs-betöltéskor a több gigabájtos modell letöltése és inicializálása hosszabb lehet. A fejezet háttér-pufferelése automatikusan vár a modellre.</p></div>
+          <div><p>Várd meg a <strong>Hang kész</strong> állapotot. Első Higgs-betöltéskor a több gigabájtos modell letöltése és inicializálása hosszabb lehet. A hang előtöltése a Lejátszás megnyomása után automatikusan megvárja a modellt.</p></div>
         </details>
         <details>
           <summary>A Higgs magyar szöveget angolosan ejt</summary>
@@ -921,11 +921,11 @@
         </details>
         <details>
           <summary>Megváltoztattam a hangot, de a régi felolvasás hallatszik</summary>
-          <div><p>Mentsd a Voice Studio módosítását. Az Auris törli az érintett szegmensrekordokat, és új cache-kulccsal generál. Ha a böngészőben régi JavaScript fut, használj <code>Ctrl+F5</code>-öt.</p></div>
+          <div><p>Mentsd a Voice Studio módosítását. A hangváltás akkor is menthető, ha egy korábbi interaktív hang éppen befejeződik; az Auris törli az érintett szegmensrekordokat, és a következő lejátszáskor új cache-kulccsal generál. Ha a böngészőben régi JavaScript fut, használj <code>Ctrl+F5</code>-öt.</p></div>
         </details>
         <details>
           <summary>A nyelvi modell túl hosszúra jelölte egy szereplő beszédét</summary>
-          <div><p>Nyisd meg az Olvasót, kapcsold be a <strong>Beszélők szerkesztése</strong> módot, majd annál az első mondatnál, amelynek már a narrátorhoz kell tartoznia, válaszd a <strong>Narráció / nincs beszélő</strong> értéket. A csúszkával vagy a plusz/mínusz gombokkal jelöld ki a narrátorhoz visszaadandó teljes tartományt, majd mentsd a módosítást.</p></div>
+          <div><p>Nyisd meg az Olvasót, kapcsold be a <strong>Beszélők szerkesztése</strong> módot, majd annál az első mondatnál, amelynek már a narrátorhoz kell tartoznia, válaszd a <strong>Nincs beszélő / narráció</strong> értéket. A csúszkával vagy a plusz/mínusz gombokkal jelöld ki a narrátorhoz visszaadandó teljes tartományt, majd mentsd a módosítást. A sikeresen átállított szövegnél ezután a <strong>Narráció</strong> címke jelenik meg.</p></div>
         </details>
         <details>
           <summary>A nyelvi modell egy teljes megszólalást narrációnak hagyott</summary>

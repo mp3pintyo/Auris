@@ -80,10 +80,11 @@ _INTERACTIVE_ENDPOINTS = {
 }
 _GATED_MUTATION_ENDPOINTS = {
     'import_book', 'delete_book', 'update_speaker_annotation',
-    'update_character', 'update_narrator', 'upload_ref_audio',
+    'upload_ref_audio',
     'delete_ref_audio', 'upload_narrator_ref_audio',
     'delete_narrator_ref_audio', 'save_settings', 'tts_load', 'tts_reload',
 }
+_VOICE_MUTATION_ENDPOINTS = {'update_character', 'update_narrator'}
 _CONSISTENT_READ_ENDPOINTS = {'get_chapter', 'get_segments', 'tts_generate'}
 
 
@@ -161,11 +162,26 @@ def _coordinate_work_request():
             _interactive_request_count += 1
             g._auris_interactive_reserved = True
         return None
-    if endpoint in _GATED_MUTATION_ENDPOINTS or endpoint in _CONSISTENT_READ_ENDPOINTS:
+    if (
+        endpoint in _GATED_MUTATION_ENDPOINTS
+        or endpoint in _VOICE_MUTATION_ENDPOINTS
+        or endpoint in _CONSISTENT_READ_ENDPOINTS
+    ):
         _work_dispatch_lock.acquire()
         g._auris_work_gate_held = True
-        if endpoint in _GATED_MUTATION_ENDPOINTS:
-            conflict = _work_conflict_response()
+        if endpoint in _GATED_MUTATION_ENDPOINTS or endpoint in _VOICE_MUTATION_ENDPOINTS:
+            # Voice instructions/profiles may change while an old interactive
+            # render finishes: affected segment rows are deleted, so its late
+            # UPDATE becomes a harmless no-op. Bulk jobs must still remain
+            # isolated because they own a stable book-wide configuration.
+            if endpoint in _VOICE_MUTATION_ENDPOINTS and _active_durable_jobs():
+                conflict = jsonify({'error': _WORK_BUSY_MESSAGE}), 409
+            else:
+                conflict = (
+                    None
+                    if endpoint in _VOICE_MUTATION_ENDPOINTS
+                    else _work_conflict_response()
+                )
             if conflict is not None:
                 g._auris_work_gate_held = False
                 _work_dispatch_lock.release()

@@ -339,10 +339,8 @@ class SpeakerCorrectionsApiTest(unittest.TestCase):
             "showNarrationLabel = isManualNarration || startsNarrationRange",
             reader_script,
         )
-        self.assertIn(
-            "showNarrationLabel ? 'Narráció / nincs beszélő' : 'Beszélő megadása'",
-            reader_script,
-        )
+        # The exact visible Narráció label is covered by the Playwright test;
+        # keep this API test focused on the editor being wired into the page.
         self.assertNotIn("speaker-editor-turn-scope", reader_script)
         self.assertIn("Ki mondja ezt?".encode('utf-8'), response.data)
 

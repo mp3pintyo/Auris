@@ -418,10 +418,10 @@ def jobs_page():
     return render_template("jobs.html")
 
 
-def _assert_idle(bid=None):
+def _assert_idle(bid=None, *, allow_interactive=False):
     import app as application
 
-    if getattr(application, "_interactive_request_count", 0):
+    if not allow_interactive and getattr(application, "_interactive_request_count", 0):
         raise ValueError(
             "Éppen hang készül. Állítsd le a lejátszást, majd próbáld újra."
         )
@@ -457,7 +457,13 @@ def protect_running_work():
         application._work_dispatch_lock.acquire()
         g.experience_work_lock = True
         if mutation:
-            _assert_idle()
+            _assert_idle(
+                allow_interactive=request.endpoint in {
+                    "experience.profiles",
+                    "experience.remove_profile",
+                    "experience.use_profile",
+                }
+            )
 
 
 @bp.teardown_request

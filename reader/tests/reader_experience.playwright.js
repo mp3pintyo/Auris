@@ -16,12 +16,18 @@ async function openReader(browser, viewport) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   const consoleErrors = [];
+  const generatedSegments = [];
+  page.on('request', request => {
+    if (request.method() === 'POST' && request.url().includes('/api/tts/generate')) {
+      generatedSegments.push(request.url());
+    }
+  });
   page.on('console', message => {
     if (message.type() === 'error') consoleErrors.push(message.text());
   });
   await page.goto(readerUrl, { waitUntil: 'domcontentloaded' });
   await page.locator('#chapter-content .sentence').first().waitFor({ timeout: 20_000 });
-  return { context, page, consoleErrors };
+  return { context, page, consoleErrors, generatedSegments };
 }
 
 (async () => {
@@ -34,6 +40,12 @@ async function openReader(browser, viewport) {
     const { page } = desktop;
     assert.match(await page.title(), /Auris/);
     assert.ok((await page.locator('#chapter-content').innerText()).trim().length > 20);
+    await page.waitForTimeout(250);
+    assert.deepEqual(
+      desktop.generatedSegments,
+      [],
+      'Opening a chapter must not start background speech generation before Play',
+    );
 
     const speakerLabels = page.locator('.speaker-label');
     if (!await speakerLabels.count()) {
@@ -92,7 +104,7 @@ async function openReader(browser, viewport) {
       applySpeakerLabelPreference();
     });
     assert.equal(
-      (await page.locator('.sentence[data-idx="2"] .speaker-label').innerText()).trim(),
+      (await page.locator('.sentence[data-idx="2"] .speaker-label-text').innerText()).trim(),
       'Narráció',
     );
     await page.evaluate(() => localStorage.removeItem('showSpeakerLabels'));

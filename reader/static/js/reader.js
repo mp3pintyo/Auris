@@ -341,8 +341,6 @@ async function openChapter(chapterId, options = {}) {
     behavior: 'auto',
     save: persistOpened,
   });
-  _startBackgroundBuffer(startIdx);
-  _prewarmChapter();
   updateMediaSessionMetadata(ch.title);
   if (window.matchMedia('(max-width: 768px)').matches) setTOCOpen(false);
 }
@@ -410,9 +408,9 @@ function renderContent(segs) {
            onblur="clearStoredSpeakerRangePreview()"
            onclick="event.stopPropagation();openSpeakerEditor(${i})">
            <span aria-hidden="true">${seg.speaker_source === 'manual' ? '&#10003;' : '&#10022;'}</span>
-           ${esc(seg.character_name || (
-             showNarrationLabel ? 'Narráció / nincs beszélő' : 'Beszélő megadása'
-           ))}
+           <span class="speaker-label-text">${esc(seg.character_name || (
+             showNarrationLabel ? 'Narráció' : 'Beszélő megadása'
+           ))}</span>
          </button>`
       : '';
     const inlineEditor = canEditSpeaker
@@ -1998,7 +1996,13 @@ function esc(s) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 window.addEventListener('scroll', scheduleViewportProgressUpdate, { passive: true });
-window.addEventListener('pagehide', () => flushProgressSave({ useBeacon: true, force: true }));
+window.addEventListener('pagehide', () => {
+  flushProgressSave({ useBeacon: true, force: true });
+  _bufferGenId++;
+  for (const controller of _ttsAbortControllers.values()) controller.abort();
+  _ttsAbortControllers.clear();
+  navigator.sendBeacon('/api/tts/cancel');
+});
 window.addEventListener('beforeunload', () => flushProgressSave({ useBeacon: true, force: true }));
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {

@@ -83,8 +83,22 @@ def main() -> None:
     local_only = bool(init.get("local_only"))
     model_seed = int(init.get("model_seed", 123))
     common = {"trust_remote_code": True, "local_files_only": local_only}
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    if torch.cuda.is_available():
+        device = "cuda"
+        dtype = torch.bfloat16
+    elif getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+        # Apple Silicon (Metal). float32 by default: bfloat16 audibly clips
+        # sentence onsets on MPS (verified on M-series hardware).
+        # Set AURIS_MPS_DTYPE=bf16 to trade quality for speed.
+        device = "mps"
+        dtype = (
+            torch.bfloat16
+            if os.environ.get("AURIS_MPS_DTYPE", "").lower() in {"bf16", "bfloat16"}
+            else torch.float32
+        )
+    else:
+        device = "cpu"
+        dtype = torch.float32
     # The adapter reports audio_head.weight as missing and initializes it while
     # from_pretrained() constructs the model. Set a stable initialization seed
     # before loading so repeated worker starts remain reproducible.
@@ -95,8 +109,8 @@ def main() -> None:
     model = AutoModelForCausalLM.from_pretrained(
         source, dtype=dtype, **common
     ).eval()
-    if device == "cuda":
-        model = model.to("cuda")
+    if device != "cpu":
+        model = model.to(device)
     # Keep the same loading sequence as source/higgs-tts-3-4b/app.py. The
     # Transformers loader applies the model's own weight-tying rules, so an
     # additional generic tie_weights() call is not needed.

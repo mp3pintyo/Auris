@@ -12,6 +12,22 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+## [3.2.4] - 2026-09-10
+
+### Magyar
+
+#### Kiadási folyamat
+
+- Az Auris dokumentációs és kiadási skillje mostantól a projekt `.agents/skills` könyvtárában, a forráskóddal együtt verziózva biztosítja, hogy minden feltöltött változás teljes, ellenőrzött GitHub Release kiadással záruljon.
+- A kiadási útmutató kötelező tesztparancsai mostantól a helyes `reader` munkakönyvtárból futnak, így az alkalmazásmodulok importálhatók.
+
+### English
+
+#### Release process
+
+- The Auris documentation and release skill now lives in the project `.agents/skills` directory and is versioned with the source, ensuring every pushed change concludes with a complete, verified GitHub Release.
+- The required test commands in the release guide now run from the correct `reader` working directory so application modules can be imported.
+
 ## [3.2.3] - 2026-09-10
 
 ### Magyar

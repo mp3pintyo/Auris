@@ -1,0 +1,4 @@
+interface:
+  display_name: "Auris Docs and Release"
+  short_description: "Keeps Auris docs and releases complete"
+  default_prompt: "Use $auris-update-docs to review this Auris change, update its documentation and changelog, then complete and verify the versioned GitHub Release."

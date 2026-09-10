@@ -54,12 +54,12 @@ reader\.venv\Scripts\python.exe scripts\release.py notes --version X.Y.Z
 
 ## Kötelező ellenőrzések
 
-A repository gyökeréből:
+A `reader` könyvtárból:
 
 ```powershell
-reader\.venv\Scripts\python.exe -m unittest discover -s reader\tests -p "test_*.py"
-node --test reader\tests\reader_experience.node.test.js reader\tests\voice_studio.node.test.js
-reader\.venv\Scripts\python.exe -m pip check
+.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
+node --test tests\reader_experience.node.test.js tests\voice_studio.node.test.js
+.venv\Scripts\python.exe -m pip check
 ```
 
 Felületet érintő változásnál a helyi Playwright-ellenőrzésnek is sikeresnek
@@ -157,12 +157,12 @@ reader\.venv\Scripts\python.exe scripts\release.py notes --version X.Y.Z
 
 ## Required checks
 
-Run from the repository root:
+Run from the `reader` directory:
 
 ```powershell
-reader\.venv\Scripts\python.exe -m unittest discover -s reader\tests -p "test_*.py"
-node --test reader\tests\reader_experience.node.test.js reader\tests\voice_studio.node.test.js
-reader\.venv\Scripts\python.exe -m pip check
+.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
+node --test tests\reader_experience.node.test.js tests\voice_studio.node.test.js
+.venv\Scripts\python.exe -m pip check
 ```
 
 For UI changes, local Playwright verification must also pass with a screenshot

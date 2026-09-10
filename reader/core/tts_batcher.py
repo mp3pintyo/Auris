@@ -98,39 +98,46 @@ class InteractiveTTSBatcher:
                 for call in batch:
                     self._finish(call, error=error)
             else:
-                returned: list[dict] | None = None
+                # The first arrival is the segment closest to playback.  A
+                # large model batch only returns after every sentence has been
+                # synthesized, which can leave the player silent for a minute.
+                # Release that latency-sensitive segment first, then retain
+                # batching throughput for the remaining look-ahead requests.
+                priority_batches = [batch] if len(batch) == 1 else [batch[:1], batch[1:]]
+                for work_batch in priority_batches:
+                    returned: list[dict] | None = None
 
-                def on_item(index: int, result: dict) -> None:
-                    if 0 <= index < len(batch):
-                        self._finish(batch[index], result=result)
+                    def on_item(index: int, result: dict) -> None:
+                        if 0 <= index < len(work_batch):
+                            self._finish(work_batch[index], result=result)
 
-                try:
-                    returned = self._generate_many(
-                        [call.item for call in batch],
-                        on_item=on_item,
-                    )
-                    # Engines are expected to invoke on_item, but accepting the
-                    # returned list keeps the coordinator compatible with
-                    # simpler engines and test doubles.
-                    for index, call in enumerate(batch):
-                        if (
-                            not call.event.is_set()
-                            and returned is not None
-                            and index < len(returned)
-                        ):
-                            self._finish(call, result=returned[index])
-                except Exception as exc:
-                    for call in batch:
-                        self._finish(call, error=exc)
-
-                for call in batch:
-                    if not call.event.is_set():
-                        self._finish(
-                            call,
-                            error=RuntimeError(
-                                "Interactive TTS batch did not complete this segment."
-                            ),
+                    try:
+                        returned = self._generate_many(
+                            [call.item for call in work_batch],
+                            on_item=on_item,
                         )
+                        # Engines are expected to invoke on_item, but accepting
+                        # the returned list keeps the coordinator compatible
+                        # with simpler engines and test doubles.
+                        for index, call in enumerate(work_batch):
+                            if (
+                                not call.event.is_set()
+                                and returned is not None
+                                and index < len(returned)
+                            ):
+                                self._finish(call, result=returned[index])
+                    except Exception as exc:
+                        for call in work_batch:
+                            self._finish(call, error=exc)
+
+                    for call in work_batch:
+                        if not call.event.is_set():
+                            self._finish(
+                                call,
+                                error=RuntimeError(
+                                    "Interactive TTS batch did not complete this segment."
+                                ),
+                            )
 
             with self._lock:
                 for call in batch:

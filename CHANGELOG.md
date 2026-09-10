@@ -12,6 +12,20 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-09-10
+
+### Magyar
+
+#### Javítva
+
+- A lejátszás közben szükséges következő TTS-szegmens nem várja meg a teljes előtöltési batch befejezését, így a hosszú GPU-generálás nem állítja meg a hangot.
+
+### English
+
+#### Fixed
+
+- The next TTS segment needed during playback no longer waits for the entire look-ahead batch, so long GPU generation does not stop the audio.
+
 ## [3.2.0] - 2026-09-10
 
 ### Magyar

@@ -12,6 +12,40 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+## [3.2.3] - 2026-09-10
+
+### Magyar
+
+#### Változott
+
+- Az OmniVoice GPU-gyorsítás automatikus módja NVIDIA CUDA alatt CUDA Graphot, AMD ROCm, Apple MPS és CPU alatt optimalizált PyTorch útvonalat választ, és a beállításokban a tényleges gyorsítóeszköz jelenik meg.
+- A CUDA Graph gyorsítótár biztonságosabban kezeli a változó tensoralakokat és sikertelen capture esetén automatikusan visszaáll az optimalizált PyTorch útvonalra.
+
+#### Javítva
+
+- A változó hosszúságú hangoknál megszűnt a költséges cuDNN-algoritmuskeresés: a mért RTX 3090-es konfiguráción az első négyes OmniVoice-köteg 27,62 másodperc helyett 2,53 másodperc alatt készült el, változatlan 16 dekódolási lépéssel.
+- A telepítő felismeri az új NVIDIA `CUDA UMD Version` kimenetet, megőrzi a működő AMD ROCm PyTorch-környezetet, és Apple Silicon gépen helyesen jelzi az MPS gyorsítást.
+
+#### Hozzáadva
+
+- Megismételhető, gyorsítótár nélküli OmniVoice teljesítménymérő készült hangtervezéshez és hangklónozáshoz, JSON eredményekkel és WAV mintákkal.
+
+### English
+
+#### Changed
+
+- OmniVoice automatic GPU acceleration now selects CUDA Graph on NVIDIA CUDA and optimized PyTorch on AMD ROCm, Apple MPS, and CPU, while Settings reports the actual acceleration device.
+- The CUDA Graph cache now handles varying tensor shapes safely and automatically falls back to optimized PyTorch when graph capture fails.
+
+#### Fixed
+
+- Costly cuDNN algorithm searches are disabled for variable-length audio: on the measured RTX 3090 configuration, the first four-item OmniVoice batch dropped from 27.62 seconds to 2.53 seconds with the same 16 decoding steps.
+- The installer recognizes the newer NVIDIA `CUDA UMD Version` output, preserves a working AMD ROCm PyTorch environment, and correctly reports MPS acceleration on Apple Silicon.
+
+#### Added
+
+- Added a reproducible cache-free OmniVoice benchmark for voice design and voice cloning, with JSON results and WAV samples.
+
 ## [3.2.2] - 2026-09-10
 
 ### Magyar

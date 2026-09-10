@@ -12,6 +12,48 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-09-10
+
+### Magyar
+
+#### Hozzáadva
+
+- DRM-mentes PRC/MOBI könyvek közvetlen importja metaadat-, borító-, tartalomjegyzék- és számozottjelenet-felismeréssel.
+- Magyar számok, sorszámok, dátumok, időpontok, százalékok, hőmérsékletek és ragos számok nyelvhelyes felolvasási normalizálása OmniVoice és Higgs alatt.
+- Magyar, betűvel írt fejezet- és részcímek, valamint névvel jelölt bevezető és záró szakaszok felismerése.
+- Szabadon megadható hangpróbaszöveg és a narrátor- vagy szereplőpróba letöltése WAV-ként.
+- Referenciahangot, átiratot és hangutasítást együtt hordozó `.aurisvoice` hangprofil-export és -import.
+- A tárhelylapon megjelenő hangcache-statisztika és biztonságos árva-cache takarítás.
+
+#### Javítva
+
+- A fejezet előtti valódi bevezető próza nem vész el rövid címoldalként.
+- Az olvasó gyorsbillentyűi nem fogják el a Ctrl, Cmd vagy Alt billentyűkombinációkat.
+
+#### Közreműködők
+
+- Az átvett és a jelenlegi Aurishoz átdolgozott fejlesztések eredeti szerzői: [@flc](https://github.com/flc/Auris) és [@snokris](https://github.com/snokris/Auris-Studio).
+
+### English
+
+#### Added
+
+- Direct import for DRM-free PRC/MOBI books with metadata, cover, table-of-contents, and numbered-scene detection.
+- Grammatically correct Hungarian speech normalization for cardinals, ordinals, dates, times, percentages, temperatures, and suffixed numbers in OmniVoice and Higgs.
+- Detection of spelled-out Hungarian chapter and part headings, plus named opening and closing sections.
+- Custom voice-preview text and WAV downloads for narrator and character previews.
+- `.aurisvoice` profile export and import that keeps reference audio, transcript, and voice instruction together.
+- Audio-cache statistics and safe orphan-cache cleanup on the Storage page.
+
+#### Fixed
+
+- Real introductory prose before the first chapter is no longer discarded as a short title page.
+- Reader shortcuts no longer intercept Ctrl, Cmd, or Alt key combinations.
+
+#### Contributors
+
+- Original authors of the imported and Auris-adapted work: [@flc](https://github.com/flc/Auris) and [@snokris](https://github.com/snokris/Auris-Studio).
+
 ## [3.1.3] - 2026-09-10
 
 ### Magyar

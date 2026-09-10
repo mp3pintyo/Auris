@@ -27,7 +27,7 @@ from core.tts_router import TTSEngineRouter
 from core import characters as char_module
 from core import llm_characters
 from core import enrichment, exporter, jobs, structure, settings as app_settings
-from core.parser import docx_parser, epub_parser, pdf_parser, txt_parser
+from core.parser import docx_parser, epub_parser, pdf_parser, prc_parser, txt_parser
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(name)s: %(message)s')
@@ -694,7 +694,7 @@ def import_book():
         return jsonify({
             'error': 'Ez egy régi .doc fájl. Nyisd meg Wordben, és mentsd .docx formátumban.'
         }), 400
-    if ext not in ('epub', 'pdf', 'docx', 'txt'):
+    if ext not in ('epub', 'pdf', 'docx', 'txt', 'prc', 'mobi'):
         return jsonify({'error': f'Unsupported format: {ext}'}), 400
 
     detection_config = app_settings.load()
@@ -738,6 +738,8 @@ def import_book():
             data = pdf_parser.parse(dest)
         elif ext == 'docx':
             data = docx_parser.parse(dest)
+        elif ext in ('prc', 'mobi'):
+            data = prc_parser.parse(dest)
         else:
             data = txt_parser.parse(dest)
     except Exception as e:
@@ -1337,8 +1339,15 @@ def book_cover(book_id):
     if not row or not row['cover_b64']:
         return '', 204
     img_bytes = base64.b64decode(row['cover_b64'])
-    ext = 'png' if row['file_type'] == 'pdf' else 'jpeg'
-    return app.response_class(img_bytes, mimetype=f'image/{ext}')
+    if img_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
+        media_type = 'image/png'
+    elif img_bytes.startswith((b'GIF87a', b'GIF89a')):
+        media_type = 'image/gif'
+    elif img_bytes.startswith(b'BM'):
+        media_type = 'image/bmp'
+    else:
+        media_type = 'image/jpeg'
+    return app.response_class(img_bytes, mimetype=media_type)
 
 
 @app.route('/api/books/<int:book_id>', methods=['DELETE'])
@@ -2242,6 +2251,18 @@ def serve_audio(cache_key):
         if not restored or not restored.is_relative_to((Path(UPLOAD_DIR) / 'restored').resolve()) or not restored.is_file():
             return '', 404
         path = str(restored)
+    requested_name = request.args.get('download')
+    if requested_name is not None:
+        cleaned = ''.join(
+            char for char in str(requested_name)
+            if char.isalnum() or char in {' ', '-', '_'}
+        ).strip()[:60]
+        return send_file(
+            path,
+            mimetype='audio/wav',
+            as_attachment=True,
+            download_name=f'{cleaned or "proba"}.wav',
+        )
     return send_file(path, mimetype='audio/wav')
 
 

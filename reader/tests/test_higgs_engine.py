@@ -76,6 +76,31 @@ class HiggsPromptTests(unittest.TestCase):
             )
         self.assertEqual(prompt, "Szia, ez egy rövid magyar teszt.")
 
+    def test_raw_prompt_expands_hungarian_numbers(self):
+        engine = HiggsTTSEngine()
+        with patch(
+            "core.higgs_engine._setting",
+            side_effect=lambda key, default: (
+                "raw" if key == "higgs_prompt_mode" else default
+            ),
+        ):
+            prompt = engine._prompt(
+                "Összesen 16000 forint volt.", None, 1.0, "hu", True
+            )
+        self.assertIn("tizenhatezer", prompt)
+        self.assertNotIn("16000", prompt)
+
+    def test_raw_prompt_leaves_numbers_when_normalization_off(self):
+        engine = HiggsTTSEngine()
+        with patch(
+            "core.higgs_engine._setting",
+            side_effect=lambda key, default: (
+                "raw" if key == "higgs_prompt_mode" else default
+            ),
+        ):
+            prompt = engine._prompt("16000 forint", None, 1.0, "hu", False)
+        self.assertEqual(prompt, "16000 forint")
+
     def test_hungarian_legacy_pdf_accents_are_repaired(self):
         self.assertEqual(
             _language_cleanup("A bûnözõ õrzi a fõbejáratot.", "hu"),

@@ -122,12 +122,25 @@ function targetPayload(bookId, charId) {
   return payload;
 }
 
-function previewPayload(instruct, refText) {
+function previewPayload(instruct, refText, text = HUNGARIAN_PREVIEW_TEXT) {
   return {
     instruct,
     ref_text: refText,
-    text: HUNGARIAN_PREVIEW_TEXT,
+    text: String(text || "").trim() || HUNGARIAN_PREVIEW_TEXT,
   };
+}
+
+function currentPreviewText() {
+  return document.getElementById("voice-preview-text")?.value || HUNGARIAN_PREVIEW_TEXT;
+}
+
+function downloadAudio(audioUrl, name) {
+  const link = document.createElement("a");
+  const separator = audioUrl.includes("?") ? "&" : "?";
+  link.href = `${audioUrl}${separator}download=${encodeURIComponent(name)}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 }
 
 async function requestJson(url, options = {}) {
@@ -337,6 +350,7 @@ function renderCharacters(characters, filterActive) {
           <div class="char-card-footer">
             <span class="instruct-preview" id="ins-${character.id}">${esc(character.instruct)}</span>
             <button class="btn btn-sm btn-ghost" type="button" onclick="previewChar(${character.id})">▶ Magyar próba</button>
+            <button class="btn btn-sm btn-ghost" type="button" onclick="downloadChar(${character.id})">↓ Próba mentése</button>
             <button class="btn btn-sm btn-primary" type="button" onclick="saveChar(${character.id})">Mentés</button>
           </div>
         </details>
@@ -493,6 +507,7 @@ async function previewChar(charId) {
     const payload = previewPayload(
       updateInstructPreview(charId),
       document.getElementById(`ref-text-${charId}`)?.value.trim() || "",
+      currentPreviewText(),
     );
     const data = await requestJson(`/api/books/${BOOK_ID}/characters/${charId}/preview`, {
       method: "POST",
@@ -506,11 +521,60 @@ async function previewChar(charId) {
   }
 }
 
+function exportSelectedProfile() {
+  const profileId = Number(document.getElementById("profile-narrator")?.value);
+  if (!profileId) {
+    alert("Előbb válassz egy mentett hangprofilt.");
+    return;
+  }
+  window.location.href = `/api/voice-profiles/${profileId}/export`;
+}
+
+async function importVoiceProfile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const imported = await requestJson("/api/voice-profiles/import", {
+      method: "POST",
+      body: form,
+    });
+    await loadProfiles(imported.id);
+    alert(`A(z) „${imported.name}” hangprofil importálva.`);
+  } catch (error) {
+    showError("A hangprofil importálása sikertelen", error);
+  } finally {
+    event.target.value = "";
+  }
+}
+
+async function downloadChar(charId) {
+  try {
+    const payload = previewPayload(
+      updateInstructPreview(charId),
+      document.getElementById(`ref-text-${charId}`)?.value.trim() || "",
+      currentPreviewText(),
+    );
+    const data = await requestJson(`/api/books/${BOOK_ID}/characters/${charId}/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const name = loadedCharacters.find((item) => Number(item.id) === Number(charId))?.name
+      || `szereplo-${charId}`;
+    downloadAudio(data.audio_url, `${name}-proba`);
+  } catch (error) {
+    showError("A próbahang mentése sikertelen", error);
+  }
+}
+
 async function previewNarrator() {
   try {
     const payload = previewPayload(
       updateNarratorPreview(),
       document.getElementById("narrator-ref-text")?.value.trim() || "",
+      currentPreviewText(),
     );
     const data = await requestJson(`/api/books/${BOOK_ID}/characters/narrator/preview`, {
       method: "POST",
@@ -521,6 +585,24 @@ async function previewNarrator() {
     await previewAudio.play();
   } catch (error) {
     showError("A próbahang sikertelen", error);
+  }
+}
+
+async function downloadNarrator() {
+  try {
+    const payload = previewPayload(
+      updateNarratorPreview(),
+      document.getElementById("narrator-ref-text")?.value.trim() || "",
+      currentPreviewText(),
+    );
+    const data = await requestJson(`/api/books/${BOOK_ID}/characters/narrator/preview`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    downloadAudio(data.audio_url, "narrator-proba");
+  } catch (error) {
+    showError("A próbahang mentése sikertelen", error);
   }
 }
 
@@ -610,6 +692,7 @@ async function removeNarratorRef() {
 function initializeVoiceStudio() {
   initNarratorControls();
   document.getElementById("narrator-preview-btn")?.addEventListener("click", previewNarrator);
+  document.getElementById("narrator-download-btn")?.addEventListener("click", downloadNarrator);
   document.getElementById("chapter-character-filter")?.addEventListener("change", loadCharacters);
   document.getElementById("character-search")?.addEventListener("input", () => {
     const active = Boolean(document.getElementById("chapter-character-filter")?.checked && CURRENT_CHAPTER_ID);
@@ -622,6 +705,9 @@ if (studioDocument) {
   Object.assign(studioWindow, {
     applySelectedProfile,
     deleteSelectedProfile,
+    downloadChar,
+    exportSelectedProfile,
+    importVoiceProfile,
     loadNarratorRefText,
     loadRefText,
     previewChar,

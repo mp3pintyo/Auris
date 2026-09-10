@@ -91,7 +91,7 @@ function renderBooks() {
       `<div><span class="eyebrow">Ahol abbahagytad</span><h2>${esc(recent.title)}</h2><p>${esc(recent.progress_chapter_title || "Mentett hely")}</p></div><a class="btn btn-primary" href="/reader/${recent.id}">Folytatom</a>`;
   if (!books.length) {
     $("book-grid").innerHTML =
-      `<div class="empty-library"><p>${libraryBooks.length ? "Nincs a szűrésnek megfelelő könyv." : "Válaszd ki az első történeted."}</p><p class="sub">EPUB, PDF, DOCX, TXT vagy webcikk — a tartalmat import előtt ellenőrizheted.</p></div>`;
+      `<div class="empty-library"><p>${libraryBooks.length ? "Nincs a szűrésnek megfelelő könyv." : "Válaszd ki az első történeted."}</p><p class="sub">EPUB, PDF, DOCX, TXT, PRC/MOBI vagy webcikk — a tartalmat import előtt ellenőrizheted.</p></div>`;
     return;
   }
   const labels = {

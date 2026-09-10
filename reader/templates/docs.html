@@ -90,6 +90,7 @@
           <ul class="docs-check-list">
             <li><strong>EPUB, PDF, DOCX, TXT és webcikk import</strong> szerkeszthető előnézettel, fejezetlistával és narrációs mód választásával. A DOCX dokumentumok Word-címsorstílusai fejezethatárként szolgálnak.</li>
             <li>A könyvtár cím, szerző és sorozat szerint kereshető; állapot és gyűjtemény alapján szűrhető.</li>
+            <li>Az <strong>Adatok</strong> ablakban a cím, szerző és nyelv is javítható. A nyelv módosítása megerősítés után törli a könyv régi hangjait, hogy az új kiejtéssel készüljenek el.</li>
             <li>Fejezetes tartalomjegyzék, olvasási időbecslés és fejezet-progressz.</li>
             <li>Automatikusan mentett olvasási pozíció és folytatás a Könyvtár oldalról.</li>
             <li>Könyvjelzők létrehozása, listázása, megnyitása és törlése.</li>
@@ -513,6 +514,7 @@
             <li><strong>Normalize numbers:</strong> könyvszövegnél általában bekapcsolva.</li>
             <li><strong>Referencia:</strong> azonos nyelvű minta adja a legsemlegesebb kiejtést.</li>
             <li>Keresztnyelvű referencia átviheti a forráshang akcentusát.</li>
+            <li>Apple Silicon gépen az OmniVoice az MPS gyorsítást használja, alapból FP32 pontossággal. Az <code>AURIS_MPS_DTYPE=bf16</code> gyorsabb lehet, de ronthatja a mondatkezdések hangját.</li>
           </ul>
         </div>
       </div>
@@ -566,7 +568,7 @@
             <li>A hivatalos képességeket a Transformers-kompatibilis community adapterrel futtatja helyben.</li>
             <li>Külön <code>.higgs_runtime</code> környezetben használ Transformers 5.13-at.</li>
             <li>Nem ütközik az OmniVoice saját Transformers-verziójával.</li>
-            <li>CUDA esetén BF16, CPU-n FP32 betöltés; a modell egy külön worker processzben él.</li>
+            <li>CUDA esetén BF16, Apple Silicon MPS-en alapból FP32, CPU-n FP32 betöltés; a modell egy külön worker processzben él.</li>
             <li>A Stop megszakítja a futó processzt, majd cache-ből újratölti a modellt.</li>
             <li>A referenciaszöveg a mentett Voice Studio rekordból automatikusan továbbadódik.</li>
           </ul>
@@ -756,7 +758,7 @@
         <div>
           <h3>Cache és konzisztencia</h3>
           <ul class="docs-check-list">
-            <li>A kész hang cache-kulcsa tartalmazza a motort, szöveget, hangot, átiratot és generálási paramétereket.</li>
+            <li>A kész hang cache-kulcsa tartalmazza a motort, szöveget, hangot, átiratot, generálási paramétereket, valamint az OmniVoice tényleges eszközét és adattípusát.</li>
             <li>Referencia-, voice-, motor- vagy releváns beállításváltás után nem használható a régi szegmenshang.</li>
             <li>A WAV cache atomikusan készül, így félbehagyott írás nem válik érvényes hanggá.</li>
             <li>Export alatt az interaktív generálás vár, így nem versenyez ugyanazért a TTS motorért.</li>

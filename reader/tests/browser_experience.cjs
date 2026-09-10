@@ -153,6 +153,9 @@ const path = require("node:path");
     await page.goto(base + "/settings#setup");
     await page.locator("#settings-setup").waitFor({ state: "visible" });
     await shot("06-setup");
+    await page.goto(base + "/docs");
+    await page.getByRole("heading", { name: "Auris dokumentáció", exact: true }).waitFor();
+    await shot("06b-docs");
     await page.goto(base + "/jobs");
     await page
       .getByRole("heading", { name: "Feladatok", exact: true })

@@ -593,9 +593,17 @@ class TTSEngine:
         self._batch_size_cap: int | None = None
         self._accel_status: dict = {"effective": "off", "message": ""}
         self._generation_stream = None
+        # Device and dtype actually used for the loaded model, as a short tag
+        # that feeds the audio cache key. Empty until the model is loaded.
+        self._render_variant = ""
         os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
         os.makedirs(VOICE_REF_DIR, exist_ok=True)
         os.makedirs(VOICE_PROMPT_DIR, exist_ok=True)
+
+    @property
+    def render_variant(self) -> str:
+        """Device/dtype tag of the loaded model, empty before it loads."""
+        return self._render_variant
 
     def status(self) -> dict:
         resolved_path = self.model_path or _model_path_from_settings()
@@ -746,6 +754,9 @@ class TTSEngine:
                 )
             else:
                 dtype = torch.float32
+            # Renders from different devices or dtypes are not interchangeable,
+            # so the cache key has to tell them apart.
+            self._render_variant = f"{device}/{dtype}"
             log.info(
                 "Loading OmniVoice from %s on %s (%s) ...",
                 self.model_path,
@@ -852,12 +863,17 @@ class TTSEngine:
         language: str | None = None,
         normalize_text: bool = False,
         num_step: int = DEFAULT_TTS_NUM_STEP,
+        variant: str = "",
     ) -> str:
         payload = (
             f"{text}|{instruct}|{ref_audio}|{ref_text}|{speed:.2f}|"
             f"{language or ''}|nt={int(bool(normalize_text))}|ns={int(num_step)}|"
             f"audio-cache-v={AUDIO_CACHE_FORMAT_VERSION}"
         )
+        # Appended only when supplied, so a caller that passes no variant keeps
+        # the historical key and existing cache entries stay valid.
+        if variant:
+            payload += f"|rv={variant}"
         return hashlib.md5(payload.encode("utf-8")).hexdigest()
 
     @staticmethod
@@ -1245,6 +1261,7 @@ class TTSEngine:
             language=language,
             normalize_text=normalize_text,
             num_step=num_step,
+            variant=self._render_variant,
         )
         path = self.cache_path(key)
 
@@ -1363,6 +1380,7 @@ class TTSEngine:
                 language=language,
                 normalize_text=normalize_text,
                 num_step=num_step,
+                variant=self._render_variant,
             )
             path = self.cache_path(key)
 

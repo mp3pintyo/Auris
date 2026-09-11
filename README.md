@@ -141,8 +141,22 @@ attribution, and voice cloning requires the speaker's consent. Review the
    `2-6`, or a comma-separated expression such as `1,3,7-10`. Choose WAV, MP3,
    or chaptered M4B and optionally ASS/SRT subtitles.
 
-Scanned or image-only PDFs need OCR before import; Auris does not include an OCR
-engine. Empty documents are rejected instead of creating unusable books.
+Scanned PDFs and images can use optional local Tesseract OCR from the library's
+import options, with an explicit recognition language (Hungarian: `hun`). Install
+Tesseract and the required language data separately. Native PDF text is retained;
+only pages without text are recognized. Optional Calibre `ebook-convert` adds
+AZW/AZW3, FB2, RTF, ODT, HTML, DOC and LRF import. Both tools are detected on PATH
+and in their standard Windows Program Files folders. Empty documents are rejected.
+
+M4B export now streams audio to disk, embeds cover art and extended book metadata,
+applies optional mastering, and verifies chapters/duration with ffprobe before
+publishing the finished file. Resume points include the time within a sentence
+and reset that offset when its audio variant changes.
+
+Daily/weekly library backups run while Auris is open, without audio cache. Configure
+retention (1–100) in Settings, download completed archives there, and inspect the
+last success/error. Missed runs catch up after startup; busy/failed attempts retry
+after five minutes. Only managed automatic archives are pruned after success.
 
 Library backups include managed sources, reference audio, bookmarks, progress,
 speaker corrections, pronunciation rules, and portable settings. API keys and

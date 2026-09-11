@@ -12,6 +12,36 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-09-11
+
+### Magyar
+
+#### Hozzáadva
+
+- Opcionális helyi Tesseract OCR magyar és többnyelvű felismeréssel, valamint Calibre-alapú AZW/AZW3, FB2, RTF, ODT, HTML, DOC és LRF import; eszközellenőrzés és import előtti szövegelőnézet.
+- Napi/heti könyvtármentés megőrzési szabállyal, letöltéssel, utolsó siker/hiba kijelzésével és kimaradt mentések pótlásával az Auris futása közben.
+- Bővebb könyvadatok: sorozatszám, leírás, kiadó és kiadási dátum; borító és könyvmetaadatok az M4B-fájlban.
+
+#### Változott
+
+- Az M4B-export kis hangblokkokkal, RF64 ideiglenes fájllal dolgozik, az egész könyv memóriába töltése helyett. Megszakítható feldolgozási fázisok, opcionális hangerő-kiegyenlítés és véglegesítés előtti ffprobe-ellenőrzés védi a kész exportot.
+- A lejátszás a mondaton belüli időpontot is menti; más hangváltozat esetén biztonságosan a mondat elejéről folytatódik.
+- A magyar súgó és a README az új funkciókat, az opcionális eszközök telepítését és a korlátokat is leírja.
+
+### English
+
+#### Added
+
+- Optional local Tesseract OCR with Hungarian/multilingual recognition and Calibre-backed AZW/AZW3, FB2, RTF, ODT, HTML, DOC and LRF import; tool detection and text preview before importing.
+- Daily/weekly library backups with retention, downloads, last-success/error status and catch-up while Auris is running.
+- Extended book metadata: series index, description, publisher and publication date; embedded cover art and book metadata in M4B files.
+
+#### Changed
+
+- M4B export writes bounded audio blocks to an RF64 temporary file instead of loading the whole book into memory. Cancellable processing stages, optional loudness mastering and ffprobe verification precede publication of the finished audio file.
+- Playback persists the time within a sentence and safely resets that offset when the audio variant changes.
+- Hungarian help and README describe the new workflows, optional tool installation and limits.
+
 ## [3.2.4] - 2026-09-10
 
 ### Magyar

@@ -45,13 +45,13 @@ def _ensure_readable_chapters(result: dict, *, web: bool = False) -> dict:
             )
         raise ValueError(
             "A dokumentumban nincs olvasható szövegréteg. Ha ez egy szkennelt "
-            "PDF, importálás előtt OCR-rel kell szövegfelismerést végezni rajta."
+            "PDF, engedélyezd az OCR szövegfelismerést, majd válaszd ki újra a fájlt."
         )
     result["chapters"] = readable
     return result
 
 
-def prepare_file(path) -> dict:
+def prepare_file(path, *, ocr=False, ocr_language='hun', calibre=False) -> dict:
     """Parse a local document and add a SHA-256 hash of its original bytes."""
     source = Path(path)
     if not source.is_file():
@@ -65,13 +65,24 @@ def prepare_file(path) -> dict:
         ".prc": prc_parser.parse,
         ".mobi": prc_parser.parse,
     }
-    parser = parsers.get(source.suffix.lower())
-    if parser is None:
+    from core import import_tools
+    ext = source.suffix.lower()
+    parser = parsers.get(ext)
+    if ocr and (ext == '.pdf' or ext in import_tools.IMAGE_EXTENSIONS):
+        result = import_tools.ocr_document(source, ocr_language)
+    elif ext in import_tools.CALIBRE_EXTENSIONS:
+        if not calibre:
+            raise ValueError('Ehhez a formátumhoz engedélyezd az opcionális Calibre-átalakítást.')
+        result = import_tools.convert_document(source)
+    elif parser is not None:
+        result = parser(str(source))
+    elif ext in import_tools.IMAGE_EXTENSIONS:
+        raise ValueError('Képfájlhoz engedélyezd az OCR szövegfelismerést.')
+    else:
         raise ValueError(
             "Nem támogatott fájltípus. Használj EPUB, PDF, DOCX, TXT, PRC vagy MOBI fájlt."
         )
 
-    result = parser(str(source))
     _ensure_readable_chapters(result)
     result["content_hash"] = _file_content_hash(source)
     return result

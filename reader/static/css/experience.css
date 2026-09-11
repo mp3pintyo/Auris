@@ -95,6 +95,9 @@ body.theme-amoled {
 .library-tools select,
 .experience-dialog input:not([type="radio"]):not([type="checkbox"]),
 .experience-dialog select,
+.experience-dialog textarea,
+.form-grid input:not([type="checkbox"]):not([type="radio"]),
+.form-grid select,
 .experience-form input,
 .experience-form select,
 .experience-form textarea {
@@ -107,6 +110,12 @@ body.theme-amoled {
   border-radius: 6px;
   font: inherit;
 }
+.experience-dialog textarea { resize: vertical; }
+#import-options summary { cursor: pointer; color: var(--accent); }
+#import-options p { margin: 14px 0; line-height: 1.6; color: var(--text2); }
+#import-options .check-row { flex-direction: row; align-items: flex-start; line-height: 1.6; }
+#import-options .check-row input { flex: 0 0 auto; margin-top: 4px; }
+#backup-schedule-status, #backup-schedule-files { overflow-wrap: anywhere; line-height: 1.6; }
 .experience-dialog {
   color: var(--text);
   background: var(--card);

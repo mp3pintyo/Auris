@@ -108,7 +108,7 @@ def _extract_loudnorm_measurements(stderr: str) -> dict:
     return measurements
 
 
-def _master_wav(input_path: str, output_path: str) -> tuple[bool, str | None]:
+def _master_wav(input_path: str, output_path: str, *, runner=None) -> tuple[bool, str | None]:
     """Apply gentle studio polish and two-pass EBU R128 loudness matching."""
     if not _ffmpeg_available():
         return False, 'FFmpeg is unavailable; studio mastering was skipped.'
@@ -120,7 +120,8 @@ def _master_wav(input_path: str, output_path: str) -> tuple[bool, str | None]:
     first_filter = (
         f'{_MASTERING_PRE_FILTERS},{loudnorm_base}:print_format=json'
     )
-    first = subprocess.run(
+    run = runner or subprocess.run
+    first = run(
         [
             'ffmpeg', '-hide_banner', '-nostats', '-y',
             '-i', input_path,
@@ -151,7 +152,7 @@ def _master_wav(input_path: str, output_path: str) -> tuple[bool, str | None]:
         f'offset={measured["target_offset"]}:'
         'linear=true:print_format=summary'
     )
-    second = subprocess.run(
+    second = run(
         [
             'ffmpeg', '-hide_banner', '-nostats', '-y',
             '-i', input_path,
@@ -159,6 +160,7 @@ def _master_wav(input_path: str, output_path: str) -> tuple[bool, str | None]:
             '-ar', str(SAMPLE_RATE),
             '-ac', '1',
             '-c:a', 'pcm_s16le',
+            '-rf64', 'auto',
             output_path,
         ],
         capture_output=True,
@@ -491,99 +493,13 @@ def _ffmetadata_value(value: str) -> str:
     return str(value or '').replace('\\', '\\\\').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#').replace('\n', ' ')
 
 
-def export_m4b(
-    book_title: str,
-    chapters_data: list[dict],
-    character_colors: dict | None = None,
-    *,
-    sub_fmt: str = 'none',
-    book_author: str = 'Unknown',
-) -> dict:
-    """Create one AAC M4B with seekable ffmpeg chapter metadata."""
-    if not chapters_data:
-        raise ValueError('This book has no chapters to export.')
-    if not _ffmpeg_available():
-        raise RuntimeError('FFmpeg is required for M4B export.')
-
-    output_dir = _book_export_dir(book_author, book_title)
-    os.makedirs(output_dir, exist_ok=True)
-    safe_book = _safe_name(book_title)
-    input_wav = os.path.join(output_dir, f'.{safe_book}.m4b-source.wav')
-    output_path = os.path.join(output_dir, f'{safe_book}.m4b')
-
-    arrays: list[np.ndarray] = []
-    metadata = [';FFMETADATA1', f'title={_ffmetadata_value(book_title)}', f'artist={_ffmetadata_value(book_author)}']
-    cursor_ms = 0
-    combined_segments: list[dict] = []
-    timeline_offset = 0.0
-    for index, chapter in enumerate(chapters_data):
-        chapter_timeline = build_timeline(chapter.get('segments') or [])
-        chapter_audio = _merge_wavs(chapter_timeline)
-        arrays.append(chapter_audio)
-        duration_ms = round(len(chapter_audio) / SAMPLE_RATE * 1000)
-        # The same short pause used between ordinary segments separates chapters.
-        pause_ms = round(DEFAULT_SEGMENT_PAUSE_SEC * 1000) if index + 1 < len(chapters_data) else 0
-        metadata.extend([
-            '[CHAPTER]',
-            'TIMEBASE=1/1000',
-            f'START={cursor_ms}',
-            f'END={cursor_ms + duration_ms + pause_ms}',
-            f'title={_ffmetadata_value(chapter.get("chapter_title") or f"Chapter {index + 1}")}',
-        ])
-        for segment in chapter_timeline:
-            combined_segments.append({
-                **segment,
-                't_start': segment['t_start'] + timeline_offset,
-                't_end': segment['t_end'] + timeline_offset,
-            })
-        cursor_ms += duration_ms + pause_ms
-        timeline_offset = cursor_ms / 1000
-        if pause_ms:
-            arrays.append(np.zeros(round(SAMPLE_RATE * pause_ms / 1000), dtype=np.float32))
-
-    sf.write(input_wav, np.concatenate(arrays), SAMPLE_RATE)
-    try:
-        completed = subprocess.run(
-            [
-                'ffmpeg', '-hide_banner', '-nostats', '-y',
-                '-i', input_wav,
-                '-f', 'ffmetadata', '-i', 'pipe:0',
-                '-map', '0:a', '-map_metadata', '1', '-map_chapters', '1',
-                '-c:a', 'aac', '-b:a', '192k', output_path,
-            ],
-            input='\n'.join(metadata) + '\n',
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            check=False,
-        )
-        if completed.returncode != 0:
-            detail = completed.stderr.strip().splitlines()[-1] if completed.stderr else 'unknown error'
-            raise RuntimeError(f'FFmpeg M4B export failed: {detail}')
-    finally:
-        if os.path.exists(input_wav):
-            os.remove(input_wav)
-
-    subtitle_path = None
-    actual_sub_fmt = 'none'
-    if sub_fmt != 'none':
-        actual_sub_fmt = 'ass' if sub_fmt == 'ass' else 'srt'
-        subtitle_path = os.path.join(output_dir, f'{safe_book}.{actual_sub_fmt}')
-        content = (
-            build_ass(combined_segments, character_colors or {}, book_title)
-            if actual_sub_fmt == 'ass'
-            else build_srt(combined_segments)
-        )
-        with open(subtitle_path, 'w', encoding='utf-8') as subtitle_file:
-            subtitle_file.write(content)
-
-    return {
-        'audio_path': output_path,
-        'subtitle_path': subtitle_path,
-        'audio_fmt': 'm4b',
-        'sub_fmt': actual_sub_fmt,
-        'chapter_count': len(chapters_data),
-    }
+def export_m4b(book_title, chapters_data, character_colors=None, *, sub_fmt='none',
+               book_author='Unknown', mastering=False, book_metadata=None,
+               on_progress=None, check_cancelled=None):
+    from core.m4b_export import export
+    return export(book_title, chapters_data, character_colors, sub_fmt=sub_fmt,
+                  book_author=book_author, mastering=mastering, book_metadata=book_metadata,
+                  on_progress=on_progress, check_cancelled=check_cancelled)
 
 
 def parse_chapter_selection(selection: str | None, chapter_count: int) -> list[int]:

@@ -11,6 +11,7 @@
         <a href="#workflow">Munkafolyamat</a>
         <a href="#speaker-review">Szereplők ellenőrzése</a>
         <a href="#llm-detection">Helyi LLM felismerés</a>
+        <a href="#import-tools">OCR és Calibre</a>
         <a href="#voices">Hangok és klónozás</a>
         <a href="#omnivoice">OmniVoice</a>
         <a href="#higgs">Higgs TTS 3</a>
@@ -93,7 +94,7 @@
             <li>A könyvtár cím, szerző és sorozat szerint kereshető; állapot és gyűjtemény alapján szűrhető.</li>
             <li>Az <strong>Adatok</strong> ablakban a cím, szerző és nyelv is javítható. A nyelv módosítása megerősítés után törli a könyv régi hangjait, hogy az új kiejtéssel készüljenek el.</li>
             <li>Fejezetes tartalomjegyzék, olvasási időbecslés és fejezet-progressz.</li>
-            <li>Automatikusan mentett olvasási pozíció és folytatás a Könyvtár oldalról.</li>
+            <li>Automatikusan mentett olvasási pozíció, mondaton belüli időponttal. A Folytatás az utoljára hallott helyről indul; megváltozott hang esetén a mondat elejéről.</li>
             <li>Könyvjelzők létrehozása, listázása, megnyitása és törlése.</li>
             <li>Szereplőnként színezett párbeszédtartományok és közvetlen, mondatszintű beszélőjavítás.</li>
             <li>Night, Sepia, Paper és AMOLED téma; serif, sans-serif és monospace betű.</li>
@@ -215,10 +216,9 @@
       <div class="docs-callout">
         <span class="docs-callout-icon" aria-hidden="true">!</span>
         <div>
-          <strong>Auris nem tartalmaz OCR-motort.</strong>
+          <strong>Opcionális OCR Tesseract segítségével.</strong>
           <p>
-            A szkennelt vagy szövegréteg nélküli PDF-et importálás előtt külső
-            OCR-rel kell felismerni. Az üres dokumentum nem kerül a könyvtárba.
+            Szkennelt PDF-nél engedélyezd az OCR-t a Könyvtár opcionális importeszközei között. Telepített Tesseract és megfelelő nyelvi adat szükséges. Az üres dokumentum nem kerül a könyvtárba.
             A magyar PDF-tisztítás a sortörésből eredő elválasztást javítja; a
             valódi kötőjeles szavakat megőrzi, az eredeti forrásfájl pedig megmarad.
           </p>
@@ -412,6 +412,15 @@
           kvantálása is befolyásolja a felismerést.
         </p>
       </div>
+    </section>
+
+    <section class="docs-section" id="import-tools">
+      <div class="docs-section-heading"><span class="docs-section-index">OCR</span><div><h2>Opcionális OCR és Calibre-import</h2><p>A Könyvtár oldalon, az Opcionális importeszközök panelen állítható be fájlválasztás előtt.</p></div></div>
+      <div class="docs-prose"><h3>Szkennelt PDF és képfájlok</h3>
+      <p>Kapcsold be az OCR-t, válaszd ki a nyelvet (magyar: hun, angol: eng, vegyes: hun+eng), majd válaszd ki a fájlt. A PDF szöveges oldalai megmaradnak; csak a szöveg nélküli oldalakon fut felismerés. PNG, JPEG, BMP és TIFF is választható. Ellenőrizd a szövegmintát és a fejezeteket, mielőtt hozzáadod a könyvet.</p>
+      <p>Telepítsd a <a href="https://tesseract-ocr.github.io/tessdoc/Installation.html" target="_blank" rel="noopener noreferrer">Tesseract programot</a> és a szükséges nyelvi adatokat. Windows alatt az alapértelmezett Program Files/Tesseract-OCR és a felhasználói AppData/Local/Programs/Tesseract-OCR mappát is felismerjük; más telepítésnél a tesseract legyen a PATH-ban. A hiányzó eszköz vagy nyelv a Könyvtárban látható. A magyar kiegészítés a <a href="https://github.com/tesseract-ocr/tessdata_best/blob/main/hun.traineddata" target="_blank" rel="noopener noreferrer">hun.traineddata</a>: a Tesseract tessdata mappájába kell másolni. Utána a Könyvtár eszközlistájában megjelenik a hun nyelv. Az Auris nem tölt le automatikusan programokat vagy nyelvi fájlokat.</p>
+      <p>Egy import legfeljebb 1000 oldalas és 15 perces; egy oldalra 60 másodperc jut. Nagy dokumentumot bonts részekre. Többhasábos oldalaknál, hibás ékezeteknél vagy elválasztásoknál javítsd a forrásszöveget, és importáld újra.</p>
+      <h3>További e-könyv-formátumok</h3><p>Telepített <a href="https://calibre-ebook.com/download" target="_blank" rel="noopener noreferrer">Calibre</a> esetén engedélyezheted az AZW/AZW3, FB2, RTF, ODT, HTML, DOC és LRF átalakítását. Az ebook-convert legyen a PATH-ban; Windows alatt az alapértelmezett Calibre2 mappát is keressük. Az átalakítás legfeljebb 5 percig tart. Csak DRM-mentes, olvasható könyv használható. Az eredeti forrásfájl megmarad a könyvtárban; az ideiglenes átalakítás törlődik.</p></div>
     </section>
 
     <section class="docs-section" id="voices">
@@ -758,7 +767,7 @@
             <li><strong>Kijelölt fejezetek:</strong> vizuális fejezetlistából választhatók; az API a <code>1,3,5-8</code> alakot is elfogadja.</li>
             <li><strong>WAV:</strong> veszteségmentes és mindig elérhető.</li>
             <li><strong>MP3:</strong> ffmpeg szükséges a PATH környezeti változóban.</li>
-            <li><strong>M4B:</strong> a kijelölt fejezeteket egy AAC hangoskönyvbe írja, valódi ffmpeg fejezetmetaadatokkal; ffmpeg szükséges.</li>
+            <li><strong>M4B:</strong> a kijelölt fejezeteket egy AAC hangoskönyvbe írja, fejezethatárokkal és borítóval. A Könyv adatai panelen megadott nyelv, sorozat, sorozatszám, leírás, kiadó és kiadási dátum is bekerül. FFmpeg és ffprobe szükséges.</li>
             <li>Az MP3 fájlokba bekerül a fejezet címe, a könyv címe, a szerző és fejezetenkénti exportnál a sorszám is.</li>
             <li><strong>Export hangjának utófeldolgozása:</strong> finom EQ és kompresszor után kétmenetes FFmpeg loudness-normalizálást végez fejezetenként.</li>
             <li>A mastering célértéke <strong>−19 LUFS</strong>, <strong>9 LU LRA</strong> és <strong>−3 dBTP</strong>; így a különböző referenciahangú szereplők hangerőkülönbsége is mérséklődik.</li>
@@ -807,6 +816,7 @@
       </div>
       <div class="docs-two-column">
         <div>
+          <h3>Automatikus mentés</h3><p>Válassz napi vagy heti gyakoriságot és 1–100 megőrzött mentést. Az első mentés egy nap/hét múlva esedékes; az Automatikus mentés most gomb azonnal indít egyet. Az ütemezés az Auris futása közben működik, kikapcsolt gépen nem. A kimaradt mentést indulás után pótolja; aktív feldolgozás vagy hiba után 5 perc múlva újrapróbálja.</p><p>A mentés hangcache nélkül készül a data/backups/scheduled mappába, a felületen letölthető. A megőrzési szabály csak az itt létrehozott automatikus mentéseket törli, és csak egy új mentés sikere után. A kézi és helyreállítási mentések megmaradnak. A panel kijelzi az utolsó sikeres mentést, a következő időpontot és az esetleges hibát. Az ütemezés géphez kötött, nem része a hordozható ZIP-nek.</p>
           <h3>Mit tartalmaz a mentés?</h3>
           <ul class="docs-check-list">
             <li>A könyvtár adatbázisát, fejezeteket, könyvjelzőket, haladást és kézi beszélőjavításokat.</li>
@@ -1023,7 +1033,7 @@
         </details>
         <details>
           <summary>A PDF import szerint OCR szükséges</summary>
-          <div><p>A fájl nem tartalmaz használható szövegréteget. Futtass rajta külső OCR-t, ments szöveges PDF-et vagy TXT-t, majd készíts új előnézetet. Auris nem végez OCR-t.</p></div>
+          <div><p>A fájl nem tartalmaz használható szövegréteget. A Könyvtár opcionális importeszközei között kapcsold be az OCR-t, válaszd ki a nyelvet, majd a fájlt újra. Hiányzó Tesseract vagy hun nyelvi adat esetén előbb telepítsd azokat. Részletes lépések az OCR és Calibre szakaszban.</p></div>
         </details>
         <details>
           <summary>A webcikk nem importálható</summary>
@@ -1035,7 +1045,7 @@
         </details>
         <details>
           <summary>Az M4B export nem készül el</summary>
-          <div><p>A fejezetes M4B-hez ffmpeg szükséges a rendszer PATH-jában. Ellenőrizd a Beállítások első indítási vizsgálatát; ffmpeg nélkül válassz WAV exportot.</p></div>
+          <div><p>A fejezetes M4B-hez ffmpeg és ffprobe szükséges a rendszer PATH-jában. A hang kis blokkokban kerül kiírásra, így nem kell a teljes könyv hangját memóriában tartani. Ideiglenes hangfájlokhoz lemezterület szükséges. Az M4B-nél is érvényes a hangerő-kiegyenlítés beállítása. A kódolás után az Auris ellenőrzi a hosszt, a fejezeteket és a borítót; a végleges hangfájl csak siker esetén cserélődik le. Ellenőrizd a Beállítások első indítási vizsgálatát; ffmpeg nélkül válassz WAV exportot.</p></div>
         </details>
       </div>
     </section>

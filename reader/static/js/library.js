@@ -120,6 +120,9 @@ $("file-input").addEventListener("change", async function () {
   status("A dokumentum előnézetének előkészítése…");
   const fd = new FormData();
   fd.append("file", file);
+  fd.append("ocr", String($("import-ocr").checked));
+  fd.append("ocr_language", $("import-ocr-language").value);
+  fd.append("calibre", String($("import-calibre").checked));
   try {
     await showImportPreview(
       await api("/api/import/preview", { method: "POST", body: fd }),
@@ -161,7 +164,7 @@ async function showImportPreview(data) {
   if (![...$("import-language").options].some((o) => o.value === data.language))
     $("import-language").add(new Option(data.language, data.language));
   $("import-language").value = data.language || "hu";
-  $("import-sample").textContent = data.sample;
+  $("import-sample").textContent = (data.import_note ? data.import_note + "\n\n" : "") + data.sample;
   $("import-source").textContent = data.source_url
     ? `Forrás: ${data.source_url}`
     : "";
@@ -227,14 +230,19 @@ async function confirmImport() {
   }
 }
 async function openBookDetails(id) {
-  const b = libraryBooks.find((x) => x.id === id);
-  if (!b) return;
+  let b;
+  try { b = await api(`/api/books/${id}/metadata`); }
+  catch (error) { status(error.message, true); return; }
   $("details-id").value = id;
   $("details-book-title").value = b.title;
   $("details-author").value = b.author;
   editingOriginalLanguage = String(b.language || "").trim().toLowerCase();
   $("details-language").value = editingOriginalLanguage || "hu";
   $("details-series").value = b.series || "";
+  $("details-series-index").value = b.series_index || "";
+  $("details-publisher").value = b.publisher || "";
+  $("details-published").value = b.published || "";
+  $("details-description").value = b.description || "";
   $("details-collection").value = b.collection || "";
   $("details-state").value = effectiveState(b);
   $("details-analysis").textContent = b.character_analysis_message || "";
@@ -291,6 +299,10 @@ async function saveBookDetails() {
         author: $("details-author").value,
         language,
         series: $("details-series").value,
+        series_index: $("details-series-index").value,
+        publisher: $("details-publisher").value,
+        published: $("details-published").value,
+        description: $("details-description").value,
         collection: $("details-collection").value,
         reading_state: $("details-state").value,
       }),
@@ -354,3 +366,11 @@ setInterval(() => {
   )
     loadBooks();
 }, 4000);
+
+api('/api/import/tools').then(tools => {
+  $('import-tools-status').textContent = `Tesseract: ${tools.ocr ? 'elérhető' : 'nincs telepítve'} · Nyelvek: ${tools.ocr_languages.join(', ') || 'nincs'} · Calibre: ${tools.calibre ? 'elérhető' : 'nincs telepítve'}`;
+  for (const lang of tools.ocr_languages) {
+    if (!Array.from($('import-ocr-language').options).some(o => o.value === lang))
+      $('import-ocr-language').add(new Option(lang, lang));
+  }
+}).catch(error => { $('import-tools-status').textContent = error.message; });

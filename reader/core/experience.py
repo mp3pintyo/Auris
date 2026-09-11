@@ -18,6 +18,10 @@ def initialize():
             "content_hash": "TEXT",
             "collection": "TEXT DEFAULT ''",
             "series": "TEXT DEFAULT ''",
+            "series_index": "TEXT DEFAULT ''",
+            "description": "TEXT DEFAULT ''",
+            "publisher": "TEXT DEFAULT ''",
+            "published": "TEXT DEFAULT ''",
             "reading_state": "TEXT DEFAULT 'new'",
         }.items():
             if name not in cols:
@@ -49,7 +53,8 @@ def _book(conn, book_id):
 
 
 def update_metadata(book_id, values):
-    allowed = {"title", "author", "language", "collection", "series", "reading_state"}
+    allowed = {"title", "author", "language", "collection", "series", "reading_state",
+               "series_index", "description", "publisher", "published"}
     updates = {}
     for key, value in values.items():
         if key not in allowed:
@@ -61,8 +66,8 @@ def update_metadata(book_id, values):
         raise ValueError("A cím nem lehet üres.")
     if "author" in updates and not updates["author"]:
         updates["author"] = "Ismeretlen szerző"
-    if any(len(v) > 300 for v in updates.values()):
-        raise ValueError("Egy mező legfeljebb 300 karakter lehet.")
+    if any(len(v) > (10000 if k == 'description' else 300) for k, v in updates.items()):
+        raise ValueError("Egy mező legfeljebb 300, a leírás 10000 karakter lehet.")
     if "language" in updates:
         updates["language"] = updates["language"].lower()
         if not re.fullmatch(r"[a-z]{2,3}(?:-[a-z]{2,4})?", updates["language"]):

@@ -20,6 +20,8 @@ reader/uploads/
 # ── Database & user settings (machine-specific) ───────────────────────────────
 reader/data/reader.db
 reader/data/settings.json
+reader/data/backup-schedule.json
+reader/data/backup-schedule.tmp
 reader/data/backups/
 reader/data/voice_profiles/
 reader/data/performance/

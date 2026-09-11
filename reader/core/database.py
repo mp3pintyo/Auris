@@ -124,6 +124,14 @@ def init_db():
         );
         """)
 
+        progress_cols = {r['name'] for r in conn.execute('PRAGMA table_info(reading_progress)')}
+        if 'offset_sec' not in progress_cols:
+            conn.execute('ALTER TABLE reading_progress ADD COLUMN offset_sec REAL DEFAULT 0')
+        if 'cache_key' not in progress_cols:
+            conn.execute("ALTER TABLE reading_progress ADD COLUMN cache_key TEXT DEFAULT ''")
+        if 'event_time_ms' not in progress_cols:
+            conn.execute('ALTER TABLE reading_progress ADD COLUMN event_time_ms INTEGER DEFAULT 0')
+
         cols = {
             row["name"]
             for row in conn.execute("PRAGMA table_info(books)").fetchall()

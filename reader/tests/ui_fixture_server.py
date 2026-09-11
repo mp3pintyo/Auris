@@ -72,11 +72,12 @@ class TestToneEngine:
     def generate(self, text="", **kw):
         key = hashlib.sha256((text + str(kw)).encode()).hexdigest()
         path = qa / "audio" / (key + ".wav")
-        sf.write(path, np.zeros(24000, dtype=np.float32), 24000)
+        duration = float(os.environ.get("AURIS_QA_AUDIO_SECONDS", "1"))
+        sf.write(path, np.zeros(round(24000 * duration), dtype=np.float32), 24000)
         return {
             "audio_path": str(path),
             "cache_key": key,
-            "duration_sec": 1.0,
+            "duration_sec": duration,
             "cache_hit": False,
         }
 
@@ -99,4 +100,4 @@ def fixture_marker():
     return {"fixture": True}
 
 
-app.app.run(host="127.0.0.1", port=17861, threaded=True, use_reloader=False)
+app.app.run(host="127.0.0.1", port=int(os.environ.get("AURIS_QA_PORT", "17861")), threaded=True, use_reloader=False)

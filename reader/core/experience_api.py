@@ -46,8 +46,14 @@ def book_id(value):
         raise ValueError("Érvényes könyvazonosító szükséges.") from None
 
 
-@bp.route("/api/books/<int:bid>/metadata", methods=["PATCH"])
+@bp.route("/api/books/<int:bid>/metadata", methods=["GET", "PATCH"])
 def metadata(bid):
+    if request.method == 'GET':
+        with get_conn() as conn:
+            row = conn.execute('SELECT * FROM books WHERE id=?', (bid,)).fetchone()
+        if not row:
+            return jsonify(error='A könyv nem található.'), 404
+        return jsonify(dict(row))
     return jsonify(experience.update_metadata(bid, body()))
 
 
@@ -239,7 +245,7 @@ def _staging():
 
 @bp.route("/api/import/preview", methods=["POST"])
 def preview_import():
-    from core import import_service
+    from core import import_service, import_tools
 
     token = uuid.uuid4().hex
     folder = _staging()
@@ -248,11 +254,14 @@ def preview_import():
     try:
         if uploaded:
             ext = Path(uploaded.filename or "").suffix.lower()
-            if ext not in {".epub", ".pdf", ".docx", ".txt", ".prc", ".mobi"}:
+            if ext not in ({".epub", ".pdf", ".docx", ".txt", ".prc", ".mobi"} | import_tools.CALIBRE_EXTENSIONS | import_tools.IMAGE_EXTENSIONS):
                 raise ValueError("EPUB, PDF, DOCX, TXT, PRC vagy MOBI fájlt válassz.")
             source_path = folder / (token + ext)
             uploaded.save(source_path)
-            parsed = import_service.prepare_file(str(source_path))
+            parsed = import_service.prepare_file(str(source_path),
+                ocr=request.form.get('ocr') == 'true',
+                ocr_language=request.form.get('ocr_language', 'hun'),
+                calibre=request.form.get('calibre') == 'true')
             parsed["file_type"] = ext[1:]
             parsed["original_name"] = Path(uploaded.filename).name
             if parsed.get("title") in {"Unknown Title", "Unknown"}:
@@ -303,6 +312,7 @@ def preview_import():
             for c in parsed["chapters"]
         ],
         sample=parsed["chapters"][0]["content"][:1800],
+        import_note=parsed.get("import_note", ""),
         source_url=parsed.get("source_url", ""),
         duplicate=dict(duplicate) if duplicate else None,
     )
@@ -385,6 +395,9 @@ def confirm_import():
                         parsed["content_hash"],
                     ),
                 ).lastrowid
+                for field in ('description', 'publisher', 'published', 'series', 'series_index'):
+                    value = str(parsed.get(field) or '')[:10000 if field == 'description' else 300]
+                    conn.execute(f'UPDATE books SET {field}=? WHERE id=?', (value, bid))
                 for ch in chapters:
                     conn.execute(
                         "INSERT INTO chapters(book_id,title,order_num,section_type,content,word_count) VALUES(?,?,?,?,?,?)",
@@ -734,3 +747,35 @@ def remove_book(bid):
         except OSError:
             warnings.append("Egy lemezfájlt nem sikerült törölni: " + path.name)
     return jsonify(ok=True, warnings=warnings)
+
+
+@bp.route('/api/import/tools')
+def import_capabilities():
+    from core.import_tools import capabilities
+    return jsonify(capabilities())
+
+
+@bp.route('/api/backup/schedule', methods=['GET', 'PATCH'])
+def backup_schedule_settings():
+    from core import backup_schedule
+    if request.method == 'PATCH':
+        return jsonify(backup_schedule.configure(body()))
+    return jsonify(backup_schedule.status())
+
+
+@bp.route('/api/backup/schedule/run', methods=['POST'])
+def backup_schedule_run():
+    from core import backup_schedule
+    threading.Thread(target=backup_schedule.run_backup, kwargs={'force': True}, daemon=True).start()
+    return jsonify(ok=True), 202
+
+
+@bp.route('/api/backup/schedule/files/<name>')
+def backup_schedule_download(name):
+    from core import backup_schedule
+    if not backup_schedule.NAME.fullmatch(name):
+        return jsonify(error='Ismeretlen mentés.'), 404
+    path = backup_schedule.folder() / name
+    if not path.is_file():
+        return jsonify(error='A mentés már nem található.'), 404
+    return send_file(path, as_attachment=True)

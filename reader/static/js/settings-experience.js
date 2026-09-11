@@ -231,3 +231,36 @@ sxApi("/api/books")
   .catch((e) => (sx("dictionary-message").textContent = e.message));
 loadSetup();
 loadStorage();
+
+let backupScheduleLoaded = false;
+async function loadBackupSchedule() {
+  try {
+    const state = await sxApi('/api/backup/schedule');
+    if (!backupScheduleLoaded) {
+      sx('backup-frequency').value = state.frequency;
+      sx('backup-keep').value = state.keep;
+      backupScheduleLoaded = true;
+    }
+    const date = value => value ? new Date(value * 1000).toLocaleString('hu-HU') : '—';
+    sx('backup-schedule-status').textContent = `${state.running ? 'Mentés folyamatban. ' : ''}Utolsó sikeres mentés: ${date(state.last_success)} · Következő: ${date(state.next_due)} · Mappa: ${state.directory}${state.last_error ? ' · Legutóbbi hiba (újrapróbálás 5 perc múlva): ' + state.last_error : ''}`;
+    sx('backup-run-now').disabled = state.running;
+    sx('backup-schedule-files').innerHTML = state.files.map(f => `<p><a href="${sxEscape(f.download)}">${sxEscape(f.name)}</a> · ${sizeText(f.bytes)}</p>`).join('');
+  } catch (error) { sx('backup-schedule-status').textContent = error.message; }
+}
+async function saveBackupSchedule() {
+  try {
+    await sxApi('/api/backup/schedule', {frequency: sx('backup-frequency').value, keep: Number(sx('backup-keep').value)}, 'PATCH');
+    sx('backup-schedule-message').textContent = 'Ütemezés mentve.';
+    await loadBackupSchedule();
+  } catch (error) { sx('backup-schedule-message').textContent = error.message; }
+}
+async function runScheduledBackup() {
+  try {
+    sx('backup-run-now').disabled = true;
+    await sxApi('/api/backup/schedule/run', {});
+    sx('backup-schedule-message').textContent = 'Mentési feladat elindítva.';
+    await loadBackupSchedule();
+  } catch (error) { sx('backup-schedule-message').textContent = error.message; sx('backup-run-now').disabled = false; }
+}
+loadBackupSchedule();
+setInterval(loadBackupSchedule, 5000);

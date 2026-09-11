@@ -283,7 +283,10 @@ def parse(file_path):
     if not EBOOKLIB_OK:
         raise ImportError("ebooklib is not installed. Run: pip install ebooklib")
 
-    book = epub.read_epub(file_path, options={"ignore_ncx": False})
+    # Close even if ebooklib rejects a malformed book halfway through loading.
+    # Otherwise Windows cannot remove the optional converter's temporary file.
+    with open(file_path, 'rb') as source:
+        book = epub.read_epub(source, options={"ignore_ncx": False})
 
     title = book.get_metadata("DC", "title")
     title = title[0][0] if title else "Unknown Title"
@@ -411,5 +414,10 @@ def parse(file_path):
         "author": author,
         "language": language,
         "cover_b64": cover_b64,
+        "description": next((v for v, _ in book.get_metadata('DC', 'description')), ''),
+        "publisher": next((v for v, _ in book.get_metadata('DC', 'publisher')), ''),
+        "published": next((v for v, _ in book.get_metadata('DC', 'date')), ''),
+        "series": next((attrs.get('content', '') for _, attrs in book.get_metadata('OPF', 'meta') if attrs.get('name') == 'calibre:series'), ''),
+        "series_index": next((attrs.get('content', '') for _, attrs in book.get_metadata('OPF', 'meta') if attrs.get('name') == 'calibre:series_index'), ''),
         "chapters": chapters,
     }

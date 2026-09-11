@@ -1664,27 +1664,18 @@ def update_speaker_annotation(book_id, chapter_id):
 
 @app.route('/api/books/<int:book_id>/progress', methods=['POST'])
 def save_progress(book_id):
-    body = request.get_json(force=True)
-    with get_conn() as conn:
-        conn.execute(
-            'INSERT INTO reading_progress (book_id, chapter_id, position, updated_at) '
-            'VALUES (?,?,?,datetime("now")) '
-            'ON CONFLICT(book_id) DO UPDATE SET chapter_id=excluded.chapter_id, '
-            'position=excluded.position, updated_at=excluded.updated_at',
-            (book_id, body.get('chapter_id'), body.get('position', 0))
-        )
-        conn.execute('UPDATE books SET last_read=datetime("now"), '
-                     "reading_state=CASE WHEN reading_state='finished' THEN 'finished' ELSE 'reading' END WHERE id=?", (book_id,))
-    return jsonify({'ok': True})
+    from core import playback_progress
+    try:
+        playback_progress.save(book_id, request.get_json(force=True))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify(ok=True)
 
 
 @app.route('/api/books/<int:book_id>/progress')
 def get_progress(book_id):
-    with get_conn() as conn:
-        row = conn.execute(
-            'SELECT * FROM reading_progress WHERE book_id=?', (book_id,)
-        ).fetchone()
-    return jsonify(dict(row) if row else {})
+    from core import playback_progress
+    return jsonify(playback_progress.load(book_id))
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -2082,6 +2073,7 @@ def tts_generate():
     if seg.get('audio_path') and os.path.exists(seg['audio_path']):
         return jsonify({
             'audio_url': f'/api/audio/{seg["cache_key"]}',
+            'cache_key': seg['cache_key'],
             'duration_sec': seg['duration_sec'],
             'text': seg['text'],
             'character_name': seg['character_name'],
@@ -2163,6 +2155,7 @@ def tts_generate():
 
     return jsonify({
         'audio_url': f'/api/audio/{result["cache_key"]}',
+        'cache_key': result['cache_key'],
         'duration_sec': result['duration_sec'],
         'text': seg['text'],
         'character_name': seg['character_name'],
@@ -2846,6 +2839,9 @@ def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: s
                     'chapter_title': ch['title'],
                     'segments': segs,
                 }], colors, sub_fmt=sub_fmt, book_author=book['author'],
+                mastering=mastering, book_metadata=dict(book),
+                on_progress=lambda message: _export_stage(job, message),
+                check_cancelled=lambda: _check_job_cancelled(job),
             )
         else:
             result = exporter.export_single_chapter(
@@ -2880,6 +2876,11 @@ def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: s
         if export_pool is not None:
             export_pool.close()
         _export_exclusive_end()
+
+
+def _export_stage(job, message):
+    job['message'] = message
+    _persist_job(job)
 
 
 def _run_chapterwise_export(
@@ -2940,6 +2941,9 @@ def _run_chapterwise_export(
             result = exporter.export_m4b(
                 book['title'], export_chapters, colors,
                 sub_fmt=sub_fmt, book_author=book['author'],
+                mastering=mastering, book_metadata=dict(book),
+                on_progress=lambda message: _export_stage(job, message),
+                check_cancelled=lambda: _check_job_cancelled(job),
             )
             download_path = result['audio_path']
         else:
@@ -2964,6 +2968,8 @@ def _run_chapterwise_export(
                 if result.get('subtitle_path') else None
             ),
             'chapter_count': result.get('chapter_count', len(export_chapters)),
+            'mastering_applied': result.get('mastering_applied', False),
+            'mastering_warning': result.get('mastering_warning'),
             'mastered_chapters': sum(
                 1 for chapter in result['chapters']
                 if chapter.get('mastering_applied')
@@ -3430,4 +3436,8 @@ from core.experience_api import bp as experience_blueprint
 app.register_blueprint(experience_blueprint)
 
 if __name__ == '__main__':
+    with app.app_context():
+        _startup()
+    from core import backup_schedule
+    backup_schedule.start()
     app.run(host='127.0.0.1', port=7860, debug=False, threaded=True)

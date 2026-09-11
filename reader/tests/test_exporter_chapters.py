@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 import shutil
 import subprocess
 import tempfile
@@ -81,39 +82,11 @@ class ChapterFolderExportTests(unittest.TestCase):
                 ['Chapter.wav'],
             )
 
-    def test_m4b_export_uses_ffmpeg_chapter_metadata(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            first = os.path.join(tmp, 'first.wav')
-            second = os.path.join(tmp, 'second.wav')
-            sf.write(first, np.zeros(exporter.SAMPLE_RATE, dtype=np.float32), exporter.SAMPLE_RATE)
-            sf.write(second, np.zeros(exporter.SAMPLE_RATE * 2, dtype=np.float32), exporter.SAMPLE_RATE)
-            chapters = [
-                {'chapter_number': 1, 'chapter_title': 'Opening', 'segments': [
-                    {'audio_path': first, 'duration_sec': 1.0, 'text': 'Hello.'},
-                ]},
-                {'chapter_number': 2, 'chapter_title': 'Finish', 'segments': [
-                    {'audio_path': second, 'duration_sec': 2.0, 'text': 'Goodbye.'},
-                ]},
-            ]
-            completed = unittest.mock.Mock(returncode=0, stderr='')
-            with (
-                patch.object(exporter, 'EXPORTS_DIR', tmp),
-                patch.object(exporter, '_ffmpeg_available', return_value=True),
-                patch.object(exporter.subprocess, 'run', return_value=completed) as run,
-            ):
-                result = exporter.export_m4b(
-                    'Book', chapters, book_author='Writer', sub_fmt='none'
-                )
-
-            command = run.call_args.args[0]
-            self.assertIn('-map_metadata', command)
-            self.assertIn('-c:a', command)
-            self.assertEqual(result['audio_fmt'], 'm4b')
-            self.assertTrue(result['audio_path'].endswith('.m4b'))
-            metadata = run.call_args.kwargs['input']
-            self.assertIn('[CHAPTER]\nTIMEBASE=1/1000\nSTART=0\nEND=1350', metadata)
-            self.assertIn('title=Opening', metadata)
-            self.assertIn('title=Finish', metadata)
+    def test_m4b_missing_audio_does_not_publish_a_partial_book(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(exporter, 'EXPORTS_DIR', tmp):
+            with self.assertRaises(ValueError):
+                exporter.export_m4b('Book', [{'segments': [{'audio_path': 'missing.wav'}]}])
+            self.assertFalse(list(Path(tmp).rglob('*.m4b')))
 
     def test_mastering_falls_back_to_unprocessed_wav_without_ffmpeg(self):
         with tempfile.TemporaryDirectory() as tmp:

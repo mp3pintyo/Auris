@@ -1,3 +1,6 @@
+let _savedAudioResume = null;
+let _progressTick = 0;
+let _progressEventTime = 0;
 const BOOK_ID = window.BOOK_ID;
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -141,11 +144,16 @@ function sendProgress(chapterId, position, options = {}) {
   if (!chapterId) return;
 
   const clamped = clampSegmentIndex(position);
-  const key = progressKey(chapterId, clamped);
+  const active = _loadedSegIdx === clamped && chapterId === currentChapterId;
+  const pending = _savedAudioResume?.chapterId === chapterId && _savedAudioResume?.index === clamped ? _savedAudioResume : null;
+  const offset = active ? Math.max(0, audio.currentTime || 0) : (pending?.offset || 0);
+  const cacheKey = active ? (segments[clamped]?.cache_key || '') : (pending?.cacheKey || '');
+  const key = `${progressKey(chapterId, clamped)}:${offset.toFixed(2)}:${cacheKey}`;
   if (!force && key === _lastSavedProgressKey) return;
   _lastSavedProgressKey = key;
 
-  const payload = JSON.stringify({ chapter_id: chapterId, position: clamped });
+  _progressEventTime = Math.max(Date.now(), _progressEventTime + 1);
+  const payload = JSON.stringify({ chapter_id: chapterId, position: clamped, offset_sec: offset, cache_key: cacheKey, event_time_ms: _progressEventTime });
   const url = `/api/books/${BOOK_ID}/progress`;
 
   if (useBeacon && navigator.sendBeacon) {
@@ -274,6 +282,8 @@ async function loadTOC() {
   if (hasSavedChapter) {
     openChapter(savedChapterId, {
       resumePosition: savedPosition,
+      resumeOffset: prog.offset_sec,
+      resumeCacheKey: prog.cache_key,
       persistOpened: false,
       highlightOnLoad: false,
     });
@@ -291,6 +301,8 @@ async function loadTOC() {
 async function openChapter(chapterId, options = {}) {
   const {
     resumePosition = 0,
+    resumeOffset = 0,
+    resumeCacheKey = '',
     persistCurrent = true,
     persistOpened = true,
     highlightOnLoad = false,
@@ -333,6 +345,7 @@ async function openChapter(chapterId, options = {}) {
   document.getElementById('chapter-content').scrollTop = 0;
 
   const startIdx = clampSegmentIndex(resumePosition);
+  _savedAudioResume = {chapterId, index: startIdx, offset: Math.max(0, Number(resumeOffset) || 0), cacheKey: resumeCacheKey};
   setCurrentSegment(startIdx, {
     highlight: highlightOnLoad,
     behavior: 'auto',
@@ -988,6 +1001,7 @@ function fetchSegmentData(idx, options = {}) {
     }).then(data => {
       if (segments[idx]) {
         segments[idx].has_audio = true;
+        segments[idx].cache_key = data.cache_key;
         segments[idx].duration_sec = Number(data.duration_sec) || segments[idx].duration_sec;
       }
       updateRemainingTime();
@@ -1064,7 +1078,10 @@ function positionAudio(element, offsetSec, knownDuration = null) {
 
 async function playSegment(idx, options = {}) {
   if (idx >= segments.length) { stopPlayback(); return; }
-  const offsetSec = Math.max(0, Number(options.offsetSec) || 0);
+  let offsetSec = Math.max(0, Number(options.offsetSec) || 0);
+  const saved = options.resumeSaved ? _savedAudioResume : null;
+  if (!saved) _savedAudioResume = null;
+  _loadedSegIdx = -1;
 
   if (_interSegmentTimer) {
     clearTimeout(_interSegmentTimer);
@@ -1100,12 +1117,15 @@ async function playSegment(idx, options = {}) {
       audio.src = data.audio_url;
     }
 
+    if (saved && saved.chapterId === currentChapterId && saved.index === idx &&
+        saved.cacheKey && saved.cacheKey === data.cache_key) offsetSec = saved.offset;
     audio.playbackRate = speedMultiplier;
     await positionAudio(audio, offsetSec, data.duration_sec);
     if (gen !== _playGen || !isPlaying) return;
     _loadedSegIdx = idx;
     startWordHighlight(idx, data.duration_sec);
     await audio.play();
+    _savedAudioResume = null;
 
     _schedulePreload(idx);
 
@@ -1313,8 +1333,7 @@ async function resumePlayback() {
     audio.currentTime,
   );
   if (target.segmentIndex !== currentSegIdx) {
-    playSegment(target.segmentIndex);
-    return;
+    return playSegment(target.segmentIndex);
   }
   if (_loadedSegIdx === currentSegIdx && audio.src && target.offsetSec > 0) {
     isPlaying = true;
@@ -1330,7 +1349,7 @@ async function resumePlayback() {
     }
     return;
   }
-  playSegment(_pendingSegmentIdx >= 0 ? _pendingSegmentIdx : currentSegIdx);
+  return playSegment(_pendingSegmentIdx >= 0 ? _pendingSegmentIdx : currentSegIdx, { resumeSaved: true });
 }
 
 async function seekAudioBy(deltaSec) {
@@ -1356,6 +1375,8 @@ async function seekAudioBy(deltaSec) {
   try {
     const data = await fetchSegmentData(target.segmentIndex);
     audio.src = data.audio_url;
+    if (saved && saved.chapterId === currentChapterId && saved.index === idx &&
+        saved.cacheKey && saved.cacheKey === data.cache_key) offsetSec = saved.offset;
     audio.playbackRate = speedMultiplier;
     await positionAudio(audio, target.offsetSec, data.duration_sec);
     _loadedSegIdx = target.segmentIndex;
@@ -1889,7 +1910,8 @@ document.getElementById('do-export-btn').onclick = async () => {
         progFill.style.width = '100%';
         const res = sr.result || {};
         renderExportLinks(res, jobId);
-        finish('Az export elkészült. A fájlok lent tölthetők le.');
+        finish('Az export elkészült. A fájlok lent tölthetők le.' +
+          (res.mastering_warning ? ' A hangerő-kiegyenlítés kimaradt: ' + res.mastering_warning : ''));
         break;
       } else if (sr.state === 'failed') {
         finish('Az export nem sikerült: ' + (sr.error || 'Ismeretlen hiba'));
@@ -2009,3 +2031,13 @@ applyExportPreset(document.getElementById('export-preset').value);
 initMediaSession();
 
 loadTOC();
+
+function persistTimedProgress() {
+  if (_loadedSegIdx !== currentSegIdx || !currentChapterId) return;
+  if (Date.now() - _progressTick >= 5000) {
+    _progressTick = Date.now();
+    sendProgress(currentChapterId, currentSegIdx);
+  }
+}
+_audioA.addEventListener('timeupdate', persistTimedProgress);
+_audioB.addEventListener('timeupdate', persistTimedProgress);

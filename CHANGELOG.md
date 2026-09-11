@@ -12,6 +12,20 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+## [3.3.1] - 2026-09-11
+
+### Magyar
+
+#### Javítva
+
+- Részletes Windows-telepítési útmutató a súgóban: Tesseract és magyar nyelvi adat, Calibre, FFmpeg/ffprobe, PATH, ellenőrző parancsok, újraindítás és hibaelhárítás.
+
+### English
+
+#### Fixed
+
+- Step-by-step Windows setup in the built-in help: Tesseract and Hungarian language data, Calibre, FFmpeg/ffprobe, PATH, verification commands, restarting and troubleshooting.
+
 ## [3.3.0] - 2026-09-11
 
 ### Magyar

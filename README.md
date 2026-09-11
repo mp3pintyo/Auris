@@ -148,6 +148,11 @@ only pages without text are recognized. Optional Calibre `ebook-convert` adds
 AZW/AZW3, FB2, RTF, ODT, HTML, DOC and LRF import. Both tools are detected on PATH
 and in their standard Windows Program Files folders. Empty documents are rejected.
 
+The built-in Hungarian help, **OCR és Calibre → Windows: telepítés lépésről
+lépésre**, includes Windows installation commands, Hungarian language data,
+PATH setup, verification commands, restart instructions and troubleshooting for
+Tesseract, Calibre, FFmpeg and ffprobe (`/docs#import-tools`).
+
 M4B export now streams audio to disk, embeds cover art and extended book metadata,
 applies optional mastering, and verifies chapters/duration with ffprobe before
 publishing the finished file. Resume points include the time within a sentence

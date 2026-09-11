@@ -78,7 +78,11 @@
 .docs-section-index { padding-top:5px; color:var(--accent); font:italic .78rem var(--font-family); }
 .docs-section-heading h2 { font:normal clamp(1.45rem,2.5vw,2rem)/1.2 var(--font-family); margin-bottom:9px; }
 .docs-section-heading p { color:var(--text2); font:.92rem/1.65 var(--font-family); max-width:790px; }
-.docs-prose { max-width:900px; }
+.docs-prose { max-width:900px; overflow-wrap:anywhere; }
+.docs-two-column > div { min-width:0; }
+.docs-prose pre { max-width:100%; overflow-x:auto; padding:16px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; line-height:1.6; }
+.docs-prose li { color:var(--text2); line-height:1.75; margin:10px 0; overflow-wrap:anywhere; }
+.docs-prose p code { overflow-wrap:anywhere; }
 .docs-prose h3 { font:normal 1.1rem var(--font-family); margin:24px 0 12px; }
 .docs-prose p { color:var(--text2); font-size:.9rem; line-height:1.75; margin:12px 0; }
 .settings-guide-wrap { overflow-x:auto; border:1px solid var(--border); }

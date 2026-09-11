@@ -420,7 +420,53 @@
       <p>Kapcsold be az OCR-t, válaszd ki a nyelvet (magyar: hun, angol: eng, vegyes: hun+eng), majd válaszd ki a fájlt. A PDF szöveges oldalai megmaradnak; csak a szöveg nélküli oldalakon fut felismerés. PNG, JPEG, BMP és TIFF is választható. Ellenőrizd a szövegmintát és a fejezeteket, mielőtt hozzáadod a könyvet.</p>
       <p>Telepítsd a <a href="https://tesseract-ocr.github.io/tessdoc/Installation.html" target="_blank" rel="noopener noreferrer">Tesseract programot</a> és a szükséges nyelvi adatokat. Windows alatt az alapértelmezett Program Files/Tesseract-OCR és a felhasználói AppData/Local/Programs/Tesseract-OCR mappát is felismerjük; más telepítésnél a tesseract legyen a PATH-ban. A hiányzó eszköz vagy nyelv a Könyvtárban látható. A magyar kiegészítés a <a href="https://github.com/tesseract-ocr/tessdata_best/blob/main/hun.traineddata" target="_blank" rel="noopener noreferrer">hun.traineddata</a>: a Tesseract tessdata mappájába kell másolni. Utána a Könyvtár eszközlistájában megjelenik a hun nyelv. Az Auris nem tölt le automatikusan programokat vagy nyelvi fájlokat.</p>
       <p>Egy import legfeljebb 1000 oldalas és 15 perces; egy oldalra 60 másodperc jut. Nagy dokumentumot bonts részekre. Többhasábos oldalaknál, hibás ékezeteknél vagy elválasztásoknál javítsd a forrásszöveget, és importáld újra.</p>
-      <h3>További e-könyv-formátumok</h3><p>Telepített <a href="https://calibre-ebook.com/download" target="_blank" rel="noopener noreferrer">Calibre</a> esetén engedélyezheted az AZW/AZW3, FB2, RTF, ODT, HTML, DOC és LRF átalakítását. Az ebook-convert legyen a PATH-ban; Windows alatt az alapértelmezett Calibre2 mappát is keressük. Az átalakítás legfeljebb 5 percig tart. Csak DRM-mentes, olvasható könyv használható. Az eredeti forrásfájl megmarad a könyvtárban; az ideiglenes átalakítás törlődik.</p></div>
+      <h3>További e-könyv-formátumok</h3><p>Telepített <a href="https://calibre-ebook.com/download" target="_blank" rel="noopener noreferrer">Calibre</a> esetén engedélyezheted az AZW/AZW3, FB2, RTF, ODT, HTML, DOC és LRF átalakítását. Az ebook-convert legyen a PATH-ban; Windows alatt az alapértelmezett Calibre2 mappát is keressük. Az átalakítás legfeljebb 5 percig tart. Csak DRM-mentes, olvasható könyv használható. Az eredeti forrásfájl megmarad a könyvtárban; az ideiglenes átalakítás törlődik.</p>
+
+      <h3 id="windows-tools">Windows: telepítés lépésről lépésre</h3>
+      <p>Csak a használni kívánt funkcióhoz szükséges programot telepítsd. Ezek külön Windows-programok, nem Python-csomagok: az Auris virtuális környezetében nem kell hozzájuk pip parancsot futtatni. A következő parancsokat PowerShellben, egyenként futtasd, és várd meg a telepítő befejezését.</p>
+      <pre><code># Szkennelt PDF és képek felismerése
+winget install --id UB-Mannheim.TesseractOCR --exact --source winget
+# További e-könyv-formátumok átalakítása
+winget install --id calibre.calibre --exact --source winget
+# MP3, M4B és export-hangerőkiegyenlítés
+winget install --id Gyan.FFmpeg --exact --source winget</code></pre>
+      <p>Ha a winget nem érhető el, használj grafikus telepítőt: <a href="https://tesseract-ocr.github.io/tessdoc/Installation.html" target="_blank" rel="noopener noreferrer">Tesseract telepítési útmutató (Windows: UB Mannheim)</a>, <a href="https://calibre-ebook.com/download_windows" target="_blank" rel="noopener noreferrer">Calibre Windows-telepítő</a>, illetve az <a href="https://ffmpeg.org/download.html" target="_blank" rel="noopener noreferrer">FFmpeg hivatalos oldalán hivatkozott Windows build</a>. Az FFmpeg kicsomagolt bin mappájában az ffmpeg.exe és az ffprobe.exe is legyen meg. A Calibre grafikus alkalmazását nem kell futva hagyni.</p>
+
+      <h3 id="hungarian-ocr-setup">Magyar nyelvi adat telepítése</h3>
+      <ol>
+        <li>Keresd meg a Tesseract telepítési mappáját. Tipikus hely: <code>C:\Program Files\Tesseract-OCR</code> vagy <code>%LOCALAPPDATA%\Programs\Tesseract-OCR</code>. Az utóbbit a Fájlkezelő címsorába is bemásolhatod.</li>
+        <li>Töltsd le a <a href="https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/hun.traineddata" target="_blank" rel="noopener noreferrer" download>magyar hun.traineddata fájlt</a>, majd másold a telepítési mappa <code>tessdata</code> almappájába. A fájlnév pontosan hun.traineddata legyen, ne HTML-oldalt ments el. A Program Files mappába másoláskor a Windows rendszergazdai jogosultságot kérhet.</li>
+        <li>Angol vagy vegyes felismeréshez az <a href="https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/main/eng.traineddata" target="_blank" rel="noopener noreferrer" download>eng.traineddata</a> is szükséges ugyanebben a mappában.</li>
+        <li>Az alábbi ellenőrzésben a nyelvek között szerepeljen a <code>hun</code>, vegyes felismeréshez az <code>eng</code> is.</li>
+      </ol>
+
+      <h3 id="tools-path">PATH és újraindítás</h3>
+      <p>Az Auris a Tesseract-OCR és Calibre2 szokásos Windows-telepítési mappáit automatikusan keresi a Program Files, Program Files (x86) és a felhasználói AppData/Local/Programs alatt. Egyedi vagy hordozható telepítésnél az .exe fájlt tartalmazó mappát add a PATH-hoz. Az FFmpeg és ffprobe számára is elérhető PATH szükséges.</p>
+      <ol>
+        <li>A Start menüben keresd a <strong>Környezeti változók szerkesztése a fiókhoz</strong> lehetőséget.</li>
+        <li>A felhasználói változók között válaszd a <strong>Path → Szerkesztés → Új</strong> gombot. Új bejegyzésként add meg a megfelelő mappát, például <code>C:\Program Files\Tesseract-OCR</code>, <code>C:\Program Files\Calibre2</code> vagy a kicsomagolt FFmpeg <code>bin</code> mappáját. Ne az .exe fájlt add meg, és a meglévő bejegyzéseket hagyd meg.</li>
+        <li>Mentsd a módosítást, majd nyiss új PowerShell-ablakot. Ha VS Code-ból indítod az Aurist, a teljes VS Code-ot indítsd újra, hogy megkapja az új PATH-ot.</li>
+        <li>Állítsd le, majd indítsd újra az Aurist a szokásos módon, és frissítsd a Könyvtár oldalt.</li>
+      </ol>
+      <h3 id="tools-check">Telepítés ellenőrzése</h3>
+      <pre><code>tesseract --version
+tesseract --list-langs
+ebook-convert --version
+ffmpeg -version
+ffprobe -version</code></pre>
+      <p>A parancsok verziót, illetve nyelvlistát írnak ki. Ha egy program csak az automatikusan felismert mappában van, PATH nélkül teljes elérési úttal ellenőrizheted. PowerShellben az idézőjeles útvonal elé &amp; jel szükséges:</p>
+      <pre><code>&amp; "$env:LOCALAPPDATA\Programs\Tesseract-OCR\tesseract.exe" --list-langs
+&amp; "C:\Program Files\Calibre2\ebook-convert.exe" --version</code></pre>
+      <p>A példákban szereplő útvonalat igazítsd a saját telepítésedhez. Az Auris <strong>Könyvtár → Opcionális importeszközök</strong> paneljén ellenőrizd az eszközök elérhetőségét. OCR-hez jelöld be a felismerést, válaszd a <code>hun</code> vagy <code>hun+eng</code> nyelvet; Calibre-formátumhoz engedélyezd az átalakítást. Ezután válaszd ki a fájlt, ellenőrizd az előnézetet, és add hozzá a könyvet. MP3/M4B exporthoz nincs külön Calibre- vagy OCR-beállítás; a hangerő-kiegyenlítés a <strong>Beállítások → Generálás és export</strong> alatt kapcsolható.</p>
+
+      <h3 id="tools-troubleshooting">Ha nem működik</h3>
+      <ul>
+        <li><strong>„A parancs nem ismerhető fel” vagy hiányzó eszköz:</strong> ellenőrizd, befejeződött-e a telepítés, létezik-e az .exe, és a megfelelő mappa került-e a PATH-ba. Nyiss új terminált, indítsd újra az Aurist. A terminál PATH-hibája önmagában nem jelenti, hogy az Auris sem találja a szabványos mappába telepített Tesseractot vagy Calibre-t.</li>
+        <li><strong>Hiányzó hun / „Error opening data file”:</strong> ellenőrizd a fájl nevét és helyét a tessdata mappában. Több Tesseract-telepítésnél a <code>Get-Command tesseract</code> mutatja a PATH által kiválasztott példányt. A nyelvi adat ehhez tartozzon. Ha korábban beállítottál TESSDATA_PREFIX változót, ellenőrizd, nem régi vagy másik tessdata mappára mutat-e; alaptelepítésnél külön változó nem szükséges.</li>
+        <li><strong>Hibás ékezetek vagy üres OCR-előnézet:</strong> válassz megfelelő nyelvet, jobb felbontású, helyesen elforgatott forrást, majd válaszd ki újra a fájlt. A PDF meglévő szövegrétegét az OCR nem írja felül.</li>
+        <li><strong>Sikertelen Calibre-átalakítás:</strong> ellenőrizd, hogy a könyv megnyitható-e a Calibre-ben és DRM-mentes-e. Próbáld ott EPUB-ra alakítani, majd az EPUB-ot importálni. Az Auris 5 perc után megszakítja az átalakítást.</li>
+        <li><strong>MP3/M4B exporthiba:</strong> az ffmpeg és ffprobe ellenőrzése is fusson le, és legyen hely az ideiglenes hangfájloknak. FFmpeg nélkül WAV export használható, az export utófeldolgozását kapcsold ki.</li>
+      </ul></div>
     </section>
 
     <section class="docs-section" id="voices">

@@ -12,6 +12,7 @@ from urllib.parse import urljoin, urlsplit
 
 from core.parser import docx_parser, epub_parser, pdf_parser, prc_parser, txt_parser
 from core.parser.language import detect_language
+from core.parser.structure import attach_blocks
 
 
 DOWNLOAD_TIMEOUT_SECONDS = 10
@@ -47,7 +48,7 @@ def _ensure_readable_chapters(result: dict, *, web: bool = False) -> dict:
             "A dokumentumban nincs olvasható szövegréteg. Ha ez egy szkennelt "
             "PDF, engedélyezd az OCR szövegfelismerést, majd válaszd ki újra a fájlt."
         )
-    result["chapters"] = readable
+    result["chapters"] = attach_blocks(readable)
     return result
 
 
@@ -121,7 +122,13 @@ def prepare_html(html, url) -> dict:
 
     paragraphs = [part.strip() for part in text.splitlines() if part.strip()]
     content = "\n\n".join(paragraphs)
+    extractor = epub_parser._HTMLLineExtractor()
+    extractor.feed(raw_html.decode("utf-8", errors="replace"))
+    extractor.close()
+    extractor.get_lines()
     title = (getattr(document, "title", "") or "").strip()
+    if title and (not paragraphs or paragraphs[0] != title):
+        content = title + "\n\n" + content
     author = (getattr(document, "author", "") or "").strip()
     language = (getattr(document, "language", "") or "").strip()[:2]
     if not language:
@@ -145,6 +152,7 @@ def prepare_html(html, url) -> dict:
         "source_url": str(url),
         "content_hash": _content_hash_bytes(raw_html),
     }
+    attach_blocks(result["chapters"], extractor.kinds)
     return _ensure_readable_chapters(result, web=True)
 
 

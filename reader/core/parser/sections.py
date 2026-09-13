@@ -1,6 +1,7 @@
 """Shared section / chapter heading detection for text and PDF parsers."""
 
 import re
+from core.parser.structure import StructuredText, blocks_from_lines
 
 # Shared number words for English chapter/part labels.
 NUMBER_WORDS = (
@@ -241,7 +242,7 @@ def build_chapters(
         stripped = (text or '').strip()
         if BACKMATTER_RE.match(stripped):
             break
-        heading = is_heading or (
+        heading = (is_heading is True) or (
             text_headings and looks_like_heading(stripped, allow_all_caps=allow_all_caps)
         )
         if heading:
@@ -257,12 +258,13 @@ def build_chapters(
                     'order_num': order,
                     'content': content,
                     'word_count': len(content.split()),
+                    **({'blocks': blocks_from_lines(current_lines)} if any(isinstance(line, StructuredText) for line in current_lines) else {}),
                 })
                 order += 1
                 started_story = True
             current_title = stripped
             current_title_is_heading = is_heading
-            current_lines = []
+            current_lines = [StructuredText(stripped, "heading") if isinstance(text, StructuredText) else stripped, ""]
         else:
             current_lines.append(text)
 
@@ -279,6 +281,7 @@ def build_chapters(
                 'order_num': order,
                 'content': content,
                 'word_count': len(content.split()),
+                    **({'blocks': blocks_from_lines(current_lines)} if any(isinstance(line, StructuredText) for line in current_lines) else {}),
             })
 
     return chapters

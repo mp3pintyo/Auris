@@ -226,6 +226,9 @@ def restore_backup(archive, destination, *, confirm=False):
                             + ")",
                             tuple(row.values()),
                         )
+                from core.text_editor import migrate_legacy_annotations
+                legacy_chapters = {row['id'] for row in manifest['tables']['chapters'] if 'blocks_json' not in row}
+                migrate_legacy_annotations(conn, legacy_chapters)
             committed = True
             # Machine-specific model paths and secrets remain from the current machine.
             allowed = PORTABLE_SETTINGS

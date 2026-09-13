@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ book.title }} — Auris{% endblock %}
-{% block head %}<link rel="stylesheet" href="/static/css/reader-experience.css">{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/reader-experience.css"><link rel="stylesheet" href="/static/css/text-editor.css">{% endblock %}
 {% block content %}
 <div class="reader-layout" id="reader-layout">
 
@@ -45,6 +45,7 @@
       <span id="reading-estimate" class="reading-estimate"></span>
 
       <div class="font-controls">
+        <button class="btn btn-sm btn-ghost" id="text-editor-open" type="button">Szöveg szerkesztése</button>
         {% if not book.single_narrator_mode %}
         <button class="btn btn-sm btn-ghost" id="speaker-label-toggle"
                 type="button" aria-pressed="false"
@@ -273,4 +274,5 @@
 <script>window.SINGLE_NARRATOR_MODE = {{ 1 if book.single_narrator_mode else 0 }};</script>
 <script src="/static/js/listening.js"></script>
 <script src="/static/js/reader.js"></script>
+<script src="/static/js/text-editor.js"></script>
 {% endblock %}

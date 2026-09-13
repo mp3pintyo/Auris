@@ -347,15 +347,8 @@ def _split_paragraphs(text: str, chapter_title: str | None = None) -> list[str]:
         if buffer:
             paragraphs.append(" ".join(buffer).strip())
 
-    cleaned: list[str] = []
-    for idx, paragraph in enumerate(paragraphs):
-        if _is_heading_paragraph(paragraph, chapter_title):
-            continue
-        if idx < 2 and _is_short_all_caps_heading(paragraph):
-            continue
-        cleaned.append(paragraph)
+    return paragraphs
 
-    return cleaned
 
 
 def _protect_sentence_boundaries(text: str) -> str:

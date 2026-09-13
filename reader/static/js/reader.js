@@ -65,6 +65,11 @@ let _ttsAbortControllers = new Map();
 function _standby() { return audio === _audioA ? _audioB : _audioA; }
 
 function pauseAfterSegmentMs(segment, nextSegment = null) {
+  if (segment?.pause_ms !== null && segment?.pause_ms !== undefined && Number.isFinite(Number(segment.pause_ms))) {
+    return Math.max(0, Math.min(5000, Number(segment.pause_ms)));
+  }
+  if (['heading', 'subheading'].includes(segment?.block_kind) &&
+      (segment?.ends_paragraph || segment?.block_index !== nextSegment?.block_index)) return 1200;
   const text = String(segment?.text || '')
     .trimEnd()
     .replace(/["'”’»]+\s*$/, '')
@@ -430,11 +435,14 @@ function renderContent(segs) {
            ${speakerOptions(seg.character_name)}
          </select>`
       : '';
-    return `<span class="${cls}" data-idx="${i}"${charAttr}
+    const heading = ['heading', 'subheading'].includes(seg.block_kind);
+    const startsBlock = i === 0 || seg.block_index !== segs[i - 1]?.block_index;
+    const headingAttr = heading && startsBlock ? ` role="heading" aria-level="${seg.block_kind === 'heading' ? 2 : 3}"` : '';
+    return `<span class="${cls}${heading ? ' text-block-heading' : ''}" data-idx="${i}"${charAttr}${headingAttr}
                   style="--speaker-color:${speakerColor}"
                   onclick="jumpTo(${i})">
               ${inlineEditor}${speakerLabel}<span class="sentence-text">${wordSpans}</span>
-            </span> `;
+            </span>${seg.ends_paragraph ? '<span class="text-paragraph-break" aria-hidden="true"></span>' : ' '}`;
   }).join('');
 
   container.classList.toggle('speaker-edit-active', speakerEditMode);
@@ -1151,12 +1159,23 @@ function _onAudioEnded() {
     }, pauseMs);
   }
   else {
-    queueProgressSave(currentChapterId, currentSegIdx);
-    if (_sleepMode === 'chapter') {
-      clearSleepTimer();
-      showToast('A lejátszás a fejezet végén leállt.');
-    }
-    stopPlayback();
+    const gen = _playGen;
+    const finishChapter = () => {
+      if (gen !== _playGen || !isPlaying) return;
+      _interSegmentTimer = null;
+      queueProgressSave(currentChapterId, currentSegIdx);
+      if (_sleepMode === 'chapter') {
+        clearSleepTimer();
+        showToast('A lejátszás a fejezet végén leállt.');
+      }
+      stopPlayback();
+    };
+    const segment = segments[currentSegIdx];
+    const finalPause = segment?.pause_ms != null ? pauseAfterSegmentMs(segment) : 0;
+    if (finalPause > 0) {
+      _pendingSegmentIdx = next;
+      _interSegmentTimer = setTimeout(finishChapter, finalPause);
+    } else finishChapter();
   }
 }
 

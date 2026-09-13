@@ -11,6 +11,7 @@ still starts when the dependency is missing.
 import re
 
 from core.parser.language import detect_language
+from core.parser.structure import attach_blocks, StructuredText, blocks_from_lines
 from core.parser.sections import (
     EXPLICIT_MARKER_THRESHOLD,
     build_chapters,
@@ -196,7 +197,7 @@ def parse(file_path):
     doc = _open_document(file_path)
     units = extract_units(doc)
 
-    raw = '\n'.join(text for text, _ in units)
+    raw = '\n\n'.join(text for text, _ in units)
     if not raw.strip():
         raise DocxImportError('No readable text found in the .docx file.')
 
@@ -208,11 +209,25 @@ def parse(file_path):
     # units), but a Title-styled title page must not switch off text-based
     # detection for documents whose chapters are plain text.
     has_style_headings = has_chapter_heading_styles(doc)
+    kinds = {text.strip(): 'subheading' for text, style, _ in
+             _iter_document_text(doc.element.body, doc, False) if style == 'Subtitle'}
     if has_style_headings:
+        styled = list(_iter_document_text(doc.element.body, doc, False))
+        levels = [int(re.search(r'\d+', style).group()) for _, style, table in styled
+                  if not table and style.startswith('Heading') and re.search(r'\d+', style)]
+        top_level = min(levels, default=1)
+        units = []
+        for text, style, table in styled:
+            match = re.search(r'\d+', style) if style.startswith('Heading') else None
+            sub = not table and (style == 'Subtitle' or (match and int(match.group()) > top_level))
+            heading = not table and _is_heading_style(style)
+            kinds[text.strip()] = 'subheading' if sub else 'heading' if heading else 'paragraph'
+            units.extend([(StructuredText(text, 'subheading' if sub else 'heading' if heading else 'paragraph'), bool(heading and not sub)), ('', False)])
         chapters = build_chapters(
             units, title, allow_all_caps=False, text_headings=False
         )
     else:
+        units = [entry for text, heading in units for entry in ((StructuredText(text, kinds.get(text.strip(), 'heading' if heading else 'paragraph')), heading), ('', False))]
         explicit_count = sum(1 for text, _ in units if is_explicit_section(text))
         chapters = build_chapters(
             units,
@@ -227,8 +242,10 @@ def parse(file_path):
             'order_num': 0,
             'content': raw.strip(),
             'word_count': len(raw.split()),
+            'blocks': blocks_from_lines([text for text, _ in units]),
         }]
 
+    attach_blocks(chapters, kinds)
     return {
         'title': title,
         'author': author,

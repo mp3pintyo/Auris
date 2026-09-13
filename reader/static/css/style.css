@@ -1600,3 +1600,6 @@ code {
     flex: 1 0 auto;
   }
 }
+/* Optional text-editing guide follows the documentation's prose rhythm. */
+#text-editing > p { color: var(--text2); font-size: 14px; line-height: 1.8; margin: 12px 0 20px; }
+#text-editing > h3 { margin-top: 26px; margin-bottom: 10px; }

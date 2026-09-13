@@ -2,6 +2,7 @@ import base64
 import re
 from html.parser import HTMLParser
 
+from core.parser.structure import attach_blocks, StructuredText, blocks_from_lines
 from core.parser.sections import HU_NAMED_SECTIONS, HU_ORDINAL
 
 try:
@@ -56,69 +57,54 @@ _DIVIDER_RE = re.compile(
 
 
 class _HTMLLineExtractor(HTMLParser):
+    """Collect semantic blocks, ignoring source indentation inside paragraphs."""
     def __init__(self):
         super().__init__()
+        self.lines = []
+        self.kinds = {}
         self.parts = []
-        self._skip_tags = {"script", "style"}
-        self._block_tags = {
-            "p",
-            "div",
-            "section",
-            "article",
-            "header",
-            "footer",
-            "li",
-            "ul",
-            "ol",
-            "tr",
-            "td",
-            "th",
-            "blockquote",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "br",
-            "hr",
-        }
-        self._current_skip = 0
+        self.skip = 0
+        self.kind = 'paragraph'
+        self.tags = {'p', 'div', 'section', 'article', 'header', 'footer',
+                     'li', 'ul', 'ol', 'tr', 'td', 'th', 'blockquote',
+                     'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr'}
 
-    def _line_break(self):
-        if not self.parts or self.parts[-1] != "\n":
-            self.parts.append("\n")
+    def flush(self):
+        text = '\n'.join(re.sub(r'\s+', ' ', part).strip()
+                         for part in ''.join(self.parts).split('\x00')).strip()
+        if text:
+            self.lines.append(StructuredText(text, self.kind))
+            if self.kind != 'paragraph' or text not in self.kinds:
+                self.kinds[text] = self.kind
+        self.parts = []
 
     def handle_starttag(self, tag, attrs):
-        tag = tag.lower()
-        if tag in self._skip_tags:
-            self._current_skip += 1
+        if tag in {'script', 'style'}:
+            self.skip += 1
+        if self.skip:
             return
-        if tag in self._block_tags:
-            self._line_break()
+        if tag in self.tags:
+            self.flush()
+            self.kind = 'heading' if tag == 'h1' else 'subheading' if re.fullmatch('h[2-6]', tag) else 'paragraph'
+        elif tag == 'br':
+            # A line break inside a paragraph is not a new paragraph.
+            self.parts.append('\x00')
 
     def handle_endtag(self, tag):
-        tag = tag.lower()
-        if tag in self._skip_tags:
-            self._current_skip = max(0, self._current_skip - 1)
+        if tag in {'script', 'style'}:
+            self.skip = max(0, self.skip - 1)
             return
-        if tag in self._block_tags:
-            self._line_break()
+        if not self.skip and tag in self.tags:
+            self.flush()
+            self.kind = 'paragraph'
 
     def handle_data(self, data):
-        if self._current_skip == 0 and data:
+        if not self.skip:
             self.parts.append(data)
 
     def get_lines(self):
-        raw = "".join(self.parts).replace("\xa0", " ")
-        raw = raw.replace("\r", "\n")
-        raw = re.sub(r"\n{3,}", "\n\n", raw)
-        lines = []
-        for line in raw.splitlines():
-            normalized = re.sub(r"\s+", " ", line).strip()
-            if normalized:
-                lines.append(normalized)
-        return lines
+        self.flush()
+        return self.lines
 
 
 def _decode_item(item):
@@ -204,18 +190,18 @@ def _split_document(lines):
             if current_title is None and current_lines:
                 prefix_lines = current_lines[:]
             elif current_title is not None:
-                content = "\n".join(current_lines).strip()
-                sections.append({"title": current_title.strip(), "content": content})
+                content = "\n\n".join(current_lines).strip()
+                sections.append({"title": current_title.strip(), "content": content, "lines": current_lines[:]})
             current_title = line.strip()
-            current_lines = []
+            current_lines = [StructuredText(line, "heading")]
         else:
             current_lines.append(line)
 
     if current_title is None:
         return prefix_lines or current_lines, []
 
-    content = "\n".join(current_lines).strip()
-    sections.append({"title": current_title.strip(), "content": content})
+    content = "\n\n".join(current_lines).strip()
+    sections.append({"title": current_title.strip(), "content": content, "lines": current_lines[:]})
 
     return prefix_lines, sections
 
@@ -224,16 +210,18 @@ def _append_to_previous(chapters, extra_lines):
     if not chapters or not extra_lines:
         return
 
-    extra = "\n".join(extra_lines).strip()
+    extra = "\n\n".join(extra_lines).strip()
     if not extra:
         return
 
     previous = chapters[-1]
     previous["content"] = (previous["content"].rstrip() + "\n\n" + extra).strip()
     previous["word_count"] = len(previous["content"].split())
+    if "blocks" in previous:
+        previous["blocks"].extend(blocks_from_lines(extra_lines))
 
 
-def _add_section(chapters, title, content, order_num, min_words=None):
+def _add_section(chapters, title, content, order_num, min_words=None, lines=None):
     title = (title or "").strip()
     content = content.strip()
     if not content:
@@ -250,6 +238,8 @@ def _add_section(chapters, title, content, order_num, min_words=None):
             "word_count": len(content.split()),
         }
     )
+    if lines is not None:
+        chapters[-1]["blocks"] = blocks_from_lines(lines)
     return order_num + 1
 
 
@@ -338,8 +328,11 @@ def parse(file_path):
 
     for item in spine_items:
         html = _decode_item(item)
-        lines = _extract_lines(html)
-        text = "\n".join(lines).strip()
+        extractor = _HTMLLineExtractor()
+        extractor.feed(html)
+        extractor.close()
+        lines = extractor.get_lines()
+        text = "\n\n".join(lines).strip()
         if not text:
             continue
 
@@ -365,15 +358,20 @@ def parse(file_path):
             started_story = True
             _append_to_previous(chapters, prefix_lines)
             for section in sections:
-                order = _add_section(chapters, section["title"], section["content"], order)
+                order = _add_section(chapters, section["title"], section["content"], order, lines=section["lines"])
             continue
 
         # No headings recognised in the HTML — use the TOC-provided title if
         # available.  This handles EPUBs where each chapter is a separate file
         # but the heading text is only in the NCX/NAV, not in the HTML body.
         if toc_title:
-            chapter_content = "\n".join(prefix_lines).strip()
-            order = _add_section(chapters, toc_title, chapter_content, order, min_words=1)
+            prefix_lines = list(prefix_lines)
+            if prefix_lines and str(prefix_lines[0]).strip() == toc_title.strip():
+                prefix_lines[0] = StructuredText(prefix_lines[0], "heading")
+            else:
+                prefix_lines.insert(0, StructuredText(toc_title.strip(), "heading"))
+            chapter_content = "\n\n".join(prefix_lines).strip()
+            order = _add_section(chapters, toc_title, chapter_content, order, min_words=1, lines=prefix_lines)
             started_story = True
             continue
 
@@ -394,7 +392,7 @@ def parse(file_path):
             chapters,
             _fallback_title(doc["lines"], order),
             doc["text"],
-            order,
+            order, lines=doc["lines"],
         )
 
     if not chapters and fallback_docs:
@@ -409,6 +407,7 @@ def parse(file_path):
                 }
             ]
 
+    attach_blocks(chapters)
     return {
         "title": title,
         "author": author,

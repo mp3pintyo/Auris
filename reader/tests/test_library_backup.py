@@ -95,6 +95,28 @@ class LibraryBackupTest(unittest.TestCase):
             library_backup.restore_backup(archive, self.root / "restored", confirm=True)
         self.assertFalse((self.root / "outside.txt").exists())
 
+    def test_legacy_restore_reanchors_speaker_units_after_heading_preservation(self):
+        import json
+        from core import library_backup
+        with database.get_conn() as conn:
+            conn.execute("INSERT INTO books(id,title,file_path,file_type) VALUES(1,'Book','','txt')")
+            conn.execute("INSERT INTO chapters(id,book_id,title,order_num,content) VALUES(2,1,'Chapter 1',0,'Chapter 1\n\n- Hello.')")
+            conn.execute("INSERT INTO speaker_annotations(book_id,chapter_id,unit_index,unit_text,speaker_name,source) VALUES(1,2,0,'- Hello.','Anna','manual')")
+        archive = library_backup.create_backup(self.root / 'new.zip')
+        with zipfile.ZipFile(archive) as z:
+            manifest = json.loads(z.read('manifest.json'))
+        for row in manifest['tables']['chapters']:
+            for field in ('blocks_json', 'previous_text_json', 'text_revision'):
+                row.pop(field)
+        legacy = self.root / 'legacy.zip'
+        with zipfile.ZipFile(legacy, 'w') as z:
+            z.writestr('manifest.json', json.dumps(manifest))
+        library_backup.restore_backup(legacy, self.root / 'restored', confirm=True)
+        with database.get_conn() as conn:
+            row = conn.execute('SELECT * FROM speaker_annotations').fetchone()
+            self.assertEqual(row['unit_index'], 1)
+            self.assertEqual(row['speaker_name'], 'Anna')
+
 
 if __name__ == "__main__":
     unittest.main()

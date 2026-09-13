@@ -251,5 +251,9 @@ def init_db():
                 "ADD COLUMN ends_paragraph INTEGER DEFAULT 0"
             )
 
+    from core import text_editor
+    with get_conn() as conn:
+        text_editor.initialize(conn)
+
     from core.experience import initialize
     initialize()

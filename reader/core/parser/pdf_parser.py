@@ -3,6 +3,7 @@ import base64
 import unicodedata
 
 from core.parser.language import detect_language
+from core.parser.structure import attach_blocks
 from core.parser.sections import EXPLICIT_MARKER_THRESHOLD, is_explicit_section
 
 try:
@@ -110,23 +111,34 @@ def _without_page_numbers(blocks):
 def _merge_pdf_blocks(blocks):
     """Join PDF lines while preserving meaningful layout boundaries."""
     output = ''
+    previous_kind = None
+    previous_page = None
     for block in blocks:
         text = unicodedata.normalize('NFC', block.get('text', '')).strip()
         if not text:
             continue
         if not output:
             output = text
+            previous_kind = block.get('kind')
+            previous_page = block.get('page')
             continue
 
         if (
-            re.search(r"[^\W\d_][-\u00ad]$", output, re.UNICODE)
+            not block.get('kind') and not previous_kind
+            and re.search(r"[^\W\d_][-\u00ad]$", output, re.UNICODE)
             and re.match(r"[a-záéíóöőúüű]", text)
         ):
             output = output[:-1] + text
-        elif block.get('paragraph_start'):
+        elif block.get('kind') or previous_kind or (block.get('paragraph_start') and not (
+            previous_page is not None and block.get('page') != previous_page
+            and re.match(r'[a-záéíóöőúüű]', text)
+            and not re.search(r'[.!?…][\"”’]?$', output)
+        )):
             output += '\n\n' + text
         else:
             output += ' ' + text
+        previous_kind = block.get('kind')
+        previous_page = block.get('page')
     return output.strip()
 
 
@@ -181,12 +193,14 @@ def _split_chapters(all_blocks, default_title):
                 })
                 order += 1
             current_title = text.strip()
-            current_lines = []
+            current_lines = [dict(block, kind="heading")]
         elif is_heading and not current_lines:
             # Heading at the very start (or right after a discarded frontmatter).
             current_title = text.strip()
-            current_lines = []
+            current_lines = [dict(block, kind="heading")]
         else:
+            if block['size'] > body_size + 1 and len(text) < 120:
+                block = dict(block, kind='subheading')
             current_lines.append(block)
 
     if current_lines:
@@ -199,6 +213,9 @@ def _split_chapters(all_blocks, default_title):
                 'word_count': len(content.split()),
             })
 
+    kinds = {b['text']: 'subheading' for b in all_blocks if b['size'] > body_size + 1}
+    kinds.update({c['title']: 'heading' for c in chapters})
+    attach_blocks(chapters, kinds)
     return chapters
 
 
@@ -242,6 +259,7 @@ def parse(file_path):
             'word_count': len(full_text.split()),
         }]
 
+    attach_blocks(chapters)
     doc.close()
 
     return {

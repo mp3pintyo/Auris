@@ -12,6 +12,32 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-09-13
+
+### Magyar
+
+#### Hozzáadva
+
+- Opcionális fejezetszerkesztő OCR-javításhoz: cím/alcím/bekezdés, keresés–csere, blokkbontás, mentés, elvetés, előző változat visszaállítása és párhuzamos szerkesztések ütközésvédelme.
+- Blokkonkénti tempó és 0–5000 ms szünet, összecsukott finomhangoló eszközökkel és narrátorhangos előnézettel. A szünetek lejátszáskor és exportkor is érvényesek; a Higgs nyers módja nem alkalmaz tempóvezérlést.
+
+#### Javítva
+
+- Az importált fejezetcímek a törzsszövegben és a felolvasásban is megmaradnak. Az EPUB/DOCX címsorszintek, bekezdések és a felismerhető PDF/OCR-tördelés megőrzése; a címek nem folynak össze a következő bekezdéssel.
+- Szerkesztéskor a megmaradt szöveg beszélőjelölései és olvasási hivatkozásai követik a változást, az azonos hangrészek újrahasználhatók. A beépített magyar súgó részletesen leírja az új munkafolyamatot és korlátait.
+
+### English
+
+#### Added
+
+- Optional chapter editor for OCR corrections: heading/subheading/paragraph blocks, find and replace, block splitting, save/discard, previous-version restore and concurrent-edit protection.
+- Per-block speed and 0–5000 ms pauses in collapsed narration controls, with narrator-voice preview. Pauses apply to both playback and export; Higgs raw mode does not apply speed controls.
+
+#### Fixed
+
+- Imported chapter headings remain in the body text and narration. EPUB/DOCX heading levels, paragraphs and recognizable PDF/OCR structure are preserved; headings no longer run into the next paragraph.
+- Editing reanchors unchanged speaker units and reading references, while matching audio remains reusable. Built-in Hungarian documentation explains the workflow and its limitations.
+
 ## [3.3.1] - 2026-09-11
 
 ### Magyar

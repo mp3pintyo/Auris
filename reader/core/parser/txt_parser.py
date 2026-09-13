@@ -1,6 +1,7 @@
 import re
 
 from core.parser.language import detect_language
+from core.parser.structure import attach_blocks
 from core.parser.sections import (
     BACKMATTER_RE as _BACKMATTER_RE,
     COPYRIGHT_RE as _COPYRIGHT_RE,
@@ -72,6 +73,12 @@ def parse_text(raw, title=None, author=None):
             'word_count': len(raw.split()),
         }]
 
+    # Separate retained chapter headings from the first body paragraph.
+    for chapter in chapters:
+        prefix = chapter['title'] + '\n'
+        if chapter['content'].startswith(prefix) and not chapter['content'].startswith(prefix + '\n'):
+            chapter['content'] = chapter['title'] + '\n\n' + chapter['content'][len(prefix):]
+    attach_blocks(chapters)
     return {
         'title': title,
         'author': author,

@@ -361,7 +361,7 @@ class DocxParseTests(unittest.TestCase):
         self.assertEqual(book['language'], 'en')
         for chapter in book['chapters']:
             self.assertEqual(
-                set(chapter), {'title', 'order_num', 'content', 'word_count'}
+                set(chapter), {'title', 'order_num', 'content', 'word_count', 'blocks'}
             )
             self.assertEqual(chapter['word_count'], len(chapter['content'].split()))
 

@@ -11,6 +11,7 @@ import re
 
 from core.parser import mobi, txt_parser
 from core.parser.language import detect_language
+from core.parser.structure import attach_blocks
 from core.parser.sections import (
     BACKMATTER_RE,
     should_skip_section,
@@ -68,14 +69,13 @@ def _chapters_from_sections(sections):
 
         # The TOC title and the chapter's own heading are usually the same
         # text; keep it once.
-        if lines and title and _normalize(lines[0]) == _normalize(title):
-            lines = lines[1:]
+        # Source headings remain part of the narrated chapter.
 
         first_line = lines[0] if lines else ''
         if BACKMATTER_RE.match(title) or BACKMATTER_RE.match(first_line):
             break
 
-        content = '\n'.join(lines).strip()
+        content = '\n\n'.join(lines).strip()
         if not content:
             if not (title and _DIVIDER_RE.match(title)):
                 continue
@@ -93,7 +93,7 @@ def _chapters_from_sections(sections):
         scenes = split_numbered_scenes(lines)
         if scenes:
             for marker, body in scenes:
-                scene_text = '\n'.join(body).strip()
+                scene_text = '\n\n'.join([marker] + body).strip()
                 if not scene_text:
                     continue
                 if (len(scene_text.split()) < MIN_SCENE_WORDS
@@ -110,6 +110,7 @@ def _chapters_from_sections(sections):
         )
         started_story = True
 
+    attach_blocks(chapters)
     return chapters
 
 
@@ -152,6 +153,7 @@ def parse(file_path):
     if not language:
         language = detect_language(plain_text)
 
+    attach_blocks(chapters)
     return {
         'title': book.title,
         'author': book.author,

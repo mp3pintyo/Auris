@@ -1,0 +1,29 @@
+.text-paragraph-break { display: block; height: .85em; }
+.text-block-heading { font-weight: 700; font-size: 1.2em; }
+#text-editor { width: min(960px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); margin: auto; padding: 0; border: 1px solid var(--border); border-radius: 14px; background: var(--bg); color: var(--text); }
+#text-editor::backdrop { background: rgb(0 0 0 / .65); }
+.text-editor-shell { display: flex; flex-direction: column; max-height: calc(100dvh - 28px); }
+#text-editor header, #text-editor footer { padding: 16px 20px; background: var(--bg2); flex-shrink: 0; }
+#text-editor header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); }
+#text-editor h2 { font-size: 1.2rem; margin: 0; }
+.text-editor-body { padding: 20px; overflow: auto; min-height: 0; }
+#text-editor label { display: flex; flex-direction: column; gap: 6px; font-size: .9rem; min-width: 0; }
+#text-editor input, #text-editor textarea, #text-editor select { box-sizing: border-box; width: 100%; padding: 10px; background: var(--bg2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+#text-editor textarea { resize: vertical; line-height: 1.6; min-height: 110px; }
+#text-editor details { margin-top: 14px; }
+#text-editor summary { cursor: pointer; padding: 8px 0; font-size: .9rem; }
+#text-editor p, #text-editor small { color: var(--text2); line-height: 1.5; }
+.editor-block { border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin: 16px 0; }
+.editor-block-tools, .editor-tuning, .editor-find, .editor-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.editor-block-tools { margin-bottom: 12px; }
+.editor-block-tools label { flex: 1 1 140px; }
+.editor-tuning label, .editor-find label { flex: 1 1 150px; }
+.editor-actions { justify-content: flex-end; }
+#editor-status { overflow-wrap: anywhere; margin-bottom: 8px; }
+#text-editor :focus-visible { outline: 2px solid var(--accent, #b69bff); outline-offset: 3px; }
+@media (max-width: 600px) {
+  #text-editor header, #text-editor footer, .text-editor-body { padding: 12px; }
+  .editor-block { padding: 10px; }
+  .editor-actions .btn { flex: 1 1 auto; white-space: normal; }
+  #text-editor-open { white-space: normal; }
+}

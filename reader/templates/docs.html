@@ -11,6 +11,7 @@
         <a href="#workflow">Munkafolyamat</a>
         <a href="#speaker-review">Szereplők ellenőrzése</a>
         <a href="#llm-detection">Helyi LLM felismerés</a>
+        <a href="#text-editing">Szöveg és felolvasási ritmus</a>
         <a href="#import-tools">OCR és Calibre</a>
         <a href="#voices">Hangok és klónozás</a>
         <a href="#omnivoice">OmniVoice</a>
@@ -190,6 +191,8 @@
           <p>
             A mondatok között rövid, a párbeszédváltásoknál kissé hosszabb,
             valódi bekezdéshatáron pedig 0,85 másodperces szünet hallható.
+            A címek és alcímek után 1,2 másodperc következik; a szerkesztőben
+            megadott szünet felülírja az automatikus értéket.
             A három ponttal lezárt szöveg továbbra is hosszabb, 1,5 másodperces
             elhallgatást kap. Ugyanezek az időzítések kerülnek az exportba és a
             feliratokba is.
@@ -412,6 +415,28 @@
           kvantálása is befolyásolja a felismerést.
         </p>
       </div>
+    </section>
+
+    <section class="docs-section" id="text-editing">
+      <div class="docs-section-heading"><span class="docs-section-index">✎</span><div>
+        <h2>Szöveg szerkesztése és felolvasási ritmus</h2>
+        <p>A megszokott olvasáshoz semmit nem kell bekapcsolni. A javítóeszközök külön ablakban érhetők el.</p>
+      </div></div>
+      <h3>Megőrzött címek és bekezdések</h3>
+      <p>Új importnál a forrásban szereplő fejezetcím a szövegben is megmarad és elhangzik. Az EPUB és DOCX címsorai és alcímei elkülönülnek a bekezdésektől; Wordben a legfelső használt címsorszint adja a fejezethatárokat. PDF és OCR esetén a felismerés a rendelkezésre álló szövegre és elrendezésre támaszkodik, ezért ellenőrzést igényelhet. A korábban importáláskor elveszett szerkezetet a program nem tudja visszaállítani a forrás nélkül: ilyenkor importáld újra a dokumentumot, vagy javítsd a blokkokat kézzel.</p>
+      <h3>OCR-hibák javítása</h3>
+      <ol class="docs-check-list">
+        <li>Nyisd meg a fejezetet, majd kattints a <strong>Szöveg szerkesztése</strong> gombra. A lejátszás megáll.</li>
+        <li>Javítsd a szövegblokkokat. A <strong>Szövegtípus</strong> mezőben választhatsz címet, alcímet vagy bekezdést. A <strong>Kettébontás</strong> a kurzornál új blokkot hoz létre; hozzáadhatsz és törölhetsz is blokkokat.</li>
+        <li>A <strong>Keresés és csere</strong> az aktuális fejezet összes szövegblokkjában, kis- és nagybetűérzékenyen működik. A csere csak a <strong>Mentés</strong> után végleges.</li>
+        <li>Mentéskor a módosult hangrészek érvényüket vesztik és a következő lejátszáskor vagy exportkor újragenerálódnak. A változatlan szöveghez és hangbeállításhoz tartozó elkészült hang megmarad.</li>
+      </ol>
+      <p>Az <strong>Elvetés / bezárás</strong> nem menti a változásokat. Az <strong>Előző változat visszaállítása</strong> az előző mentett szöveget és annak beszélőjelöléseit hozza vissza. Egy előző változatot őrzünk meg, a könyvtármentés ezt is tartalmazza. Ha másik ablakban közben módosult a fejezet, a mentés ütközést jelez; másold ki a még nem mentett javítást, majd nyisd meg újra a szerkesztőt.</p>
+      <p>A megmaradt szövegegységek beszélőjelölései követik a szöveget. Az átírt vagy törölt egység jelölését újra ellenőrizni kell a <strong>Beszélők javítása</strong> módban. A könyvjelzőket és az olvasási helyet a program a megmaradt szöveghez, átírásnál a környező részekhez igazítja. Folyamatban lévő generálás, export vagy elemzés alatt a mentés várakozást kér.</p>
+      <h3>Opcionális finomhangolás</h3>
+      <p>Minden blokk alatt külön nyitható a <strong>Felolvasás finomhangolása</strong>. A tempó 0,5–2×, a blokk utáni szünet 0–5000 ms lehet. Üres mezőnél automatikus érték érvényes; a 0 ms kifejezetten kikapcsolja a hozzáadott szünetet. A modell által a hangon belül létrehozott csendet ez nem távolítja el. A szünetek a lejátszás és az export közös idővonalába kerülnek.</p>
+      <p>Az <strong>Előnézet narrátorhanggal</strong> legfeljebb 1500 karakteres blokkot olvas fel, a beállított záró szünettel. Ehhez a hangmodellnek betöltve kell lennie. A szereplőhangokat a rendes lejátszásban ellenőrizd. A tempó modellutasítás: OmniVoice alatt működik, Higgs alatt a kifejező mód alkalmazza; a Higgs nyers módjában a tempómező nem használható. A pontos megszólalás a modelltől függ.</p>
+      <p>A szerkezeti és időzítési beállítások külön adatok, nem a felolvasandó szövegbe írt vezérlőkódok. Ebben a változatban nincs automatikus LLM-alapú rendezés vagy új, blokkonkénti hangulat- és hangsúlyszerkesztő.</p>
     </section>
 
     <section class="docs-section" id="import-tools">

@@ -3,6 +3,7 @@ Offline Ebook Reader — Flask application.
 """
 
 import base64
+import json
 import logging
 import os
 import shutil
@@ -21,6 +22,7 @@ from flask import (
 )
 
 from core.database import init_db, get_conn
+from core import text_editor
 from core.tts_batcher import InteractiveTTSBatcher
 from core.tts_engine import TTSExportPool
 from core.tts_router import TTSEngineRouter
@@ -76,16 +78,16 @@ _INTERACTIVE_BUSY_MESSAGE = (
     'Interaktív hangkészítés fut. Próbáld újra, amikor befejeződött.'
 )
 _INTERACTIVE_ENDPOINTS = {
-    'preview_character', 'preview_narrator',
+    'preview_character', 'preview_narrator', 'preview_chapter_text',
 }
 _GATED_MUTATION_ENDPOINTS = {
-    'import_book', 'delete_book', 'update_speaker_annotation',
+    'import_book', 'delete_book', 'update_speaker_annotation', 'save_chapter_text', 'restore_chapter_text',
     'upload_ref_audio',
     'delete_ref_audio', 'upload_narrator_ref_audio',
     'delete_narrator_ref_audio', 'save_settings', 'tts_load', 'tts_reload',
 }
 _VOICE_MUTATION_ENDPOINTS = {'update_character', 'update_narrator'}
-_CONSISTENT_READ_ENDPOINTS = {'get_chapter', 'get_segments', 'tts_generate'}
+_CONSISTENT_READ_ENDPOINTS = {'get_chapter_editor', 'get_chapter', 'get_segments', 'tts_generate'}
 
 
 class JobCancelled(RuntimeError):
@@ -345,6 +347,7 @@ def _compute_segments_for_chapter(
     book_id: int,
     chapter_id: int,
     single_narrator_mode: bool | None = None,
+    chapter_override=None, annotation_override=None,
 ) -> list[dict]:
     with get_conn() as conn:
         ch = conn.execute(
@@ -367,6 +370,10 @@ def _compute_segments_for_chapter(
             (chapter_id,),
         ).fetchall()
 
+    if chapter_override is not None:
+        ch = chapter_override
+    if annotation_override is not None:
+        annotation_rows = annotation_override
     if not ch:
         return []
 
@@ -384,17 +391,12 @@ def _compute_segments_for_chapter(
         speaker_annotations = enrichment.expand_speaker_annotations(
             ch['content'], speaker_annotations
         )
-    segs = enrichment.enrich_chapter(
-        ch['content'],
-        char_map,
+    segs = text_editor.enrich_blocks(
+        text_editor.chapter_blocks(ch), char_map,
         _book_narrator_instruct(dict(book) if book else None),
-        single_narrator_mode=(
-            _book_single_narrator_mode(dict(book) if book else None)
-            if single_narrator_mode is None
-            else single_narrator_mode
-        ),
-        chapter_title=ch['title'],
-        speaker_annotations=speaker_annotations,
+        (_book_single_narrator_mode(dict(book) if book else None)
+         if single_narrator_mode is None else single_narrator_mode),
+        speaker_annotations,
     )
     from core import experience
     rules = experience.list_rules(book_id)
@@ -436,6 +438,9 @@ def _segments_match_rows(segs: list[dict], rows) -> bool:
             return False
         if bool(row['ends_paragraph']) != bool(seg.get('ends_paragraph')):
             return False
+        for field in ('block_index', 'block_kind', 'pause_ms'):
+            if row[field] != seg.get(field):
+                return False
 
     return True
 
@@ -789,10 +794,10 @@ def import_book():
 
         for ch in chapters:
             conn.execute(
-                'INSERT INTO chapters (book_id, title, order_num, section_type, content, word_count) '
-                'VALUES (?,?,?,?,?,?)',
+                'INSERT INTO chapters (book_id, title, order_num, section_type, content, word_count, blocks_json) '
+                'VALUES (?,?,?,?,?,?,?)',
                 (book_id, ch['title'], ch['order_num'], ch.get('section_type', 'chapter'),
-                 ch['content'], ch['word_count'])
+                 ch['content'], ch['word_count'], json.dumps(ch.get('blocks'), ensure_ascii=False) if ch.get('blocks') else None)
             )
 
     if detection_mode == 'none':
@@ -1451,6 +1456,164 @@ def list_chapters(book_id):
             (book_id,)
         ).fetchall()
     return jsonify([dict(r) for r in rows])
+
+
+def _editor_payload(chapter):
+    return {'title': chapter['title'], 'blocks': text_editor.chapter_blocks(chapter),
+            'revision': chapter['text_revision'] or 0,
+            'can_restore': bool(chapter['previous_text_json']),
+            'speed_supported': not (app_settings.get('tts_engine', 'omnivoice') == 'higgs'
+                                   and app_settings.get('higgs_prompt_mode', 'raw') == 'raw')}
+
+
+@app.route('/api/books/<int:book_id>/chapters/<int:chapter_id>/editor')
+def get_chapter_editor(book_id, chapter_id):
+    with get_conn() as conn:
+        chapter = conn.execute('SELECT * FROM chapters WHERE id=? AND book_id=?',
+                               (chapter_id, book_id)).fetchone()
+    if chapter is None:
+        return jsonify({'error': 'A fejezet nem található.'}), 404
+    return jsonify(_editor_payload(chapter))
+
+
+def _save_editor(book_id, chapter_id, restore=False):
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({'error': 'Érvénytelen szerkesztési kérés.'}), 400
+    with _get_chapter_build_lock(book_id, chapter_id):
+        with get_conn() as conn:
+            chapter = conn.execute('SELECT * FROM chapters WHERE id=? AND book_id=?',
+                                   (chapter_id, book_id)).fetchone()
+            old_annotations = [dict(r) for r in conn.execute(
+                'SELECT * FROM speaker_annotations WHERE chapter_id=? AND book_id=? ORDER BY unit_index',
+                (chapter_id, book_id))]
+        if chapter is None:
+            return jsonify({'error': 'A fejezet nem található.'}), 404
+        revision = body.get('revision')
+        if type(revision) is not int or revision != (chapter['text_revision'] or 0):
+            return jsonify({'error': 'A fejezet közben megváltozott. Nyisd meg újra a szerkesztőt; a mostani módosításaid még nem kerültek mentésre.'}), 409
+        try:
+            target = body
+            if restore:
+                if not chapter['previous_text_json']:
+                    return jsonify({'error': 'Nincs visszaállítható változat.'}), 409
+                target = json.loads(chapter['previous_text_json'])
+            title = target.get('title')
+            if not isinstance(title, str) or not title.strip() or len(title) > 500:
+                raise ValueError('A fejezetcím 1–500 karakter lehet.')
+            blocks = text_editor.validate_blocks(target.get('blocks'))
+        except (ValueError, TypeError) as exc:
+            return jsonify({'error': str(exc)}), 400
+        content = text_editor.content_of(blocks)
+        if (not restore and title.strip() == chapter['title']
+                and blocks == text_editor.chapter_blocks(chapter)):
+            return jsonify(_editor_payload(chapter))
+        mapping = text_editor.unit_mapping(chapter['content'], content)
+        new_units = enrichment.build_speaker_units(content)
+        annotations = []
+        for old in old_annotations:
+            index = mapping.get(old['unit_index'])
+            if index is not None:
+                annotations.append({**old, 'unit_index': index, 'unit_text': new_units[index]['text']})
+        if restore and 'annotations' in target:
+            annotations = target['annotations']
+        prospective = {**dict(chapter), 'title': title.strip(), 'content': content,
+                       'blocks_json': json.dumps(blocks, ensure_ascii=False)}
+        rebuilt = _compute_segments_for_chapter(book_id, chapter_id,
+                    chapter_override=prospective, annotation_override=annotations)
+        if not rebuilt:
+            return jsonify({'error': 'A fejezet nem tartalmaz felolvasható szöveget.'}), 400
+        anchors = _capture_position_anchors(book_id, chapter_id)
+        with get_conn() as conn:
+            old_segments = conn.execute('SELECT text FROM tts_segments WHERE book_id=? AND chapter_id=? ORDER BY segment_index', (book_id, chapter_id)).fetchall()
+            old_progress = conn.execute('SELECT position FROM reading_progress WHERE book_id=? AND chapter_id=?', (book_id, chapter_id)).fetchone()
+            old_bookmarks = {r['id']: r['segment_index'] for r in conn.execute('SELECT id,segment_index FROM bookmarks WHERE book_id=? AND chapter_id=?', (book_id, chapter_id))}
+        positions = text_editor.position_mapping(old_segments, rebuilt)
+        previous = {**_editor_payload(chapter), 'annotations': old_annotations}
+        with get_conn() as conn:
+            updated = conn.execute('UPDATE chapters SET title=?,content=?,word_count=?,blocks_json=?, '
+                         'text_revision=COALESCE(text_revision,0)+1,previous_text_json=? WHERE id=? AND book_id=? '
+                         'AND COALESCE(text_revision,0)=?',
+                         (prospective['title'], content, len(content.split()), prospective['blocks_json'],
+                          json.dumps(previous, ensure_ascii=False), chapter_id, book_id, revision))
+            if updated.rowcount != 1:
+                return jsonify({'error': 'A fejezet közben megváltozott. Nyisd meg újra a szerkesztőt.'}), 409
+            conn.execute('DELETE FROM speaker_annotations WHERE chapter_id=? AND book_id=?', (chapter_id, book_id))
+            for annotation in annotations:
+                conn.execute('INSERT INTO speaker_annotations '
+                    '(book_id,chapter_id,unit_index,unit_text,speaker_name,confidence,source) VALUES(?,?,?,?,?,?,?)',
+                    (book_id,chapter_id,annotation['unit_index'],annotation['unit_text'],
+                     annotation['speaker_name'],annotation['confidence'],annotation['source']))
+            _store_segments(book_id, chapter_id, rebuilt, connection=conn)
+            position = positions.get(old_progress['position']) if old_progress else None
+            if position is None:
+                position = _best_segment_index(rebuilt, anchors['progress_text'])
+            conn.execute("UPDATE reading_progress SET position=?,offset_sec=0,cache_key='',"
+                         "updated_at=datetime('now') WHERE book_id=? AND chapter_id=?",
+                         (position or 0, book_id, chapter_id))
+            for bookmark_id, excerpt in anchors['bookmarks']:
+                index = positions.get(old_bookmarks.get(bookmark_id))
+                if index is None:
+                    index = _best_segment_index(rebuilt, excerpt)
+                conn.execute('UPDATE bookmarks SET segment_index=? WHERE id=? AND book_id=?',
+                             (index or 0, bookmark_id, book_id))
+            conn.execute('UPDATE characters SET frequency=(SELECT COUNT(*) FROM speaker_annotations a '
+                         'WHERE a.book_id=characters.book_id AND a.speaker_name=characters.name) WHERE book_id=?', (book_id,))
+            result = conn.execute('SELECT * FROM chapters WHERE id=?', (chapter_id,)).fetchone()
+        return jsonify({**_editor_payload(result), 'annotations_removed': len(old_annotations) - len(annotations)})
+
+
+@app.route('/api/books/<int:book_id>/chapters/<int:chapter_id>/editor', methods=['PUT'])
+def save_chapter_text(book_id, chapter_id):
+    return _save_editor(book_id, chapter_id)
+
+
+@app.route('/api/books/<int:book_id>/chapters/<int:chapter_id>/editor/restore', methods=['POST'])
+def restore_chapter_text(book_id, chapter_id):
+    return _save_editor(book_id, chapter_id, restore=True)
+
+
+@app.route('/api/books/<int:book_id>/chapters/<int:chapter_id>/editor/preview', methods=['POST'])
+def preview_chapter_text(book_id, chapter_id):
+    with get_conn() as conn:
+        chapter = conn.execute('SELECT id FROM chapters WHERE id=? AND book_id=?', (chapter_id, book_id)).fetchone()
+    if not chapter:
+        return jsonify({'error': 'A fejezet nem található.'}), 404
+    body = request.get_json(silent=True)
+    try:
+        blocks = text_editor.validate_blocks([body.get('block') if isinstance(body, dict) else None])
+        if len(blocks[0]['text']) > 1500:
+            raise ValueError('Az előnézethez legfeljebb 1500 karakteres blokkot válassz vagy bontsd kisebb részekre.')
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    if tts.status()['state'] != 'ready':
+        return jsonify({'error': 'Az előnézethez előbb töltsd be a hangmodellt a Beállításokban.'}), 503
+    book = dict(_load_book(book_id))
+    segs = text_editor.enrich_blocks(blocks, {}, _book_narrator_instruct(book), True, None)
+    from core import experience
+    ref_audio, ref_text = _book_narrator_reference(book_id)
+    try:
+        for seg in segs:
+            result = tts.generate(
+                text=experience.apply_pronunciation(seg['enriched_text'], book_id),
+                instruct=seg['instruct'], speed=seg['speed'], language=book['language'],
+                ref_audio=ref_audio, ref_text=ref_text)
+            seg['audio_path'] = result['audio_path']
+        # Include the selected trailing pause in the preview so it is audible.
+        import numpy as np
+        import soundfile as sf
+        from core.exporter import _merge_wavs, pause_after_segment, SAMPLE_RATE
+        from core.tts_engine import AUDIO_CACHE_DIR
+        waveform = _merge_wavs(segs)
+        if segs[-1].get('pause_ms') is None:
+            waveform = np.concatenate([waveform, np.zeros(int(SAMPLE_RATE * pause_after_segment(segs[-1])))])
+        key = 'preview_' + uuid.uuid4().hex
+        os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
+        sf.write(os.path.join(AUDIO_CACHE_DIR, key + '.wav'), waveform, SAMPLE_RATE)
+        return jsonify({'audio_url': f'/api/audio/{key}'})
+    except Exception as exc:
+        log.exception('Chapter text preview failed')
+        return jsonify({'error': str(exc)}), 500
 
 
 @app.route('/api/books/<int:book_id>/chapters/<int:chapter_id>')
@@ -2209,28 +2372,44 @@ def get_segments(book_id, chapter_id):
             unit_metadata.get(r['unit_index'], {}).get('continuation')
         ),
         'ends_paragraph': bool(r['ends_paragraph']),
+        'block_index': r['block_index'],
+        'block_kind': r['block_kind'],
+        'pause_ms': r['pause_ms'],
     } for r in rows])
 
 
-def _store_segments(book_id, chapter_id, segs):
-    with get_conn() as conn:
-        conn.execute(
-            'DELETE FROM tts_segments WHERE book_id=? AND chapter_id=?',
-            (book_id, chapter_id)
-        )
-        for i, s in enumerate(segs):
-            cache_key = f'pending:{book_id}:{chapter_id}:{i}:{uuid.uuid4().hex}'
+def _store_segments(book_id, chapter_id, segs, connection=None):
+    from contextlib import nullcontext
+    from collections import defaultdict, deque
+    # Keep already rendered audio only when every voice/text input still matches.
+    with (nullcontext(connection) if connection is not None else get_conn()) as conn:
+        previous = conn.execute(
+            'SELECT * FROM tts_segments WHERE book_id=? AND chapter_id=? ORDER BY segment_index',
+            (book_id, chapter_id),
+        ).fetchall()
+        def signature(seg):
+            return (seg['text'], seg['enriched_text'], seg['character_name'],
+                    seg['instruct'], float(seg['speed']), bool(seg['is_dialogue']))
+        reusable = defaultdict(deque)
+        for row in previous:
+            if row['audio_path'] and os.path.exists(row['audio_path']):
+                reusable[signature(row)].append(row)
+        conn.execute('DELETE FROM tts_segments WHERE book_id=? AND chapter_id=?', (book_id, chapter_id))
+        for i, seg in enumerate(segs):
+            candidates = reusable[signature(seg)]
+            old = candidates.popleft() if candidates else None
+            key = old['cache_key'] if old else f'pending:{book_id}:{chapter_id}:{i}:{uuid.uuid4().hex}'
             conn.execute(
                 'INSERT INTO tts_segments '
-                '(book_id, chapter_id, segment_index, text, enriched_text, '
-                'character_name, instruct, speed, is_dialogue, unit_index, '
-                'speaker_candidate, ends_paragraph, cache_key) '
-                'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                (book_id, chapter_id, i, s['text'], s['enriched_text'],
-                 s['character_name'], s['instruct'], s['speed'],
-                 int(s['is_dialogue']), s.get('unit_index'),
-                 int(bool(s.get('speaker_candidate'))),
-                 int(bool(s.get('ends_paragraph'))), cache_key)
+                '(book_id,chapter_id,segment_index,text,enriched_text,character_name,instruct,speed,'
+                'is_dialogue,unit_index,speaker_candidate,ends_paragraph,cache_key,'
+                'block_index,block_kind,pause_ms,audio_path,duration_sec) '
+                'VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                (book_id,chapter_id,i,seg['text'],seg['enriched_text'],seg['character_name'],
+                 seg['instruct'],seg['speed'],int(seg['is_dialogue']),seg.get('unit_index'),
+                 int(bool(seg.get('speaker_candidate'))),int(bool(seg.get('ends_paragraph'))),key,
+                 seg.get('block_index'),seg.get('block_kind'),seg.get('pause_ms'),
+                 old['audio_path'] if old else None,old['duration_sec'] if old else None),
             )
 
 

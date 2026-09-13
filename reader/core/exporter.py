@@ -276,6 +276,10 @@ def pause_after_segment(segment: dict, next_segment: dict | None = None) -> floa
     unnaturally fast. Paragraph endings keep the author's larger structural
     pauses in both live playback and exported audio.
     """
+    if segment.get('pause_ms') is not None:
+        return max(0, min(5000, float(segment['pause_ms']))) / 1000
+    if segment.get('block_kind') in ('heading', 'subheading') and segment.get('ends_paragraph'):
+        return 1.2
     text = str(segment.get('text') or '').rstrip()
     text = text.rstrip('"\'”’»').rstrip()
     if text.endswith(('...', '…')):
@@ -305,8 +309,8 @@ def _merge_wavs(segments: list[dict]) -> np.ndarray:
             if data.ndim > 1:
                 data = data.mean(axis=1)
             arrays.append(data)
-            if idx + 1 < len(playable):
-                pause = pause_after_segment(seg, playable[idx + 1])
+            if idx + 1 < len(playable) or seg.get('pause_ms') is not None:
+                pause = pause_after_segment(seg, playable[idx + 1] if idx + 1 < len(playable) else None)
                 arrays.append(np.zeros(int(SAMPLE_RATE * pause)))
     return np.concatenate(arrays) if arrays else np.zeros(SAMPLE_RATE)
 

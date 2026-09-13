@@ -400,7 +400,7 @@ def confirm_import():
                     conn.execute(f'UPDATE books SET {field}=? WHERE id=?', (value, bid))
                 for ch in chapters:
                     conn.execute(
-                        "INSERT INTO chapters(book_id,title,order_num,section_type,content,word_count) VALUES(?,?,?,?,?,?)",
+                        "INSERT INTO chapters(book_id,title,order_num,section_type,content,word_count,blocks_json) VALUES(?,?,?,?,?,?,?)",
                         (
                             bid,
                             ch["title"],
@@ -408,6 +408,7 @@ def confirm_import():
                             ch.get("section_type", "chapter"),
                             ch["content"],
                             ch.get("word_count", len(ch["content"].split())),
+                            json.dumps(ch.get("blocks"), ensure_ascii=False) if ch.get("blocks") else None,
                         ),
                     )
         except Exception:

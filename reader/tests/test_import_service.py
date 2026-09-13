@@ -115,6 +115,8 @@ class PrepareHtmlTests(unittest.TestCase):
         result = import_service.prepare_html(html, "https://example.com/cikk")
 
         self.assertEqual(result["title"], "Próbacikk")
+        self.assertEqual(result['chapters'][0]['blocks'][0]['kind'], 'heading')
+        self.assertEqual(result['chapters'][0]['blocks'][0]['text'], 'Próbacikk')
         self.assertEqual(result["author"], "Minta Anna")
         self.assertEqual(result["source_url"], "https://example.com/cikk")
         self.assertEqual(result["content_hash"], hashlib.sha256(html.encode()).hexdigest())

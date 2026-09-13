@@ -98,6 +98,33 @@ python reader/setup.py
 
 The installer detects CUDA or CPU, creates `reader/.venv`, installs PyTorch, OmniVoice, spaCy, and the reader dependencies, then downloads the `en_core_web_sm` spaCy model when network access is available.
 
+## Start after installation
+
+When the installer prints **Setup Complete**, start Auris from the cloned
+project directory:
+
+```powershell
+# Windows
+reader\run.bat
+```
+
+Alternatively, start it directly from the `reader` directory:
+
+```powershell
+cd reader
+.\.venv\Scripts\python.exe app.py
+```
+
+On Linux or macOS:
+
+```bash
+bash reader/run.sh
+```
+
+Leave the terminal open while Auris is running, then open
+[http://127.0.0.1:7860](http://127.0.0.1:7860) in a browser. Stop the server
+with `Ctrl+C` in that terminal.
+
 ## Model setup
 
 The OmniVoice weights are not bundled with this repository.

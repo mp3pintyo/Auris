@@ -12,6 +12,18 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+### Magyar
+
+#### Javítva
+
+- A telepítő újrafuttatáskor már nem emeli a setuptools-t a legújabb változatra, ami ütközött a PyTorch 2.11 `setuptools<82` követelményével (`pip check` hiba). A korábbi telepítéssel így elrontott környezetet a telepítő helyreállítja.
+
+### English
+
+#### Fixed
+
+- Re-running setup no longer upgrades setuptools to the newest release, which conflicted with PyTorch 2.11's `setuptools<82` requirement (a `pip check` error). Setup repairs environments that earlier runs left in that state.
+
 ## [4.3.5] - 2026-09-29
 
 ### Magyar

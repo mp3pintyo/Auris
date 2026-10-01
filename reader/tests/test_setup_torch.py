@@ -17,12 +17,63 @@ class TorchInstallTests(unittest.TestCase):
             self.assertEqual(installer.detect_cuda_version(), '13.4')
 
     def test_rocm_install_preserves_verified_vendor_runtime(self):
-        with patch.object(installer, 'verify_torch') as verify, \
+        with patch.object(installer, 'rocm_runtime_works', return_value=True), \
+             patch.object(installer, 'verify_torch') as verify, \
              patch.object(installer, 'pip_install') as pip, \
-             patch.object(installer, 'run'):
+             patch.object(installer, 'run') as run:
             installer.install_torch('rocm')
         verify.assert_called_once_with('rocm')
         pip.assert_not_called()
+        run.assert_not_called()
+
+    def test_rocm_install_pins_amd_build_with_device_extra(self):
+        with patch.object(installer, 'rocm_runtime_works', return_value=False), \
+             patch.object(installer, 'amd_gpu_names', return_value=['AMD Radeon RX 6600']), \
+             patch.object(installer, 'verify_torch'), \
+             patch.object(installer, 'run') as run:
+            installer.install_torch('rocm')
+        cmd = run.call_args.args[0]
+        self.assertIn(installer.ROCM_INDEX_URL, cmd)
+        self.assertIn(f'torch[device-gfx1032]=={installer.ROCM_TORCH_VERSION}', cmd)
+        self.assertIn(f'torchaudio=={installer.ROCM_TORCH_VERSION}', cmd)
+
+    def test_failed_rocm_install_falls_back_to_cpu_torch(self):
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if any('rocm' in str(arg) for arg in cmd):
+                raise installer.subprocess.CalledProcessError(1, cmd)
+
+        with patch.object(installer, 'rocm_runtime_works', return_value=False), \
+             patch.object(installer, 'amd_gpu_names', return_value=['AMD Radeon RX 6600']), \
+             patch.object(installer, 'run', side_effect=fake_run), \
+             patch.object(installer, 'pip_install') as pip:
+            self.assertEqual(installer.install_torch('rocm'), 'cpu')
+        self.assertTrue(any('uninstall' in cmd for cmd in calls), 'Remove a half-installed ROCm torch')
+        pip.assert_called_once_with(installer.TORCH_SPEC, installer.TORCHAUDIO_SPEC)
+
+    def test_amd_detection_is_skipped_on_macos(self):
+        with patch.object(installer.platform, 'system', return_value='Darwin'), \
+             patch.object(installer.subprocess, 'run') as run:
+            self.assertEqual(installer.amd_gpu_names(), [])
+        run.assert_not_called()
+
+    def test_strict_offline_amd_install_uses_cpu_torch(self):
+        with patch.object(installer, 'STRICT_OFFLINE', True), \
+             patch.object(installer, 'rocm_runtime_works', return_value=False), \
+             patch.object(installer, 'install_rocm_torch') as rocm, \
+             patch.object(installer, 'pip_install'):
+            self.assertEqual(installer.install_torch('rocm'), 'cpu')
+        rocm.assert_not_called()
+
+    def test_amd_gpu_is_detected_when_no_nvidia_gpu_exists(self):
+        with patch.dict(installer.os.environ, {'AURIS_TORCH_VARIANT': '', 'AURIS_ROCM_GFX': ''}), \
+             patch.object(installer, 'is_apple_silicon', return_value=False), \
+             patch.object(installer, 'rocm_runtime_works', return_value=False), \
+             patch.object(installer, 'detect_cuda_version', return_value=None), \
+             patch.object(installer, 'amd_gpu_names', return_value=['AMD Radeon RX 6600']):
+            self.assertEqual(installer.detect_hardware(), 'rocm')
 
     def test_rocm_validation_requires_hip(self):
         with patch.object(installer, 'run') as run:

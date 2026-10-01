@@ -98,7 +98,7 @@ labels and the updated workflows described below and in the built-in help.
 - Python 3.10 or later
 - `ffmpeg` on `PATH` for MP3, M4B, and export mastering
 - OmniVoice model files stored locally
-- Optional NVIDIA GPU for faster inference
+- Optional NVIDIA GPU (CUDA) or AMD Radeon GPU (ROCm) for faster inference
 
 ## Installation
 
@@ -123,7 +123,7 @@ Or directly:
 python reader/setup.py
 ```
 
-The installer detects CUDA or CPU, creates `reader/.venv`, installs PyTorch, OmniVoice, spaCy, and the reader dependencies, then downloads the `en_core_web_sm` spaCy model when network access is available.
+The installer detects CUDA, AMD ROCm or CPU, creates `reader/.venv`, installs PyTorch, OmniVoice, spaCy, and the reader dependencies, then downloads the `en_core_web_sm` spaCy model when network access is available.
 
 ## Start after installation
 
@@ -337,14 +337,20 @@ It does not save changes to application settings.
 Acceleration **Auto** selects CUDA Graph on NVIDIA and optimized PyTorch on
 AMD ROCm, Apple MPS and CPU. **Off** still uses the available GPU. Triton/hybrid
 is an explicit experimental NVIDIA option. Variable-length audio no longer enables
-cuDNN's costly convolution algorithm search. See the built-in **Documentation →
-Performance** and [measurement report](docs/performance/2026-09-10-tts.md).
+cuDNN's costly convolution algorithm search; on ROCm, Auris sets
+`MIOPEN_FIND_MODE=FAST` for the same reason unless it is already set. See the
+built-in **Documentation → Performance** and [measurement report](docs/performance/2026-09-10-tts.md).
 
-AMD users must first install the GPU/OS/Python-compatible torch and torchaudio
-pair from [AMD's ROCm instructions](https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/).
-The installer preserves a working ROCm runtime; it does not choose AMD wheels
-automatically. NVIDIA/Windows was measured locally; the updated ROCm/MPS paths
-still require physical-device validation. These acceleration modes apply to
+On AMD Radeon GPUs the installer keeps a working ROCm runtime, or installs
+AMD's ROCm PyTorch build (`torch 2.11.0+rocm10.0.0`, Windows and Linux) from
+[AMD's package index](https://github.com/ROCm/TheRock/blob/main/RELEASES.md)
+with the extra for the detected card (for example `device-gfx1032` for an
+RX 6600). Cards missing from the installer's table can be named with
+`AURIS_ROCM_GFX=gfxNNNN`; `AURIS_TORCH_VARIANT=cpu` skips the ROCm download.
+If the ROCm build cannot be installed or started, setup installs CPU torch.
+The ROCm path was validated on Windows 11 with an RX 6600 (one short sentence:
+real-time factor 0.50 vs 17.4 on an i7-13700K CPU); the MPS path still
+requires physical-device validation. These acceleration modes apply to
 OmniVoice, not the separate Higgs engine.
 
 ## Voice design caveats

@@ -12,6 +12,18 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+### Magyar
+
+#### Hozzáadva
+
+- A telepítő AMD Radeon kártyán (például RX 6600) automatikusan az AMD hivatalos ROCm PyTorch-buildjét telepíti Windowson is, a kártyához illő `device-gfx…` csomaggal. Ismeretlen kártyánál az `AURIS_ROCM_GFX` változóval adható meg a cél. Ha a ROCm nem települ vagy nem indul el, a telepítő processzoros PyTorch-ot tesz fel. ROCm-on az MIOpen gyors keresési módját használja, így a változó mondathossz nem lassít (tíz mondat: 50,0 s helyett korábban 80,6 s). RX 6600-on az OmniVoice kb. 35-ször gyorsabb, mint processzoron.
+
+### English
+
+#### Added
+
+- On AMD Radeon GPUs (for example the RX 6600), setup installs AMD's official ROCm PyTorch build, on Windows too, with the matching `device-gfx…` extra. `AURIS_ROCM_GFX` names the target for unlisted cards. If ROCm cannot be installed or started, setup installs CPU torch. On ROCm, Auris uses MIOpen's fast find mode, so changing sentence lengths no longer slow generation down (ten sentences: 50.0 s instead of 80.6 s). On an RX 6600 OmniVoice is about 35 times faster than on the CPU.
+
 ## [4.3.5] - 2026-09-29
 
 ### Magyar

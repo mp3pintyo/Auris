@@ -57,7 +57,14 @@ spacy>=3.7               # NLP / character detection
 
 trafilatura>=2.2,<3      # Web article text and metadata extraction
 pyphen>=0.15            # Hungarian hyphenation: PDF line-break vs compound hyphen
-onnxruntime>=1.20,<2      # Supertonic 3 and MOSS-TTS-Nano (CPU engines)
+# Supertonic 3, MOSS-TTS-Nano and Parakeet. On Windows the DirectML build lets
+# Supertonic and Parakeet use any DirectX 12 GPU (AMD, Intel, NVIDIA); Nano
+# stays on the CPU, where it measured faster. The two builds share the
+# `onnxruntime` module and must never be installed together; setup.py removes
+# a plain onnxruntime on Windows before installing this file. The DirectML
+# build needs Python 3.11+, so Python 3.10 keeps the plain CPU build.
+onnxruntime>=1.20,<2; sys_platform != "win32" or python_version < "3.11"
+onnxruntime-directml>=1.20,<2; sys_platform == "win32" and python_version >= "3.11"
 onnx-asr==0.12.0          # Parakeet v3 speech recognition on CPU (quality control)
 sentencepiece>=0.2       # MOSS-TTS-Nano tokenizer
 # Optional, GPL-3.0: piper-tts==1.8.0 (Piper engine; install from Settings)

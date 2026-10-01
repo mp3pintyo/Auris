@@ -27,6 +27,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
+from core.onnx_device import load_with_cpu_fallback, onnx_device_label, onnx_providers
 from core.tts_engine import (
     AUDIO_CACHE_DIR,
     SAMPLE_RATE,
@@ -494,9 +495,11 @@ class SupertonicEngine(LocalEngineBase):
         finally:
             sys.path.pop(0)
         self._helper = supertonic_helper
-        self.model = supertonic_helper.load_text_to_speech(str(self.folder / "onnx"), use_gpu=False)
+        onnx_dir = str(self.folder / "onnx")
+        self.model, providers = load_with_cpu_fallback(
+            lambda p: supertonic_helper.load_text_to_speech(onnx_dir, providers=p), onnx_providers())
         self._styles = {}
-        self._detail = "CPU · ONNX Runtime"
+        self._detail = onnx_device_label(providers)
 
     def _release(self) -> None:
         self._styles = {}
@@ -631,6 +634,8 @@ class MossNanoEngine(LocalEngineBase):
 
         threads = max(1, min(8, (os.cpu_count() or 4)))
         self._tmp = Path(tempfile.mkdtemp(prefix="auris-nano-"))
+        # Stays on the CPU: its many small autoregressive steps measured about
+        # twice as slow on DirectML (RX 6600) as on 8 CPU threads.
         self.model = AurisNanoRuntime(model_dir=str(self.folder), thread_count=threads,
                                       execution_provider="cpu", output_dir=str(self._tmp))
         self._detail = f"CPU · ONNX Runtime · {threads} szál"

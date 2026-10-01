@@ -906,7 +906,7 @@ ffprobe -version</code></pre>
           <tbody>
             <tr><td><strong>MOSS-TTS 1.5 — 4B</strong></td><td>Hangklónozás; tempóállítás nincs</td><td>GPU, kb. 14 GB VRAM</td><td>~17,6 GB (Hugging Face gyorsítótár)</td><td>Apache-2.0</td></tr>
             <tr><td><strong>MOSS-TTS-Nano</strong></td><td>Hangklónozás (átirat nélkül); tempóállítás nincs</td><td>CPU</td><td>~0,8 GB (<code>reader/models</code>)</td><td>Apache-2.0</td></tr>
-            <tr><td><strong>Supertonic 3</strong></td><td><strong>Nincs hangklónozás</strong>: 10 beépített hang (F1–F5, M1–M5)</td><td>CPU</td><td>~0,4 GB</td><td>OpenRAIL-M modell, MIT kód</td></tr>
+            <tr><td><strong>Supertonic 3</strong></td><td><strong>Nincs hangklónozás</strong>: 10 beépített hang (F1–F5, M1–M5)</td><td>CPU; Windowson DirectML-lel bármilyen DirectX 12-es GPU</td><td>~0,4 GB</td><td>OpenRAIL-M modell, MIT kód</td></tr>
             <tr><td><strong>Piper</strong></td><td><strong>Nincs hangklónozás</strong>: Anna, Berta, Imre</td><td>CPU</td><td>~190 MB</td><td>GPL-3.0 csomag (külön telepítendő), CC0 hangok</td></tr>
           </tbody>
         </table>
@@ -935,7 +935,7 @@ ffprobe -version</code></pre>
         <span class="docs-callout-icon" aria-hidden="true">⚡</span>
         <div>
           <strong>Saját mérés (RTX 3090, magyar mondatok, 2026. szeptember):</strong>
-          <p>Piper RTF 0,04–0,1 és Supertonic RTF ~0,2 processzoron; MOSS-TTS-Nano RTF ~1,2–1,4 processzoron (az első mondat a mintahang elkészítését is tartalmazza); MOSS-TTS 1.5 RTF ~0,9 GPU-n. Az RTF a generálási idő és a hang hosszának aránya; 1 alatt a valós időnél gyorsabb. Hallás utáni minőségi összevetés nem készült; a magyar minőséget saját fülpróbával vagy a minőségellenőrzéssel érdemes értékelni.</p>
+          <p>Piper RTF 0,04–0,1 és Supertonic RTF ~0,2 processzoron; MOSS-TTS-Nano RTF ~1,2–1,4 processzoron (az első mondat a mintahang elkészítését is tartalmazza); MOSS-TTS 1.5 RTF ~0,9 GPU-n. Windowson DirectML-lel (RX 6600, négy magyar szöveg, 58,6 s hang) a Supertonic RTF 0,049, ugyanott processzoron (i7-13700K) 0,26; a Parakeet ezt a hangot 0,6 s alatt írja át (processzoron 2,3 s), azonos szöveggel. A MOSS-TTS-Nano DirectML-lel lassabb volt, ezért processzoron marad. Az RTF a generálási idő és a hang hosszának aránya; 1 alatt a valós időnél gyorsabb. Hallás utáni minőségi összevetés nem készült; a magyar minőséget saját fülpróbával vagy a minőségellenőrzéssel érdemes értékelni.</p>
         </div>
       </div>
     </section>
@@ -1014,7 +1014,7 @@ ffprobe -version</code></pre>
           <ul class="docs-check-list">
             <li><strong>Beszédfelismerés:</strong> a Whisper visszahallgatja a mondatot, és a <strong>karakterhiba-arány (CER)</strong> megmutatja, mennyire tér el attól, aminek el kellett hangzania. A számokat kimondott alakban veti össze, az írásjeleket és a kis-nagybetűt nem számolja, az ékezeteket igen (<em>kor</em> ≠ <em>kór</em>). A könyv szereplőneveit is megkapja, hogy a nevek ne számítsanak hibának.</li>
             <li><strong>Hangjelek:</strong> túlvezérlés, 1,5 s-nál hosszabb szünet a mondaton belül, néma hang, a szöveghez képest túl gyors (levágott) vagy túl lassú (elnyújtott) felolvasás, illetve a fejezet többi mondatához képest szokatlan hossz.</li>
-            <li><strong>Beszédfelismerő:</strong> videokártyán a magyarra finomhangolt Whisper, processzoron automatikusan az NVIDIA Parakeet v3 fut (ONNX, első használatkor kb. 2,4 GB letöltés). Ez gyorsan meghallgat minden mondatot, és csak a gyanúsakat hallgatja vissza a Whisper is; a jobb olvasat számít. Saját mérés öt magyar mintán: a Parakeet CER-je 0,7–4,4%, a Whisperé 0,7–5,9%. A Parakeet számjegyekkel ír, ezt az összevetés kimondott alakra hozza. A választás a Beállítások → Minőségellenőrzés → <strong>Beszédfelismerő</strong> alatt módosítható.</li>
+            <li><strong>Beszédfelismerő:</strong> videokártyán a magyarra finomhangolt Whisper, processzoron automatikusan az NVIDIA Parakeet v3 fut (ONNX, első használatkor kb. 2,4 GB letöltés; Windowson DirectML-lel a videokártyán is, ha a PyTorch nem látja azt). Ez gyorsan meghallgat minden mondatot, és csak a gyanúsakat hallgatja vissza a Whisper is; a jobb olvasat számít. Saját mérés öt magyar mintán: a Parakeet CER-je 0,7–4,4%, a Whisperé 0,7–5,9%. A Parakeet számjegyekkel ír, ezt az összevetés kimondott alakra hozza. A választás a Beállítások → Minőségellenőrzés → <strong>Beszédfelismerő</strong> alatt módosítható.</li>
             <li>Állapot: <strong>Rendben</strong>; <strong>Gyanús</strong> 8% CER felett vagy hangjelzésnél; <strong>Hibás</strong> 15% CER felett vagy néma hangnál. A küszöb a Beállítások → Minőségellenőrzés alatt módosítható.</li>
           </ul>
         </div>

@@ -319,9 +319,18 @@ def load_text_processor(onnx_dir: str) -> UnicodeProcessor:
     return text_processor
 
 
-def load_text_to_speech(onnx_dir: str, use_gpu: bool = False) -> TextToSpeech:
+def load_text_to_speech(
+    onnx_dir: str, use_gpu: bool = False, providers: list[str] | None = None
+) -> TextToSpeech:
+    # Auris: `providers` selects the ONNX Runtime execution providers
+    # (e.g. DirectML); without it the upstream CPU-only behaviour is kept.
     opts = ort.SessionOptions()
-    if use_gpu:
+    if providers:
+        if "DmlExecutionProvider" in providers:
+            # DirectML supports neither memory patterns nor parallel execution.
+            opts.enable_mem_pattern = False
+            opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    elif use_gpu:
         raise NotImplementedError("GPU mode is not fully tested")
     else:
         providers = ["CPUExecutionProvider"]

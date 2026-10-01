@@ -43,7 +43,8 @@ labels and the updated workflows described below and in the built-in help.
   Higgs TTS 3 (GPU, voice cloning), MOSS-TTS 1.5 (GPU, Apache-2.0, cloning),
   MOSS-TTS-Nano (CPU cloning), and Supertonic 3 and Piper (CPU, preset voices
   without voice cloning). Settings shows each engine's capabilities and
-  Voice Studio adapts to them.
+  Voice Studio adapts to them. On Windows, Supertonic 3 and the Parakeet
+  speech recognizer also run on any DirectX 12 GPU through DirectML.
 - Hungarian text processing: dates, Roman numerals, times, units, currencies,
   abbreviations and acronyms are spoken correctly; Hungarian sentence splitting,
   dialogue dashes and quotes; HuSpaCy-based character detection.
@@ -390,6 +391,11 @@ reader\setup.bat
 # Linux / macOS
 AURIS_OFFLINE=1 AURIS_WHEELS_DIR=/path/to/wheels bash reader/setup.sh
 ```
+
+On Windows with Python 3.11 or later the wheel cache must contain
+`onnxruntime-directml` instead of `onnxruntime`
+(`pip download onnxruntime-directml --dest <wheels dir>`); a strict offline
+install stops early if it is missing.
 
 ## Project structure
 

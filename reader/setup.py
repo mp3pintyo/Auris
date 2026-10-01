@@ -367,6 +367,38 @@ def install_higgs_transformers_runtime():
     ok("Higgs Transformers runtime installed (isolated from OmniVoice)")
 
 
+def directml_platform():
+    """Where requirements.txt selects onnxruntime-directml (see its markers)."""
+    return os.name == "nt" and sys.version_info >= (3, 11)
+
+
+def remove_plain_onnxruntime():
+    """On Windows, requirements.txt installs onnxruntime-directml instead.
+
+    Both distributions write the same ``onnxruntime`` package, so a plain
+    build left in place (older setups, or piper-tts' dependency) would
+    overwrite DirectML files. Remove both and let the requirements step
+    reinstall the DirectML build cleanly.
+    """
+    if not directml_platform():
+        return
+    if STRICT_OFFLINE and not any(WHEELS_DIR.glob("onnxruntime_directml-*.whl")):
+        # Fail before uninstalling anything: the requirements step could not
+        # install the DirectML build from this cache.
+        raise RuntimeError(
+            f"Offline install on Windows needs an onnxruntime-directml wheel in {WHEELS_DIR} "
+            "(pip download onnxruntime-directml --dest <wheels dir>)."
+        )
+    probe = subprocess.run(
+        [sys.executable, "-m", "pip", "show", "onnxruntime"],
+        capture_output=True, text=True,
+    )
+    if probe.returncode != 0:
+        return
+    step("Replacing onnxruntime with onnxruntime-directml")
+    run([sys.executable, "-m", "pip", "uninstall", "-y", "onnxruntime", "onnxruntime-directml"])
+
+
 def install_reader_deps():
     step("Installing remaining dependencies from requirements.txt")
     # requirements.txt intentionally omits torch/torchaudio so this step cannot
@@ -511,6 +543,7 @@ def main():
     install_omnivoice_deps()
     install_omnivoice()
     install_higgs_transformers_runtime()
+    remove_plain_onnxruntime()
     install_reader_deps()
     install_spacy_model()
     install_hungarian_spacy_model()

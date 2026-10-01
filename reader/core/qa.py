@@ -317,9 +317,12 @@ class ParakeetTranscriber:
         with self._lock:
             if self._model is None:
                 import onnx_asr
+                from core.onnx_device import load_with_cpu_fallback, onnx_device_label, onnx_providers
 
-                self._model = onnx_asr.load_model(PARAKEET_MODEL).with_timestamps()
-                log.info("ASR model %s loaded (ONNX Runtime)", PARAKEET_MODEL)
+                self._model, providers = load_with_cpu_fallback(
+                    lambda p: onnx_asr.load_model(PARAKEET_MODEL, providers=p).with_timestamps(),
+                    onnx_providers())
+                log.info("ASR model %s loaded (%s)", PARAKEET_MODEL, onnx_device_label(providers))
             audio, sr = sf.read(path, dtype="float32", always_2d=True)
             audio = audio.mean(axis=1)
             if sr != 16000:

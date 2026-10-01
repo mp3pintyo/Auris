@@ -12,6 +12,20 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+### Magyar
+
+#### Javítva
+
+- A `setup.bat` uv-val hozza létre a `.venv` környezetet, ha az elérhető (mise-on keresztül is), és nem akad el azon, hogy a `python` csak egy nem aktív mise-shim.
+- Az `install_accel.bat` a `reader\.venv` Pythonját használja, és CUDA nélküli gépen (AMD, CPU) nem próbál NVIDIA-s Triton-csomagokat telepíteni.
+
+### English
+
+#### Fixed
+
+- `setup.bat` creates `.venv` with uv when available (also through mise) and no longer stops when `python` is only an inactive mise shim.
+- `install_accel.bat` uses the `reader\.venv` Python and skips the NVIDIA-only Triton packages on machines without CUDA (AMD, CPU).
+
 ## [4.3.5] - 2026-09-29
 
 ### Magyar

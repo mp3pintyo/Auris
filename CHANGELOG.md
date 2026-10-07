@@ -12,6 +12,8 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+## [4.5.0] - 2026-10-07
+
 ### Magyar
 
 #### Hozzáadva

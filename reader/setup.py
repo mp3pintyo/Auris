@@ -197,22 +197,39 @@ def running_in_virtualenv():
 
 
 def ensure_pip():
-    """Upgrade pip/setuptools/wheel so dependency resolution is reliable."""
+    """Upgrade pip and wheel so dependency resolution is reliable.
+
+    setuptools is left to the packages that declare it: pip builds source
+    packages in isolated environments with their own setuptools, while
+    forcing the newest one broke torch 2.11's ``setuptools<82`` requirement
+    on every re-run. wheel stays: `python -m venv` does not install it and
+    the Windows desktop build (scripts/windows/build.py) bundles it.
+    """
     step("Upgrading pip")
     # Use ensurepip-safe invocation (not PIP, which already includes --upgrade).
-    run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--upgrade",
-            "pip",
-            "setuptools",
-            "wheel",
-        ]
-    )
+    run([sys.executable, "-m", "pip", "install", "--upgrade", "pip", "wheel"])
     ok("pip upgraded")
+
+
+def ensure_torch_requirements():
+    """Re-require the installed torch pair so pip satisfies its dependencies.
+
+    Earlier installers upgraded setuptools past the bound torch declares,
+    and a preserved torch is never reinstalled, so pip never repaired it.
+    Naming the installed versions keeps torch in place and lets pip fix only
+    the dependencies, whatever bounds a future torch declares.
+    """
+    from importlib import metadata
+
+    try:
+        pins = [f"{name}=={metadata.version(name)}" for name in ("torch", "torchaudio")]
+    except metadata.PackageNotFoundError:
+        return
+    step("Checking PyTorch dependencies")
+    try:
+        pip_install(*pins)
+    except (subprocess.CalledProcessError, RuntimeError) as exc:
+        warn(f"Could not reconcile PyTorch dependencies ({exc}); run `pip check` in the venv.")
 
 
 def pip_install(*args, no_index=False, index_url=None, extra_index_url=None):
@@ -507,6 +524,7 @@ def main():
 
     hw_tag = detect_hardware()
     install_torch(hw_tag)
+    ensure_torch_requirements()
     verify_torch(hw_tag)
     install_omnivoice_deps()
     install_omnivoice()

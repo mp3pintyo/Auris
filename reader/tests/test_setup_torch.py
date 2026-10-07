@@ -24,6 +24,28 @@ class TorchInstallTests(unittest.TestCase):
         verify.assert_called_once_with('rocm')
         pip.assert_not_called()
 
+    def test_pip_upgrade_leaves_setuptools_to_package_requirements(self):
+        with patch.object(installer, 'run') as run:
+            installer.ensure_pip()
+        cmd = run.call_args.args[0]
+        self.assertIn('pip', cmd[3:])
+        self.assertNotIn('setuptools', cmd)
+        # The Windows desktop build bundles wheel; `python -m venv` lacks it.
+        self.assertIn('wheel', cmd)
+
+    def test_installed_torch_pair_is_re_required_with_exact_versions(self):
+        versions = {'torch': '2.11.0+rocm10.0.0', 'torchaudio': '2.11.0+rocm10.0.0'}
+        with patch('importlib.metadata.version', side_effect=versions.__getitem__), \
+             patch.object(installer, 'pip_install') as pip:
+            installer.ensure_torch_requirements()
+        pip.assert_called_once_with('torch==2.11.0+rocm10.0.0', 'torchaudio==2.11.0+rocm10.0.0')
+
+    def test_torch_requirement_repair_failure_does_not_stop_setup(self):
+        with patch('importlib.metadata.version', return_value='2.11.0'), \
+             patch.object(installer, 'pip_install',
+                          side_effect=installer.subprocess.CalledProcessError(1, 'pip')):
+            installer.ensure_torch_requirements()
+
     def test_rocm_validation_requires_hip(self):
         with patch.object(installer, 'run') as run:
             installer.verify_torch('rocm')

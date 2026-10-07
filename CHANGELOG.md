@@ -18,6 +18,7 @@ represent a new product generation or an incompatible change.
 
 - A `setup.bat` uv-val hozza létre a `.venv` környezetet, ha az elérhető (mise-on keresztül is), és nem akad el azon, hogy a `python` csak egy nem aktív mise-shim.
 - Az `install_accel.bat` a `reader\.venv` Pythonját használja, és CUDA nélküli gépen (AMD, CPU) nem próbál NVIDIA-s Triton-csomagokat telepíteni.
+- A telepítő újrafuttatáskor már nem emeli a setuptools-t a legújabb változatra, ami ütközött a PyTorch 2.11 `setuptools<82` követelményével (`pip check` hiba). A korábbi telepítéssel így elrontott környezetet a telepítő helyreállítja.
 
 ### English
 
@@ -25,6 +26,7 @@ represent a new product generation or an incompatible change.
 
 - `setup.bat` creates `.venv` with uv when available (also through mise) and no longer stops when `python` is only an inactive mise shim.
 - `install_accel.bat` uses the `reader\.venv` Python and skips the NVIDIA-only Triton packages on machines without CUDA (AMD, CPU).
+- Re-running setup no longer upgrades setuptools to the newest release, which conflicted with PyTorch 2.11's `setuptools<82` requirement (a `pip check` error). Setup repairs environments that earlier runs left in that state.
 
 ## [4.4.0] - 2026-10-01
 

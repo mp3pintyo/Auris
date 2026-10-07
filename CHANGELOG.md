@@ -12,6 +12,34 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+### Magyar
+
+#### Hozzáadva
+
+- A Hangstúdió feltöltés után automatikusan ellenőrzi a referenciahangot, és a **Referencia ellenőrzése** gombbal bármikor újra futtatható. A panel jelzi a túl rövid és a túl hosszú felvételt (6–15 másodperc az ideális), a csonka elejű vagy végű felvételt, valamint az átirat és az elhangzott szöveg eltérését. Saját mérésben egy 55 másodperces referencia tízszer annyi szóhibát adott, mint a belőle kivágott 10–15 másodperces szakaszok, egy csonka utolsó szó pedig 2–4 % helyett 23–25 %-ot.
+- Üres átiratnál az ellenőrzés a magyar Whisperrel kitölti és elmenti a referenciaszöveget; eddig az OmniVoice egy általános Whispert töltött be hozzá a háttérben.
+- Hosszú felvételnél a panel mondathatáron vágott, 8–15 másodperces szakaszokat ajánl a hozzájuk tartozó szöveggel. Ezek meghallgathatók, és egy kattintással beállíthatók referenciának.
+- Referenciaként a WAV mellett MP3, FLAC, OGG, Opus és M4A fájl is feltölthető (ffmpeg szükséges).
+- Fejlesztői mérőeszközök: `scripts/benchmark_quality.py` (magyar mondatkészlet, szóhiba, hanghasonlóság, take-választás szimulálása) és `scripts/reference_candidates.py`. A hanghasonlóságot a 3D-Speaker CAM++ modell méri (Apache-2.0, 28 MB, első használatkor töltődik le).
+
+#### Javítva
+
+- A minőségellenőrzés szóhibaaránya nem számolja hibának a magyar egybe- és különírás eltéréseit (például *kétezer huszonhatos* / *kétezerhuszonhatos*, *át vezet* / *átvezet*). Korábban ez egy hibátlan felvételnél is több százalék szóhibát mutatott.
+
+### English
+
+#### Added
+
+- Voice Studio checks a reference recording automatically after upload, and **Referencia ellenőrzése** (Check reference) runs the check again at any time. The panel reports recordings that are too short or too long (6–15 seconds is ideal), recordings whose start or end is cut off, and a transcript that differs from what is spoken. In our measurements a 55-second reference gave ten times the word errors of 10–15-second stretches cut from it, and a cut-off last word raised word errors from 2–4 % to 23–25 %.
+- When the transcript is empty, the check fills it in with the Hungarian Whisper and saves it. Previously OmniVoice loaded a generic Whisper for this in the background.
+- For a long recording the panel offers 8–15-second stretches cut at sentence boundaries, each with its own text. Each stretch can be played and set as the reference with one click.
+- References can be uploaded as MP3, FLAC, OGG, Opus and M4A as well as WAV (requires ffmpeg).
+- Developer measurement tools: `scripts/benchmark_quality.py` (Hungarian sentence set, word errors, speaker similarity, simulated take selection) and `scripts/reference_candidates.py`. Speaker similarity is measured with the 3D-Speaker CAM++ model (Apache-2.0, 28 MB, downloaded on first use).
+
+#### Fixed
+
+- The quality-check word error rate no longer counts Hungarian compound and number spacing differences as errors (for example *kétezer huszonhatos* / *kétezerhuszonhatos*). Previously a flawless recording could still show several percent word errors.
+
 ## [4.5.1] - 2026-10-07
 
 ### Magyar

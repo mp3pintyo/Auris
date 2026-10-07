@@ -640,7 +640,7 @@ ffprobe -version</code></pre>
           <h2>Voice Studio, referenciahang és referenciaszöveg</h2>
           <p>
             A narrátorhoz és minden felismert szereplőhöz külön hangbeállítás,
-            WAV referencia és pontos átirat menthető. Ezeket a preview,
+            referenciahang (WAV, MP3, FLAC, OGG, Opus vagy M4A) és pontos átirat menthető. Ezeket a preview,
             lejátszás, pufferelés és export ugyanúgy megkapja.
           </p>
         </div>
@@ -650,7 +650,7 @@ ffprobe -version</code></pre>
           <thead><tr><th>Lehetőség</th><th>OmniVoice</th><th>Higgs TTS 3</th></tr></thead>
           <tbody>
             <tr><td><strong>Referenciahang + átirat</strong></td><td>Elsődleges, stabil voice clone mód.</td><td>Zero-shot voice clone; az átirat lényegesen javítja a hűséget. Az ideális kliphossz eltér az OmniVoice-tól: 5–30 mp.</td></tr>
-            <tr><td><strong>Üres referenciaszöveg</strong></td><td>Whisperrel automatikusan átírhatja, lassabb és pontatlanabb lehet.</td><td>Átirat nélkül is futhat, de a pontos szöveg erősen ajánlott.</td></tr>
+            <tr><td><strong>Üres referenciaszöveg</strong></td><td>Az Auris a referencia ellenőrzésekor a magyar Whisperrel kitölti és elmenti; az elírásokat érdemes javítani.</td><td>Átirat nélkül is futhat, de a pontos szöveg erősen ajánlott.</td></tr>
             <tr><td><strong>Voice instruct</strong></td><td>Nem, kor, hangmagasság és akcentus alapján hangot tervez.</td><td>A hangazonosságot főként a referencia adja; Expressive módban pitch/whisper tokenné alakul.</td></tr>
             <tr><td><strong>Automatikus hang</strong></td><td>Referencia és instruct nélkül támogatott.</td><td>Referencia nélkül a modell saját hangkondicionálásával generál.</td></tr>
             <tr><td><strong>Egy narrátor</strong></td><td colspan="2">Minden narrációt és párbeszédet ugyanazzal a narrátorhanggal olvas.</td></tr>
@@ -659,6 +659,15 @@ ffprobe -version</code></pre>
       </div>
       <h3>Referenciahang tisztítása</h3>
       <p>A hangklónozás mindent lemásol a referenciából: a zúgást, a szobazajt, a hosszú csendet és a hangerőt is. Feltöltéskor és mikrofonos felvételnél ezért alapból bekapcsolt a <strong>Zajszűrés, csendvágás és hangerő-kiegyenlítés</strong>: 70 Hz alatti zaj és hálózati zúgás szűrése, egyenletes háttérzaj csökkentése, a felvétel eleji és végi csend levágása 0,15 másodpercre, −20 LUFS-es hangerő, mono 24 kHz. A tisztítás nem rontja az érthetőséget (saját mérés: a beszédfelismerés ugyanazt hallotta ki a zajos és a tisztított felvételből). Stúdióban készült, már tiszta felvételnél kikapcsolható. Ha az ffmpeg hiányzik vagy a tisztítás nem sikerül, az eredeti felvétel kerül mentésre.</p>
+      <h3>Referencia ellenőrzése</h3>
+      <p>Feltöltés vagy mikrofonos felvétel után az Auris automatikusan ellenőrzi a referenciát; a <strong>Referencia ellenőrzése</strong> gombbal bármikor újra futtatható. Az első ellenőrzés a beszédfelismerő betöltése miatt fél percig is eltarthat. A panel ezt jelzi:</p>
+      <ul>
+        <li><strong>Hossz:</strong> 6–15 másodperc az ideális. 20 másodperc felett a klón romlik és lassul: saját mérésben egy 55 másodperces referencia tízszer annyi szóhibát adott, és nyolcszor lassabban generált, mint a belőle kivágott 10–15 másodperces szakaszok.</li>
+        <li><strong>Csonka eleje vagy vége:</strong> ha a hang még hangos a fájl szélén, az első vagy utolsó szó levágódott. Csonka utolsó szónál a klón szóvégeket nyel el, és a szó maradékát a mondatok elejére teheti (mérésben 23–25 % szóhiba, ugyanaz a szakasz ép véggel 2–4 %).</li>
+        <li><strong>Átirat:</strong> ha üres, a beszédfelismerő kitölti és elmenti. Ha megadtad, az Auris összeveti azzal, ami elhangzik, és jelzi a nagy eltérést, valamint ha az átirat utolsó szava nem hallható. Ez utóbbi lehet csak halk szóvég is: hallgasd meg a felvétel végét.</li>
+        <li><strong>Rövidebb szakaszok:</strong> 15 másodpercnél hosszabb felvételnél a panel mondathatáron vágott 8–15 másodperces szakaszokat ajánl a hozzájuk tartozó szöveggel. A <strong>Meghallgatás</strong> lejátssza, az <strong>Ezt használom</strong> lecseréli rá a referenciát és az átiratot.</li>
+      </ul>
+      <p>Ugyanannak a beszélőnek a különböző szakaszai is eltérően klónoznak (mérésben 0,87 és 0,90 közötti hanghasonlóság), ezért érdemes több szakaszt meghallgatni.</p>
       <div class="docs-two-column" style="margin-top:28px">
         <div>
           <h3>Mentett hangprofilok</h3>

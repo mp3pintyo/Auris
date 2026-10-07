@@ -417,13 +417,27 @@ def _save_reference_upload(file_storage, prefix: str, clean: bool = False) -> st
     from the stored content either way.
     """
     import hashlib
+    from core import reference_audio
     tmp = os.path.join(UPLOAD_DIR, f'.{prefix}.{uuid.uuid4().hex}.upload')
     file_storage.save(tmp)
+    cleaned = False
     if clean:
-        from core import reference_audio
-        cleaned = tmp + '.clean.wav'
-        if reference_audio.clean_reference(tmp, cleaned)['cleaned']:
-            os.replace(cleaned, tmp)
+        target = tmp + '.clean.wav'
+        if reference_audio.clean_reference(tmp, target)['cleaned']:
+            os.replace(target, tmp)
+            cleaned = True
+    if not cleaned and not str(file_storage.filename or '').lower().endswith('.wav'):
+        target = tmp + '.wav'
+        if not reference_audio.convert_to_wav(tmp, target):
+            _delete_file_if_exists(tmp)
+            raise ValueError('A hangfájl nem olvasható be (ffmpeg szükséges a nem WAV formátumokhoz).')
+        os.replace(target, tmp)
+    return _store_reference_file(tmp, prefix)
+
+
+def _store_reference_file(tmp: str, prefix: str) -> str:
+    """Move a finished reference WAV to its content-addressed upload name."""
+    import hashlib
     digest = hashlib.sha256()
     with open(tmp, 'rb') as handle:
         for chunk in iter(lambda: handle.read(1 << 20), b''):

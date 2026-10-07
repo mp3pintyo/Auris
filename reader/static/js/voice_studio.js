@@ -830,7 +830,12 @@ function syncNarratorRefUI() {
     remove.disabled = !narratorHasRefAudio;
     remove.title = narratorHasRefAudio ? "" : "Nincs aktív narrátori referenciahang.";
   }
-  if (!narratorHasRefAudio) clearPlayer("ref-narrator");
+  if (!narratorHasRefAudio) {
+    clearPlayer("ref-narrator");
+    resetReferenceCheck("narrator");
+  }
+  const check = document.getElementById("check-ref-narrator");
+  if (check) check.disabled = !narratorHasRefAudio;
   syncNarratorBadge();
 }
 
@@ -937,15 +942,20 @@ function referenceSectionHtml(character) {
     <textarea id="ref-text-${id}" class="reference-text" rows="3" placeholder="Pontosan azt írd ide, ami a hangfelvételen elhangzik.">${esc(character.ref_text)}</textarea>
     <div class="reference-actions">
       <label class="btn btn-sm btn-ghost file-picker"><span>Átirat betöltése TXT-ből</span><input type="file" accept=".txt,text/plain" data-file-action="ref-text"></label>
-      <label class="btn btn-sm btn-primary file-picker"><span>Referencia WAV kiválasztása</span><input type="file" accept=".wav,audio/wav" data-file-action="ref-audio"></label>
+      <label class="btn btn-sm btn-primary file-picker"><span>Referenciahang kiválasztása</span><input type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.opus,.m4a" data-file-action="ref-audio"></label>
       <button type="button" class="btn btn-sm btn-ghost" data-action="record" aria-expanded="false" aria-controls="rec-${id}">${icon("mic")}<span>Felvétel mikrofonnal</span></button>
+      <button id="check-ref-${id}" class="btn btn-sm btn-ghost" type="button" data-action="check-ref"${hasRef ? "" : " disabled"}>Referencia ellenőrzése</button>
       <button id="remove-ref-${id}" class="btn btn-sm btn-ghost" type="button" data-action="remove-ref"${hasRef ? "" : " disabled"}>Referencia törlése</button>
     </div>
+    <div id="ref-check-${id}" class="reference-check" role="status" aria-live="polite" hidden></div>
     <div class="recorder" id="rec-${id}" hidden></div>
     <label class="reference-clean"><input type="checkbox" id="ref-clean-${id}" checked> Zajszűrés, csendvágás és hangerő-kiegyenlítés feltöltéskor</label>
-    <p class="studio-note">Tiszta, egyetlen beszélőt tartalmazó, 3–10 másodperces magyar felvétel ajánlott.</p>
+    <p class="studio-note">${REFERENCE_NOTE}</p>
   </section>`;
 }
+
+const REFERENCE_NOTE = "Tiszta, egyetlen beszélős, 6–15 másodperces felvétel ajánlott, az elején és a végén rövid csenddel. Feltöltés után az Auris ellenőrzi, és üres átiratnál kitölti.";
+const referenceChecks = new Map(); // ref key -> last check report
 
 function refEndpoint(refKey) {
   return refKey === "narrator"
@@ -991,6 +1001,8 @@ function applyUploadedReference(refKey, data) {
   document.getElementById(`ref-status-${refKey}`)?.classList.remove("hidden");
   const remove = document.getElementById(`remove-ref-${refKey}`);
   if (remove) remove.disabled = false;
+  const check = document.getElementById(`check-ref-${refKey}`);
+  if (check) check.disabled = false;
   refreshCardSource(refKey);
 }
 
@@ -1002,7 +1014,120 @@ async function uploadReferenceFile(refKey, file) {
   form.append("clean", !clean || clean.checked ? "1" : "0");
   const data = await requestJson(refEndpoint(refKey), { method: "POST", body: form });
   applyUploadedReference(refKey, data);
+  checkReference(refKey);
   return data;
+}
+
+// ── Reference check: length, cut-off edges, transcript, shorter stretches ──
+
+function resetReferenceCheck(refKey) {
+  referenceChecks.delete(refKey);
+  const panel = refCheckPanel(refKey);
+  if (panel) { panel.hidden = true; panel.innerHTML = ""; }
+  const check = document.getElementById(`check-ref-${refKey}`);
+  if (check) check.disabled = true;
+}
+
+function refCheckPanel(refKey) {
+  return document.getElementById(`ref-check-${refKey}`);
+}
+
+function setReferenceText(refKey, text) {
+  const field = refTextField(refKey);
+  if (field) field.value = text;
+  const character = refKey === "narrator" ? null : characterById(refKey);
+  if (character) character.ref_text = text;
+}
+
+function decimalSeconds(value) {
+  return Number(value).toFixed(1).replace(".", ",");
+}
+
+async function checkReference(refKey, button = null) {
+  const panel = refCheckPanel(refKey);
+  if (panel) {
+    panel.hidden = false;
+    panel.className = "reference-check is-busy";
+    panel.innerHTML = `<p class="reference-check-title"><span class="vs-spinner" aria-hidden="true"></span>A referencia ellenőrzése… Az első alkalommal a beszédfelismerő betöltése fél percig is eltarthat.</p>`;
+  }
+  try {
+    const report = await withBusy(button, "Ellenőrzés…", () => postJson(`${refEndpoint(refKey)}/check`, {}));
+    referenceChecks.set(refKey, report);
+    if (report.ref_text_saved) setReferenceText(refKey, report.ref_text);
+    renderReferenceCheck(refKey, report);
+    return report;
+  } catch (error) {
+    if (panel) {
+      panel.className = "reference-check is-error";
+      panel.innerHTML = `<p class="reference-check-title">Az ellenőrzés nem sikerült: ${esc(error.message || error)}</p>`;
+    }
+    return null;
+  }
+}
+
+function renderReferenceCheck(refKey, report) {
+  const panel = refCheckPanel(refKey);
+  if (!panel) return;
+  const levels = report.issues.map((issue) => issue.level);
+  const state = levels.includes("error") ? "error" : levels.length ? "warn" : "ok";
+  const title = {
+    ok: `A referencia rendben (${decimalSeconds(report.duration)} s).`,
+    warn: `A referencia használható, de érdemes javítani (${decimalSeconds(report.duration)} s).`,
+    error: `A referencia így rontja a klónt (${decimalSeconds(report.duration)} s).`,
+  }[state];
+  const issues = report.issues.map((issue) =>
+    `<li class="is-${esc(issue.level)}">${esc(issue.message)}</li>`).join("");
+  const saved = report.ref_text_saved
+    ? `<p class="studio-note">Az átiratot a beszédfelismerő töltötte ki. Hallgasd meg a felvételt, és javítsd az elírásokat, majd mentsd a hangot.</p>`
+    : "";
+  const cuts = (report.candidates || []).map((cand, index) => `<li class="reference-cut">
+      <span class="reference-cut-time">${decimalSeconds(cand.start)}–${decimalSeconds(cand.end)} s · ${decimalSeconds(cand.duration)} s</span>
+      <span class="reference-cut-text">${esc(cand.text)}</span>
+      <span class="reference-cut-actions">
+        <button type="button" class="btn btn-sm btn-ghost" data-action="ref-span-play" data-index="${index}">${icon("play")}<span>Meghallgatás</span></button>
+        <button type="button" class="btn btn-sm btn-primary" data-action="ref-span-use" data-index="${index}">Ezt használom</button>
+      </span>
+    </li>`).join("");
+  const cutBlock = cuts
+    ? `<p class="reference-check-subtitle">Mondathatáron vágott, rövidebb szakaszok ebből a felvételből:</p><ul class="reference-cuts">${cuts}</ul>`
+    : "";
+  panel.className = `reference-check is-${state}`;
+  panel.hidden = false;
+  panel.innerHTML = `<p class="reference-check-title">${esc(title)}</p>${issues ? `<ul class="reference-issues">${issues}</ul>` : ""}${saved}${cutBlock}`;
+}
+
+let spanAudio = null;
+
+function playReferenceSpan(refKey, index) {
+  const cand = referenceChecks.get(refKey)?.candidates?.[index];
+  if (!cand) return;
+  if (spanAudio) spanAudio.pause();
+  spanAudio = new Audio(`${refEndpoint(refKey)}?v=${refVersion(refKey)}#t=${cand.start},${cand.end}`);
+  spanAudio.play().catch((error) => showError("A szakasz nem játszható le", error));
+}
+
+async function useReferenceSpan(refKey, index, button) {
+  const cand = referenceChecks.get(refKey)?.candidates?.[index];
+  if (!cand) return;
+  try {
+    const data = await withBusy(button, "Vágás…", () => postJson(`${refEndpoint(refKey)}/trim`, cand));
+    if (spanAudio) spanAudio.pause();
+    applyUploadedReference(refKey, data);
+    setReferenceText(refKey, data.ref_text);
+    notify(`A referencia a kiválasztott ${decimalSeconds(data.duration)} másodperces szakasz lett.`, "ok");
+    checkReference(refKey);
+  } catch (error) {
+    showError("A vágás nem sikerült", error);
+  }
+}
+
+function handleReferenceCheckAction(refKey, button) {
+  const action = button.dataset.action;
+  if (action === "check-ref") checkReference(refKey, button);
+  else if (action === "ref-span-play") playReferenceSpan(refKey, Number(button.dataset.index));
+  else if (action === "ref-span-use") useReferenceSpan(refKey, Number(button.dataset.index), button);
+  else return false;
+  return true;
 }
 
 async function uploadRef(event, charId) {
@@ -1041,6 +1166,7 @@ async function removeRef(charId) {
     document.getElementById(`ref-status-${charId}`)?.classList.add("hidden");
     const remove = document.getElementById(`remove-ref-${charId}`);
     if (remove) remove.disabled = true;
+    resetReferenceCheck(String(charId));
     const text = document.getElementById(`ref-text-${charId}`);
     if (text) text.value = "";
     const character = characterById(charId);
@@ -1379,7 +1505,7 @@ async function uploadRecording(refKey, button) {
     return;
   }
   if (!refTextField(refKey)?.value.trim()) {
-    const ok = await confirmAction("Az átirat üres. A pontos átirat jelentősen javítja a hangklónozást. Feltöltöd átirat nélkül?", { confirmLabel: "Feltöltés átirat nélkül" });
+    const ok = await confirmAction("Az átirat üres. Feltöltés után a beszédfelismerő kitölti, de a saját, pontos átirat megbízhatóbb. Feltöltöd átirat nélkül?", { confirmLabel: "Feltöltés átirat nélkül" });
     if (!ok) {
       refTextField(refKey)?.focus();
       return;
@@ -1995,6 +2121,7 @@ function initCharacterListEvents() {
     else if (action === "play-ref") playReference(String(charId), button);
     else if (action === "record") toggleRecorder(String(charId), button);
     else if (action === "remove-ref") removeRef(charId);
+    else handleReferenceCheckAction(String(charId), button);
   });
   list.addEventListener("change", (event) => {
     const input = event.target;
@@ -2022,6 +2149,12 @@ function initNarratorEvents() {
   document.getElementById("narrator-ref-play")?.addEventListener("click", (event) => playReference("narrator", event.currentTarget));
   document.getElementById("narrator-record-btn")?.addEventListener("click", (event) => toggleRecorder("narrator", event.currentTarget));
   document.getElementById("narrator-save-btn")?.addEventListener("click", (event) => withBusy(event.currentTarget, "Mentés…", () => saveNarrator()));
+  narrator?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (button && narrator.querySelector("#narrator-reference-title")?.closest("section")?.contains(button)) {
+      handleReferenceCheckAction("narrator", button);
+    }
+  });
   const recorder = document.getElementById("rec-narrator");
   if (recorder) recorder.dataset.ref = "narrator";
   if (narrator) initRecorderEvents(narrator);

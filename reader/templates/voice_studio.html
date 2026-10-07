@@ -85,15 +85,17 @@
               <input id="narrator-ref-text-file" type="file" accept=".txt,text/plain" onchange="loadNarratorRefText(event)">
             </label>
             <label class="btn btn-sm btn-primary file-picker">
-              <span>Referencia WAV kiválasztása</span>
-              <input id="narrator-ref-file" type="file" accept=".wav,audio/wav" onchange="uploadNarratorRef(event)">
+              <span>Referenciahang kiválasztása</span>
+              <input id="narrator-ref-file" type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.opus,.m4a" onchange="uploadNarratorRef(event)">
             </label>
             <button id="narrator-record-btn" class="btn btn-sm btn-ghost" type="button" aria-expanded="false" aria-controls="rec-narrator"><span data-icon="mic"></span><span>Felvétel mikrofonnal</span></button>
+            <button id="check-ref-narrator" class="btn btn-sm btn-ghost" type="button" data-action="check-ref"{% if not book.narrator_ref_audio_path %} disabled{% endif %}>Referencia ellenőrzése</button>
             <button id="remove-narrator-ref-btn" class="btn btn-sm btn-ghost" type="button" onclick="removeNarratorRef()">Referencia törlése</button>
           </div>
+          <div id="ref-check-narrator" class="reference-check" role="status" aria-live="polite" hidden></div>
           <div class="recorder" id="rec-narrator" hidden></div>
           <label class="reference-clean"><input type="checkbox" id="ref-clean-narrator" checked> Zajszűrés, csendvágás és hangerő-kiegyenlítés feltöltéskor</label>
-          <p class="studio-note">Tiszta, egyetlen beszélőt tartalmazó, 3–10 másodperces magyar felvétel ajánlott. A pontos átirat javítja a hangklónozás minőségét.</p>
+          <p class="studio-note">Tiszta, egyetlen beszélős, 6–15 másodperces felvétel ajánlott, az elején és a végén rövid csenddel. Feltöltés után az Auris ellenőrzi, és üres átiratnál kitölti.</p>
         </section>
 
         <label class="narrator-mode-row">

@@ -1,12 +1,17 @@
 """Character and narrator voices: listing, editing, previews and reference audio."""
 
+import logging
 import os
+import uuid
 from flask import Blueprint, jsonify, request
 from core.database import get_conn
 
 import app as application
 
 bp = Blueprint('voices', __name__)
+log = logging.getLogger(__name__)
+
+_NOT_AUDIO = 'A referenciahang hangfájl legyen (WAV, MP3, FLAC, OGG, M4A…)'
 
 
 @bp.route('/api/books/<int:book_id>/characters')
@@ -225,8 +230,9 @@ def upload_ref_audio(char_id):
     if 'file' not in request.files:
         return jsonify({'error': 'Nincs kiválasztott fájl'}), 400
     f = request.files['file']
-    if not f.filename or not f.filename.lower().endswith('.wav'):
-        return jsonify({'error': 'A referenciahang WAV-fájl legyen'}), 400
+    from core.reference_audio import is_audio_filename
+    if not f.filename or not is_audio_filename(f.filename):
+        return jsonify({'error': _NOT_AUDIO}), 400
     ref_text = (request.form.get('ref_text') or '').strip()
     with get_conn() as conn:
         row = conn.execute(
@@ -237,7 +243,10 @@ def upload_ref_audio(char_id):
             return jsonify({'error': 'Nem található'}), 404
         if row['ref_audio_path']:
             application.tts.invalidate_voice_prompt(row['ref_audio_path'], row['ref_text'])
-    path = application._save_reference_upload(f, f'ref_{char_id}', clean=request.form.get('clean') == '1')
+    try:
+        path = application._save_reference_upload(f, f'ref_{char_id}', clean=request.form.get('clean') == '1')
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
     with get_conn() as conn:
         conn.execute(
             'UPDATE characters SET ref_audio_path=?, ref_audio_name=?, ref_text=? WHERE id=?',
@@ -277,8 +286,9 @@ def upload_narrator_ref_audio(book_id):
     if 'file' not in request.files:
         return jsonify({'error': 'Nincs kiválasztott fájl'}), 400
     f = request.files['file']
-    if not f.filename or not f.filename.lower().endswith('.wav'):
-        return jsonify({'error': 'A referenciahang WAV-fájl legyen'}), 400
+    from core.reference_audio import is_audio_filename
+    if not f.filename or not is_audio_filename(f.filename):
+        return jsonify({'error': _NOT_AUDIO}), 400
     ref_text = (request.form.get('ref_text') or '').strip()
     with get_conn() as conn:
         prev = conn.execute(
@@ -291,7 +301,10 @@ def upload_narrator_ref_audio(book_id):
             application.tts.invalidate_voice_prompt(
                 prev['narrator_ref_audio_path'], prev['narrator_ref_text']
             )
-    path = application._save_reference_upload(f, f'narrator_ref_{book_id}', clean=request.form.get('clean') == '1')
+    try:
+        path = application._save_reference_upload(f, f'narrator_ref_{book_id}', clean=request.form.get('clean') == '1')
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
     with get_conn() as conn:
         conn.execute(
             'UPDATE books SET narrator_ref_audio_path=?, narrator_ref_audio_name=?, '
@@ -331,3 +344,121 @@ def delete_narrator_ref_audio(book_id):
     application._delete_file_if_exists(path)
     application._clear_book_tts_segments(book_id)
     return jsonify({'ok': True, 'segments_cleared': True})
+
+
+# ── Reference check and trimming (characters and narrator alike) ────────────
+
+def _reference_owner(kind: str, key: int) -> dict | None:
+    with get_conn() as conn:
+        if kind == 'narrator':
+            row = conn.execute(
+                'SELECT id AS book_id, narrator_ref_audio_path AS path, narrator_ref_audio_name AS name, '
+                'narrator_ref_text AS text, language FROM books WHERE id=?', (key,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                'SELECT c.book_id, c.ref_audio_path AS path, c.ref_audio_name AS name, '
+                'c.ref_text AS text, b.language FROM characters c JOIN books b ON b.id=c.book_id '
+                'WHERE c.id=?', (key,),
+            ).fetchone()
+    if not row:
+        return None
+    prefix = f'narrator_ref_{key}' if kind == 'narrator' else f'ref_{key}'
+    return dict(row, kind=kind, key=key, prefix=prefix)
+
+
+def _save_reference_fields(owner: dict, path: str, name: str | None, text: str | None) -> None:
+    with get_conn() as conn:
+        if owner['kind'] == 'narrator':
+            conn.execute(
+                'UPDATE books SET narrator_ref_audio_path=?, narrator_ref_audio_name=?, '
+                'narrator_ref_text=? WHERE id=?', (path, name, text, owner['key']),
+            )
+        else:
+            conn.execute(
+                'UPDATE characters SET ref_audio_path=?, ref_audio_name=?, ref_text=? WHERE id=?',
+                (path, name, text, owner['key']),
+            )
+    application.tts.invalidate_voice_prompt(owner['path'], owner['text'])
+    application.tts.invalidate_voice_prompt(path, text or None)
+    application._delete_replaced_reference(owner['path'], path, owner['prefix'])
+    application._clear_book_tts_segments(owner['book_id'])
+
+
+def _check_reference(kind: str, key: int):
+    """Inspect the stored reference; an empty transcript is filled from ASR."""
+    from core import qa, reference_audio, settings
+
+    owner = _reference_owner(kind, key)
+    if not owner:
+        return jsonify({'error': 'Nem található'}), 404
+    if not owner['path'] or not os.path.exists(owner['path']):
+        return jsonify({'error': 'Nincs feltöltött referenciahang.'}), 400
+    language = owner['language'] or 'hu'
+    try:
+        report = reference_audio.inspect_reference(
+            owner['path'], owner['text'], language, qa.Transcriber.whisper_for(language))
+    except Exception as exc:
+        log.warning('Reference check failed for %s %s: %s', kind, key, exc)
+        return jsonify({'error': f'Az ellenőrzés nem sikerült: {exc}'}), 500
+    finally:
+        if not settings.get('asr_keep_loaded', False):
+            qa.Transcriber.unload_all()
+    report['ref_text'] = owner['text'] or ''
+    report['ref_text_saved'] = False
+    if not (owner['text'] or '').strip() and report['suggested_text']:
+        _save_reference_fields(owner, owner['path'], owner['name'], report['suggested_text'])
+        report['ref_text'], report['ref_text_saved'] = report['suggested_text'], True
+    return jsonify(report)
+
+
+def _trim_reference(kind: str, key: int):
+    """Replace the reference with one of its stretches and that stretch's text."""
+    from core import reference_audio
+
+    owner = _reference_owner(kind, key)
+    if not owner:
+        return jsonify({'error': 'Nem található'}), 404
+    if not owner['path'] or not os.path.exists(owner['path']):
+        return jsonify({'error': 'Nincs feltöltött referenciahang.'}), 400
+    body = request.get_json(silent=True) or {}
+    try:
+        start, end = float(body.get('start')), float(body.get('end'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Hibás kezdő- vagy végpont.'}), 400
+    text = str(body.get('text') or '').strip()
+    if not text:
+        return jsonify({'error': 'A kivágott szakasz átirata hiányzik.'}), 400
+    tmp = os.path.join(application.UPLOAD_DIR, f'.{owner["prefix"]}.{uuid.uuid4().hex}.cut.wav')
+    try:
+        duration = reference_audio.cut_reference(owner['path'], tmp, start, end)
+    except ValueError as exc:
+        application._delete_file_if_exists(tmp)
+        return jsonify({'error': str(exc)}), 400
+    path = application._store_reference_file(tmp, owner['prefix'])
+    stem = os.path.splitext(owner['name'] or 'referencia')[0].split(' · ')[0]
+    span = f'{start:.1f}–{end:.1f}'.replace('.', ',')
+    name = f'{stem} · {span} s.wav'
+    _save_reference_fields(owner, path, name, text)
+    return jsonify({'ok': True, 'ref_audio_name': name, 'ref_text': text,
+                    'duration': round(duration, 2), 'segments_cleared': True})
+
+
+@bp.route('/api/characters/<int:char_id>/ref-audio/check', methods=['POST'])
+def check_character_ref_audio(char_id):
+    return _check_reference('character', char_id)
+
+
+@bp.route('/api/books/<int:book_id>/narrator-ref-audio/check', methods=['POST'])
+def check_narrator_ref_audio(book_id):
+    return _check_reference('narrator', book_id)
+
+
+@bp.route('/api/characters/<int:char_id>/ref-audio/trim', methods=['POST'])
+def trim_character_ref_audio(char_id):
+    return _trim_reference('character', char_id)
+
+
+@bp.route('/api/books/<int:book_id>/narrator-ref-audio/trim', methods=['POST'])
+def trim_narrator_ref_audio(book_id):
+    return _trim_reference('narrator', book_id)

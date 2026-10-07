@@ -515,7 +515,19 @@ def remove_plain_onnxruntime():
     overwrite DirectML files. Remove both and let the requirements step
     reinstall the DirectML build cleanly.
     """
+    from importlib import metadata
+
+    def installed(name):
+        try:
+            metadata.version(name)
+        except metadata.PackageNotFoundError:
+            return False
+        return True
+
     if not directml_platform():
+        return
+    plain = installed("onnxruntime")
+    if not plain and installed("onnxruntime-directml"):
         return
     if STRICT_OFFLINE and not any(WHEELS_DIR.glob("onnxruntime_directml-*.whl")):
         # Fail before uninstalling anything: the requirements step could not
@@ -524,11 +536,7 @@ def remove_plain_onnxruntime():
             f"Offline install on Windows needs an onnxruntime-directml wheel in {WHEELS_DIR} "
             "(pip download onnxruntime-directml --dest <wheels dir>)."
         )
-    probe = subprocess.run(
-        [sys.executable, "-m", "pip", "show", "onnxruntime"],
-        capture_output=True, text=True,
-    )
-    if probe.returncode != 0:
+    if not plain:
         return
     step("Replacing onnxruntime with onnxruntime-directml")
     run([sys.executable, "-m", "pip", "uninstall", "-y", "onnxruntime", "onnxruntime-directml"])

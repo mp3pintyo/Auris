@@ -97,17 +97,37 @@ class TorchInstallTests(unittest.TestCase):
                           side_effect=installer.subprocess.CalledProcessError(1, 'pip')):
             installer.ensure_torch_requirements()
 
+    @staticmethod
+    def installed_packages(*names):
+        from importlib import metadata
+
+        def version(name):
+            if name not in names:
+                raise metadata.PackageNotFoundError(name)
+            return '1.24.4'
+        return patch('importlib.metadata.version', side_effect=version)
+
     def test_plain_onnxruntime_is_removed_before_directml_on_windows(self):
-        from types import SimpleNamespace
         with patch.object(installer, 'directml_platform', return_value=True), \
              patch.object(installer, 'STRICT_OFFLINE', False), \
-             patch.object(installer.subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
+             self.installed_packages('onnxruntime'), \
              patch.object(installer, 'run') as run:
             installer.remove_plain_onnxruntime()
         cmd = run.call_args.args[0]
         self.assertIn('uninstall', cmd)
         self.assertIn('onnxruntime', cmd)
         self.assertIn('onnxruntime-directml', cmd)
+
+    def test_installed_directml_build_is_kept_even_offline_without_wheel(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as empty, \
+             patch.object(installer, 'directml_platform', return_value=True), \
+             patch.object(installer, 'STRICT_OFFLINE', True), \
+             patch.object(installer, 'WHEELS_DIR', Path(empty)), \
+             self.installed_packages('onnxruntime-directml'), \
+             patch.object(installer, 'run') as run:
+            installer.remove_plain_onnxruntime()
+        run.assert_not_called()
 
     def test_python_310_keeps_plain_onnxruntime(self):
         with patch.object(installer.os, 'name', 'nt'), \
@@ -122,6 +142,7 @@ class TorchInstallTests(unittest.TestCase):
              patch.object(installer, 'directml_platform', return_value=True), \
              patch.object(installer, 'STRICT_OFFLINE', True), \
              patch.object(installer, 'WHEELS_DIR', Path(empty)), \
+             self.installed_packages('onnxruntime'), \
              patch.object(installer, 'run') as run:
             with self.assertRaises(RuntimeError):
                 installer.remove_plain_onnxruntime()

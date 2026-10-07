@@ -52,6 +52,13 @@ Name: "{group}\Auris"; Filename: "{app}\Auris.exe"; WorkingDir: "{app}"
 Name: "{autodesktop}\Auris"; Filename: "{app}\Auris.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 Name: "{group}\Auris eltávolítása"; Filename: "{uninstallexe}"
 
+[UninstallDelete]
+; Python writes __pycache__ beside the bundled code at runtime; the installer
+; never recorded those files. Both folders hold program files only: user data
+; and the optional GPU runtime live under LocalAppData\Auris.
+Type: filesandordirs; Name: "{app}\app"
+Type: filesandordirs; Name: "{app}\runtime"
+
 [Run]
 Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "A WebView2 alkalmazásablak beállítása…"; Check: NeedsWebView2; Flags: waituntilterminated
 Filename: "{app}\Auris.exe"; Description: "Auris elindítása"; Flags: nowait postinstall skipifsilent

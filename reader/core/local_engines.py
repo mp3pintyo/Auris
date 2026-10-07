@@ -68,8 +68,8 @@ ENGINE_INFO: dict[str, dict] = {
         "license": "Apache-2.0", "takes": True,
     },
     "supertonic": {
-        "label": "Supertonic 3 (CPU, előre beállított hangok)", "voice_clone": False,
-        "voice_design": False, "speed": True, "device": "CPU", "hungarian": "hivatalos",
+        "label": "Supertonic 3 (CPU vagy DirectML, előre beállított hangok)", "voice_clone": False,
+        "voice_design": False, "speed": True, "device": "CPU/GPU (DirectML)", "hungarian": "hivatalos",
         "license": "OpenRAIL-M (modell), MIT (kód)",
     },
     "piper": {

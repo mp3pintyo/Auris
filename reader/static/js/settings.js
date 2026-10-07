@@ -377,7 +377,7 @@ const ENGINE_CAPABILITIES = {
   higgs: {clone: true, design: false, speed: true, device: 'GPU', license: 'Boson kutatási licenc'},
   moss_tts: {clone: true, design: false, speed: false, device: 'GPU, ~14 GB VRAM', license: 'Apache-2.0'},
   moss_nano: {clone: true, design: false, speed: false, device: 'CPU', license: 'Apache-2.0'},
-  supertonic: {clone: false, design: false, speed: true, device: 'CPU', license: 'OpenRAIL-M'},
+  supertonic: {clone: false, design: false, speed: true, device: 'CPU vagy GPU (DirectML)', license: 'OpenRAIL-M'},
   piper: {clone: false, design: false, speed: true, device: 'CPU', license: 'GPL-3.0 (piper-tts)'},
 };
 

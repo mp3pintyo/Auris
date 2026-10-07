@@ -12,6 +12,22 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+## [4.5.1] - 2026-10-07
+
+### Magyar
+
+#### Javítva
+
+- A Beállításokban a Supertonic 3 motor leírása és képességcímkéje már nem csak CPU-t említ: Windowson DirectML-lel a videokártyán is fut.
+- A Windows asztali alkalmazás eltávolítója a futás közben keletkezett Python-gyorsítótárfájlokat (`__pycache__`) is törli, így nem marad több ezer fájl a programmappában. A felhasználói adatok, a modellek és a külön GPU-környezet továbbra is megmaradnak.
+
+### English
+
+#### Fixed
+
+- In Settings, the Supertonic 3 engine description and capability chip no longer mention only the CPU: on Windows it also runs on the GPU through DirectML.
+- The Windows desktop uninstaller also removes the Python cache files (`__pycache__`) created at runtime, so thousands of files no longer remain in the program folder. User data, models and the separate GPU runtime are still retained.
+
 ## [4.5.0] - 2026-10-07
 
 ### Magyar

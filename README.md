@@ -115,7 +115,7 @@ The existing source-based web installation remains available below.
 
 ## Requirements (source-based web installation)
 
-- Python 3.10 or later
+- Python 3.10 or later, or [uv](https://docs.astral.sh/uv/) (also through mise)
 - `ffmpeg` on `PATH` for MP3, M4B, and export mastering
 - OmniVoice model files stored locally
 - Optional NVIDIA GPU for faster inference
@@ -144,6 +144,11 @@ python reader/setup.py
 ```
 
 The installer detects CUDA or CPU, creates `reader/.venv`, installs PyTorch, OmniVoice, spaCy, and the reader dependencies, then downloads the `en_core_web_sm` spaCy model when network access is available.
+
+On Windows, `setup.bat` creates `reader/.venv` with uv when it is available,
+directly or through `mise exec`, so no separately installed Python is needed;
+uv downloads Python 3.11 (`set AURIS_PYTHON=3.12` selects another version).
+Without uv it uses `python` or the `py` launcher.
 
 ## Start after installation
 

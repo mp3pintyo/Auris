@@ -129,6 +129,15 @@ TDT 0.6B v3. The ONNX export (`istupakov/parakeet-tdt-0.6b-v3-onnx`) is
 downloaded from Hugging Face on first use; the model is licensed under
 CC-BY-4.0 by NVIDIA.
 
+## 3D-Speaker CAM++ speaker embedding
+
+Speaker-similarity measurement uses the CAM++ speaker-verification model
+`iic/speech_campplus_sv_zh_en_16k-common_advanced` from Alibaba's 3D-Speaker
+project (Apache-2.0). The ONNX export
+`3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx` is downloaded on
+first use from `csukuangfj/speaker-embedding-models` (sherpa-onnx model
+collection) at a pinned revision and verified by SHA-256.
+
 ## Piper and Hungarian Piper voices (optional)
 
 The optional Piper engine uses the `piper-tts` package (piper1-gpl,

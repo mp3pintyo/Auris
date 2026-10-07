@@ -63,6 +63,26 @@ _BRACKET_TAG_RE = re.compile(r"\[[^\[\]]*\]")
 DEFAULT_TTS_BATCH_SIZE = 0
 DEFAULT_TTS_NUM_STEP = 16
 ALLOWED_TTS_NUM_STEPS = (8, 16, 24, 32)
+# OmniVoice decoding fields Auris may override (OmniVoiceGenerationConfig).
+SAMPLING_FIELDS = {
+    "guidance_scale": (0.0, 10.0),
+    "t_shift": (0.01, 1.0),
+    "position_temperature": (0.0, 20.0),
+    "class_temperature": (0.0, 5.0),
+    "layer_penalty_factor": (0.0, 20.0),
+}
+
+
+def sampling_kwargs(sampling: dict | None) -> dict:
+    """Validated OmniVoice decoding overrides; unknown or None fields are dropped."""
+    out = {}
+    for key, value in (sampling or {}).items():
+        if key not in SAMPLING_FIELDS or value is None:
+            continue
+        low, high = SAMPLING_FIELDS[key]
+        out[key] = min(high, max(low, float(value)))
+    return out
+
 MAX_TTS_BATCH_SIZE = 48
 # Soft char budget; scaled up with batch size so packs actually fill on long cards.
 DEFAULT_TTS_BATCH_MAX_CHARS = 12000
@@ -1063,6 +1083,7 @@ class TTSEngine:
         num_step: int,
         language: str | None,
         normalize_text: bool,
+        sampling: dict | None = None,
     ) -> dict:
         """Build OmniVoice.generate kwargs for one or many texts (same voice)."""
         synth_texts = [
@@ -1075,6 +1096,7 @@ class TTSEngine:
             "speed": speeds if multi else speeds[0],
             "num_step": num_step,
             "language": language,
+            **sampling_kwargs(sampling),
         }
 
         if ref_audio:
@@ -1106,8 +1128,13 @@ class TTSEngine:
         num_step: int = 32,
         language: str | None = None,
         normalize_text: bool = False,
+        sampling: dict | None = None,
     ) -> list[np.ndarray]:
-        """Synthesize multiple texts that share the same voice conditioning."""
+        """Synthesize multiple texts that share the same voice conditioning.
+
+        ``sampling`` optionally overrides OmniVoice decoding fields (see
+        ``SAMPLING_FIELDS``); omitted fields keep the upstream defaults.
+        """
         if not texts:
             return []
         if not self._ready:
@@ -1127,6 +1154,7 @@ class TTSEngine:
                 num_step=num_step,
                 language=language,
                 normalize_text=normalize_text,
+                sampling=sampling,
             )
             text_arg = kwargs.get("text")
             b_eff = len(text_arg) if isinstance(text_arg, list) else 1
@@ -1205,6 +1233,7 @@ class TTSEngine:
                         num_step=num_step,
                         language=language,
                         normalize_text=normalize_text,
+                        sampling=sampling,
                     )
                 )
             return out

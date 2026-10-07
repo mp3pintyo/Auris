@@ -37,6 +37,23 @@ class ScoringTest(unittest.TestCase):
         self.assertIn("gyorsan", result["missing_words"])
         self.assertGreater(result["wer"], 0.3)
 
+    def test_compound_spacing_is_not_a_word_error(self):
+        pairs = [
+            ("A 2026-os évben", "a kétezerhuszonhatos évben"),
+            ("a szurdokon át vezet a vízeséshez", "a szurdokon átvezet a vízeséshez"),
+            ("a nagyterem bejárata", "a nagy terem bejárata"),
+            ("Szentgyörgyvölgyi Ödön levelezése", "Szentgyörgy völgyi ödönlevelezése"),
+        ]
+        for expected, heard in pairs:
+            with self.subTest(expected=expected):
+                result = qa.score_transcript(expected, heard, "hu")
+                self.assertEqual(result["wer"], 0)
+                self.assertEqual(result["missing_words"], [])
+
+    def test_real_word_changes_still_count(self):
+        self.assertAlmostEqual(qa.score_transcript("a peronon állt", "a perronon állt", "hu")["wer"], 1 / 3, places=3)
+        self.assertAlmostEqual(qa.score_transcript("nagy kert", "nagykertek", "hu")["wer"], 1.0)
+
 
 class AudioCheckTest(unittest.TestCase):
     def test_long_pause_and_silence_are_flagged(self):

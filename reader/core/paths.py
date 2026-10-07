@@ -24,3 +24,9 @@ def higgs_model() -> Path:
     if os.environ.get('AURIS_DATA_DIR', '').strip():
         return user_path('models', 'Higgs-TTS-3-4B')
     return APP_DIR.parent / 'model_backup' / 'Higgs-TTS-3-4B'
+
+
+def speaker_model_dir() -> Path:
+    if os.environ.get('AURIS_DATA_DIR', '').strip():
+        return user_path('models', 'speaker-embedding')
+    return APP_DIR.parent / 'model_backup' / 'speaker-embedding'

@@ -75,14 +75,43 @@ def _levenshtein(a, b) -> int:
     return previous[-1]
 
 
+_MAX_JOIN = 3
+
+
+def _word_errors(ref: list[str], hyp: list[str]) -> int:
+    """Word-level edit distance where spacing differences are not errors.
+
+    Hungarian compounds and spelled-out numbers are written together or apart
+    inconsistently (kétezer huszonhatos / kétezerhuszonhatos, át vezet /
+    átvezet); up to three words on either side that spell the same letters
+    count as a match.
+    """
+    n, m = len(ref), len(hyp)
+    d = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n + 1):
+        for j in range(m + 1):
+            if not i and not j:
+                continue
+            best = min(d[i - 1][j] + 1 if i else n + m, d[i][j - 1] + 1 if j else n + m)
+            if i and j:
+                best = min(best, d[i - 1][j - 1] + (ref[i - 1] != hyp[j - 1]))
+            for k in range(1, min(i, _MAX_JOIN) + 1):
+                for l in range(1, min(j, _MAX_JOIN) + 1):
+                    if (k > 1 or l > 1) and "".join(ref[i - k:i]) == "".join(hyp[j - l:j]):
+                        best = min(best, d[i - k][j - l])
+            d[i][j] = best
+    return d[n][m]
+
+
 def score_transcript(expected: str, heard: str, language: str | None = None) -> dict:
     ref = comparable_text(expected, language)
     hyp = comparable_text(heard, language)
     ref_chars, hyp_chars = ref.replace(" ", ""), hyp.replace(" ", "")
     ref_words, hyp_words = ref.split(), hyp.split()
     cer = _levenshtein(ref_chars, hyp_chars) / max(1, len(ref_chars))
-    wer = _levenshtein(ref_words, hyp_words) / max(1, len(ref_words))
-    missing = [w for w in ref_words if w not in set(hyp_words)]
+    wer = _word_errors(ref_words, hyp_words) / max(1, len(ref_words))
+    hyp_set = set(hyp_words)
+    missing = [w for w in ref_words if w not in hyp_set and w not in hyp_chars]
     return {
         "cer": round(min(cer, 9.99), 4),
         "wer": round(min(wer, 9.99), 4),

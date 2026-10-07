@@ -167,6 +167,9 @@ def main():
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--ref', type=Path, action='append', default=[],
                    help='Reference WAV (repeatable).')
+    p.add_argument('--auto-voice', action='store_true',
+                   help='Also render without any reference (a fine-tuned voice speaking on its own); '
+                        'needs --target for likeness.')
     p.add_argument('--rescore', action='store_true',
                    help='Re-score an existing --output report from its saved transcripts.')
     p.add_argument('--ref-text', type=Path, action='append', default=[],
@@ -188,8 +191,10 @@ def main():
     if a.rescore:
         finish(json.loads(a.output.read_text(encoding='utf-8')), a.output)
         return
-    if not a.ref:
-        p.error('At least one --ref is required.')
+    if not a.ref and not a.auto_voice:
+        p.error('At least one --ref (or --auto-voice) is required.')
+    if a.auto_voice and not a.target:
+        p.error('--auto-voice needs --target to measure likeness.')
     if not 1 <= a.seeds <= 20 or not 1 <= a.batch <= 16:
         p.error('Use 1..20 seeds and batch 1..16.')
     if len(a.ref_text) > len(a.ref):
@@ -227,6 +232,8 @@ def main():
             text, source = transcriber.transcribe(str(ref), 'hu')['text'], 'Whisper'
         name = f'{i + 1}-{ref.stem[:24]}'
         report['references'].append(dict(name=name, path=str(ref.resolve()), text=text, text_source=source))
+    if a.auto_voice:
+        report['references'].append(dict(name='auto-voice', path=None, text='', text_source='nincs'))
     qa.Transcriber.unload_all()
     save()
 
@@ -247,7 +254,7 @@ def main():
                             torch.cuda.synchronize()
                         t = time.perf_counter()
                         audio = engine._synthesize_batch(
-                            chunk, ref_audio=ref['path'], ref_text=ref['text'],
+                            chunk, ref_audio=ref['path'], ref_text=ref['text'] or None,
                             speeds=[speed] * len(chunk), num_step=num_step, language='hu',
                             normalize_text=True, sampling=sampling)
                         if torch.cuda.is_available():

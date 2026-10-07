@@ -25,6 +25,7 @@ reader/data/backup-schedule.tmp
 reader/data/backups/
 reader/data/voice_profiles/
 reader/data/performance/
+reader/data/voice_training/
 reader/data/reader.db-wal
 reader/data/reader.db-shm
 

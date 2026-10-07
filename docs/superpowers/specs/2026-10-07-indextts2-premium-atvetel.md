@@ -187,6 +187,34 @@ A magyar egybe- és különírás (kétezer huszonhatos / kétezerhuszonhatos, �
 Állapot:
 - **G3 és G2 kész a v4.6.0-ban:** referencia-ellenőrzés, automatikus átirat, szakaszvágás, további hangformátumok.
 - **G5 és G6 kész a v4.7.0-ban:** az export „Hangminőség” választója (Normál, Leghasonlóbb 5-ből, Leghasonlóbb 10-ből), `core/take_selection.py`.
+- **G7 kész a v4.8.0-ban:** a referencia-ellenőrző panel próbagenerálással rangsorolja a szakaszokat (`core/reference_audition.py`). A saját hangon ugyanazt a szakaszt választotta (35,5–45,4 s, hasonlóság 0,899), mint a 40 mondatos, öt seedes mérés, körülbelül egy perc alatt.
+- **G10 elvetve mérés alapján.** 3800 OmniVoice-take-ben (40 mondat, két referencia) a leghosszabb belső szünet 0,61 s volt, illetve 0,99 s az 55 s-os referenciával. Egyetlen take-ben sem volt 1 s-nál hosszabb szünet. A forrás szünetplafonja az IndexTTS2 hosszú szakaszainak hibáját kezelte; az Auris rövid szegmensei és szabályalapú szünetei mellett ez a hiba nem jelentkezik.
+
+### T0: hangtanítási kísérlet (eszközök készen, adat kell)
+
+Az eszközök a `scripts/voice_training/` mappában vannak, és az upstream OmniVoice Apache-2.0 licencű építőelemeire épülnek:
+
+1. `make_reading_script.py`: felolvasandó ülések egy könyvből, egyenként körülbelül 10 perc, `UTMUTATO.txt`-vel. A mostani anyag Rejtő Jenő *A 14 karátos autó* című regénye (közkincs), 6 ülés, `reader/data/voice_training/felolvasas/`.
+2. `prepare_dataset.py`: a felvételekből 2–16 s-os, mondathatáron vágott klipek, az ismert szöveggel vagy Whisper-átirattal.
+   - Kapuk: tempó, csúcsszint, klippelés, csonka szél, félreolvasás (15 % feletti CER).
+   - Kimenet: `manifest.jsonl` validációs elkülönítéssel.
+3. `train_omnivoice.py`: teljes finomhangolás.
+   - FP32 mesterkópia, BF16 autocast, gradient checkpointing, 4096 token × 2 akkumuláció, LR 2e-5, koszinuszos ütemezés, automatikus epochszám.
+   - Validáció rögzített maszkokkal; a legjobb epoch önálló modellmappaként mentődik.
+   - A 3090-en mért csúcs 9,9 GB.
+4. Értékelés: `benchmark_quality.py --model <futás>/best`. Az `--auto-voice` kapcsolóval referencia nélkül, a `--target` kapcsolóval a saját felvételhez mérve.
+
+A füstpróba 1 perc saját anyaggal lefutott: adatkészlet, tanítás, mentés, majd betöltés az Auris OmniVoice-motorjával és generálás. Ez csak azt bizonyítja, hogy a lánc működik; minőségről nem mond semmit.
+
+**A kísérlet protokollja** 30–60 perc felvétel után:
+
+- Tanítás `--prompt-ratio 0` és `0.3` értékkel.
+- Összevetés a 40 mondatos mérőkereten három változat között:
+  - a) az alapmodell a legjobb saját klippel (G7), egy take és a legjobb 5-ből;
+  - b) a tanított modell referencia nélkül (`--auto-voice`);
+  - c) a tanított modell a legjobb klippel.
+- A hasonlóságot a felolvasott ülések egyik félretett felvételéhez mérjük.
+- **Döntés:** a T1–T4 csak akkor indul, ha a b) vagy a c) változat hasonlósága mérhetően (legalább +0,01) jobb az a) változatnál, és a szóhiba nem nő.
 
 1. **G3 (megemelve): referencia-ellenőrzés.**
    - Hosszkorlát: 15 s felett figyelmeztetés és felajánlott vágás.

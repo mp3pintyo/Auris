@@ -12,6 +12,36 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+### Magyar
+
+#### Hozzáadva
+
+- Kísérleti, parancssori eszközök a saját hang tanításához (`scripts/voice_training/`):
+  - `make_reading_script.py`: felolvasandó szöveg körülbelül 10 perces ülésekre bontva, útmutatóval.
+  - `prepare_dataset.py`: a felvételekből mondathatáron vágott tanítóklipek. Az előkészítő kiszűri a túl gyors vagy lassú, túl halk, túlvezérelt, csonka és félreolvasott klipeket.
+  - `train_omnivoice.py`: az OmniVoice teljes finomhangolása egy beszélő hangjára, RTX 3090-en körülbelül 10 GB VRAM-mal.
+
+  A `benchmark_quality.py --auto-voice` kapcsolója a tanított hangot referencia nélkül méri. A tanított hang a CC-BY-NC licencű OmniVoice-súlyok miatt csak nem kereskedelmi célra használható.
+
+#### Javítva
+
+- A referenciaszakaszok vágása a mondatok közti szünet közepére esik, nem az elejére, így a szakasz nem indul hosszú csenddel. Az írásjel nélküli, hosszú Whisper-mondatokat a vágó tagmondatoknál bontja.
+
+### English
+
+#### Added
+
+- Experimental command-line tools for training your own voice (`scripts/voice_training/`):
+  - `make_reading_script.py`: reading text split into sessions of about 10 minutes, with a guide.
+  - `prepare_dataset.py`: training clips cut from your recordings at sentence boundaries. It drops clips that are too fast or slow, too quiet, clipped, cut off or misread.
+  - `train_omnivoice.py`: a full OmniVoice fine-tune on one speaker's voice, using about 10 GB of VRAM on an RTX 3090.
+
+  `benchmark_quality.py --auto-voice` measures a trained voice without a reference. Because the OmniVoice weights are CC-BY-NC, a trained voice is for non-commercial use only.
+
+#### Fixed
+
+- Reference stretches are cut in the middle of the pause between sentences rather than at its start, so a stretch no longer begins with a long silence. Long Whisper sentences without punctuation are split at clauses.
+
 ## [4.8.0] - 2026-10-08
 
 ### Magyar

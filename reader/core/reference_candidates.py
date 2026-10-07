@@ -20,6 +20,8 @@ word endings.
 from __future__ import annotations
 
 import difflib
+import math
+import re
 from dataclasses import dataclass
 
 import numpy as np
@@ -103,7 +105,14 @@ def _quietest(audio: np.ndarray, sr: int, lo: float, hi: float) -> float:
     rms = np.sqrt(np.mean(frames ** 2, axis=1))
     width = min(len(rms), SMOOTH_FRAMES)
     smooth = np.convolve(rms, np.ones(width) / width, mode="same")
-    return (a + int(np.argmin(smooth)) * size + size / 2) / sr
+    # The middle of the quietest stretch, so both neighbours keep some pause.
+    quiet = np.flatnonzero(smooth <= smooth.min() * 1.05 + 1e-6)
+    longest, run = [quiet[0]], [quiet[0]]
+    for index in quiet[1:]:
+        run = run + [index] if index == run[-1] + 1 else [index]
+        if len(run) > len(longest):
+            longest = run
+    return (a + longest[len(longest) // 2] * size + size / 2) / sr
 
 
 def _boundary(audio, sr, times, k) -> float:
@@ -194,3 +203,66 @@ def cut(audio: np.ndarray, sr: int, candidate: Candidate, fade_seconds: float = 
         piece[:fade] *= ramp
         piece[-fade:] *= ramp[::-1]
     return piece
+
+
+_CLAUSE_RE = re.compile(r"(?<=[,;:])\s+|\s+(?=[–—-]\s)")
+
+
+def _split_long(sentences, times, words, max_seconds):
+    """Break sentences longer than ``max_seconds`` at clause punctuation, then words."""
+    out_s, out_t = [], []
+    for sentence, span in zip(sentences, times):
+        if span is None or span[1] - span[0] <= max_seconds:
+            out_s.append(sentence)
+            out_t.append(span)
+            continue
+        parts = [part for part in _CLAUSE_RE.split(sentence) if part.strip()]
+        if len(parts) < 2:
+            tokens = sentence.split()
+            pieces = max(2, math.ceil((span[1] - span[0]) / (max_seconds * 0.75)))
+            size = math.ceil(len(tokens) / pieces)
+            parts = [" ".join(tokens[k:k + size]) for k in range(0, len(tokens), size)]
+        part_times = sentence_times(parts, [w for w in words if w.get("start") is not None
+                                            and span[0] - 0.01 <= w["start"] <= span[1] + 0.01])
+        deeper_s, deeper_t = _split_long(parts, part_times, words, max_seconds) if len(parts) > 1 else (parts, part_times)
+        out_s.extend(deeper_s)
+        out_t.extend(deeper_t)
+    return out_s, out_t
+
+
+def partition(audio: np.ndarray, sr: int, text: str, words: list[dict], *,
+              max_seconds: float = 16.0, min_seconds: float = 2.0) -> list[Candidate]:
+    """Split a recording into consecutive, non-overlapping clips of whole sentences.
+
+    Used to build a training dataset: sentences are packed greedily while the
+    clip stays within ``max_seconds``; a single sentence longer than that, an
+    untimed sentence, or speech cut off by the file edge ends the run.
+    """
+    sentences = split_sentences(text)
+    times = sentence_times(sentences, words)
+    sentences, times = _split_long(sentences, times, words, max_seconds)
+    out: list[Candidate] = []
+    i = 0
+    while i < len(sentences):
+        if times[i] is None:
+            i += 1
+            continue
+        start = _cut_before(audio, sr, times, i)
+        if start is None:
+            i += 1
+            continue
+        best_j, best_end = None, None
+        j = i
+        while j < len(sentences) and times[j] is not None:
+            end = _cut_after(audio, sr, times, j)
+            if end is None or end - start > max_seconds:
+                break
+            best_j, best_end = j, end
+            j += 1
+        if best_j is None:
+            i += 1
+            continue
+        if best_end - start >= min_seconds:
+            out.append(Candidate(start, best_end, " ".join(sentences[i:best_j + 1]), i, best_j))
+        i = best_j + 1
+    return out

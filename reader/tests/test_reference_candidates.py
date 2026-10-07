@@ -88,6 +88,29 @@ class ReferenceCandidatesTest(unittest.TestCase):
         self.assertTrue(found)
         self.assertTrue(all(c.last_sentence < 3 for c in found))
 
+    def test_partition_packs_consecutive_sentences_without_overlap(self):
+        parts = rc.partition(speech_with_pauses(), SR, TEXT, timed_words(), max_seconds=10)
+        self.assertEqual([(p.first_sentence, p.last_sentence) for p in parts], [(0, 1), (2, 3)])
+        self.assertEqual(parts[0].end, parts[1].start)
+        self.assertTrue(all(p.duration <= 10 for p in parts))
+        self.assertIn("Dr. Kovács", parts[1].text)
+
+    def test_partition_skips_sentences_that_do_not_fit(self):
+        parts = rc.partition(speech_with_pauses(trailing_quiet=False), SR, TEXT, timed_words(), max_seconds=5.2)
+        self.assertEqual([(p.first_sentence, p.last_sentence) for p in parts], [(0, 0), (1, 1), (2, 2)])
+
+    def test_partition_breaks_overlong_sentences_at_clauses(self):
+        text = "Elindult a hajó, a matrózok dolgoztak, a kapitány figyelt, és a part eltűnt."
+        tokens = text.split()
+        words = [{"word": w, "start": 0.5 + 1.5 * k, "end": 0.5 + 1.5 * (k + 1)} for k, w in enumerate(tokens)]
+        audio = 0.2 * np.ones(int((len(tokens) * 1.5 + 1.0) * SR), dtype=np.float32)
+        audio[:int(0.5 * SR)] = 0.0
+        audio[-int(0.5 * SR):] = 0.0
+        parts = rc.partition(audio, SR, text, words, max_seconds=8)
+        self.assertGreaterEqual(len(parts), 2)
+        self.assertTrue(all(p.duration <= 8 for p in parts))
+        self.assertEqual(" ".join(p.text for p in parts).split(), tokens[:len(" ".join(p.text for p in parts).split())])
+
     def test_cut_fades_edges(self):
         cand = rc.Candidate(1.0, 3.0, "x", 0, 0)
         piece = rc.cut(np.ones(5 * SR, dtype=np.float32), SR, cand)

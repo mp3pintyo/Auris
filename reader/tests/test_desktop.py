@@ -20,6 +20,26 @@ class DesktopPathsTests(unittest.TestCase):
         self.assertIn('mpmath', dependencies)
         self.assertNotIn('torch', dependencies)
 
+    def test_bundle_takes_the_installed_onnxruntime_build(self):
+        import importlib.metadata as metadata
+        import importlib.util
+        script = Path(__file__).resolve().parents[2] / 'scripts' / 'windows' / 'build.py'
+        spec = importlib.util.spec_from_file_location('desktop_build_ort_test', script)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        real = metadata.distribution
+
+        def only(installed):
+            def distribution(name):
+                if name in ('onnxruntime', 'onnxruntime-directml') and name != installed:
+                    raise metadata.PackageNotFoundError(name)
+                return real(name) if name not in ('onnxruntime', 'onnxruntime-directml') else object()
+            return distribution
+
+        for installed in ('onnxruntime-directml', 'onnxruntime'):
+            with patch.object(module.metadata, 'distribution', side_effect=only(installed)):
+                self.assertEqual(module.onnxruntime_distribution(), installed)
+
     def test_default_paths_preserve_source_installation(self):
         from core import paths
         with patch.dict(os.environ, {}, clear=True):

@@ -144,6 +144,9 @@ DEFAULTS: dict = {
     # auto: Whisper on a CUDA GPU, Parakeet + Whisper confirmation on CPU.
     'asr_backend': 'auto',
     'asr_keep_loaded': False,
+    # ONNX engines (Supertonic, Parakeet): auto uses DirectML
+    # on Windows when onnxruntime-directml is installed, cpu forces the CPU.
+    'onnx_device': 'auto',
     # Additional engines (core/local_engines.py)
     'piper_voice': 'anna',
     'supertonic_voice': 'F1',

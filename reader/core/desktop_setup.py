@@ -63,7 +63,7 @@ class SetupController:
         if engine not in ('supertonic', 'omnivoice'):
             raise ValueError('Ismeretlen beszédmotor.')
         if gpu and engine != 'omnivoice':
-            raise ValueError('A Supertonic CPU-n fut; GPU-telepítés nem szükséges.')
+            raise ValueError('A Supertonichoz nem kell GPU-telepítés: a videokártyát DirectML-lel külön letöltés nélkül is használja.')
         if gpu and not self.machine()['gpu_supported']:
             raise ValueError('Ehhez az NVIDIA-gyorsításhoz CUDA 12.8-at támogató vagy újabb NVIDIA-illesztőprogram szükséges. CPU-val is elindíthatod.')
         with self._lock:

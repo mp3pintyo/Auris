@@ -97,6 +97,36 @@ class TorchInstallTests(unittest.TestCase):
                           side_effect=installer.subprocess.CalledProcessError(1, 'pip')):
             installer.ensure_torch_requirements()
 
+    def test_plain_onnxruntime_is_removed_before_directml_on_windows(self):
+        from types import SimpleNamespace
+        with patch.object(installer, 'directml_platform', return_value=True), \
+             patch.object(installer, 'STRICT_OFFLINE', False), \
+             patch.object(installer.subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
+             patch.object(installer, 'run') as run:
+            installer.remove_plain_onnxruntime()
+        cmd = run.call_args.args[0]
+        self.assertIn('uninstall', cmd)
+        self.assertIn('onnxruntime', cmd)
+        self.assertIn('onnxruntime-directml', cmd)
+
+    def test_python_310_keeps_plain_onnxruntime(self):
+        with patch.object(installer.os, 'name', 'nt'), \
+             patch.object(installer.sys, 'version_info', (3, 10, 11)), \
+             patch.object(installer, 'run') as run:
+            installer.remove_plain_onnxruntime()
+        run.assert_not_called()
+
+    def test_strict_offline_without_directml_wheel_stops_before_uninstalling(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as empty, \
+             patch.object(installer, 'directml_platform', return_value=True), \
+             patch.object(installer, 'STRICT_OFFLINE', True), \
+             patch.object(installer, 'WHEELS_DIR', Path(empty)), \
+             patch.object(installer, 'run') as run:
+            with self.assertRaises(RuntimeError):
+                installer.remove_plain_onnxruntime()
+        run.assert_not_called()
+
     def test_rocm_validation_requires_hip(self):
         with patch.object(installer, 'run') as run:
             installer.verify_torch('rocm')

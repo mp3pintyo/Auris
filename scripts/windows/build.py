@@ -54,12 +54,26 @@ def clean_owned(path: Path):
         shutil.rmtree(path)
 
 
+def onnxruntime_distribution() -> str:
+    """The installed ONNX Runtime build; both provide the `onnxruntime` module.
+
+    requirements.txt selects onnxruntime-directml on Windows with Python 3.11+.
+    """
+    for name in ('onnxruntime-directml', 'onnxruntime'):
+        try:
+            metadata.distribution(name)
+            return name
+        except metadata.PackageNotFoundError:
+            pass
+    return 'onnxruntime'
+
+
 def dependency_closure():
     from packaging.requirements import Requirement
     from packaging.utils import canonicalize_name
     roots = ['omnivoice', 'flask', 'ebooklib', 'pymupdf', 'pillow', 'python-docx', 'spacy',
-             'trafilatura', 'pyphen', 'num2words', 'onnxruntime', 'onnx-asr', 'sentencepiece',
-             'pip', 'setuptools', 'wheel']
+             'trafilatura', 'pyphen', 'num2words', onnxruntime_distribution(), 'onnx-asr',
+             'sentencepiece', 'pip', 'setuptools', 'wheel']
     for optional in ['en-core-web-sm', 'hu-core-news-md', 'wetext']:
         try:
             metadata.distribution(optional)

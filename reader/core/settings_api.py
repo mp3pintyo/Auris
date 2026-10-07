@@ -8,6 +8,7 @@ from core.database import get_conn
 from core import security
 from core import characters as char_module
 from core import llm_characters
+from core import onnx_device
 from core import settings as app_settings
 from flask import Blueprint
 
@@ -54,7 +55,7 @@ def save_settings():
         'narrator_credit', 'export_intro_template', 'export_outro_template',
         'abs_url', 'abs_api_token', 'abs_library_id', 'abs_folder_id', 'api_token',
         'qa_cer_warn', 'qa_cer_fail', 'qa_max_takes', 'asr_model', 'asr_keep_loaded', 'asr_backend',
-        'tts_accel', 'tts_export_workers',
+        'tts_accel', 'tts_export_workers', 'onnx_device',
         'character_detection_mode', 'llm_provider',
         'llm_base_url', 'llm_api_key', 'llm_model',
         'openai_api_key', 'openai_model',
@@ -148,6 +149,8 @@ def save_settings():
             updates[key] = bool(updates[key])
     if 'asr_backend' in updates and updates['asr_backend'] not in ('auto', 'whisper', 'parakeet', 'hybrid'):
         return jsonify({'error': 'Ismeretlen beszédfelismerő.'}), 400
+    if 'onnx_device' in updates and updates['onnx_device'] not in ('auto', 'cpu'):
+        return jsonify({'error': 'Ismeretlen ONNX-eszköz.'}), 400
     if 'asr_model' in updates:
         model = str(updates['asr_model'] or '').strip()
         if model and not security.valid_hf_repo(model):
@@ -298,8 +301,14 @@ def engine_install():
     if engine not in packages:
         return jsonify({'ok': False, 'message': 'Ismeretlen motor.'}), 400
     from core.desktop_support import python_command
+    args = packages[engine]
+    if engine == 'piper' and onnx_device.directml_installed():
+        # piper-tts depends on plain onnxruntime, which would overwrite the
+        # onnxruntime-directml files; its only other runtime dependency is
+        # pathvalidate.
+        args = ['--no-deps', *args, 'pathvalidate>=3,<4']
     result = subprocess.run(
-        [*python_command(), '-m', 'pip', 'install', *packages[engine]],
+        [*python_command(), '-m', 'pip', 'install', *args],
         capture_output=True, text=True,
     )
     if result.returncode:

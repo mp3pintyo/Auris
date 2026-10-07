@@ -21,6 +21,11 @@ provides the Microsoft-signed `msvcp140.dll`, also placed beside the interpreter
 under its original filename so that Torch can load on a fresh Windows system.
 https://learn.microsoft.com/cpp/windows/redistributing-visual-cpp-files
 
+ONNX Runtime is bundled as `onnxruntime-directml` (MIT), which includes
+Microsoft's `DirectML.dll`. DirectML retains its Microsoft license terms, which
+permit redistribution in Windows applications that use it for machine learning:
+https://www.nuget.org/packages/Microsoft.AI.DirectML/1.15.4/license
+
 FFmpeg and ffprobe are separate command-line programs from the Gyan Windows
 essentials build, licensed under GPL-3.0. Their license and build information
 are included under `tools/`. This distribution does not change Auris's MIT

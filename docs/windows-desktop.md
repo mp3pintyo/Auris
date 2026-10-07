@@ -26,7 +26,9 @@ külső API-k használata továbbra is hálózati kapcsolatot igényel.
 
 ## NVIDIA és más hardver
 
-A Supertonic CPU-n fut. Az OmniVoice CPU-val is használható, lassabban.
+A Supertonic videokártya nélkül is fut; DirectX 12-es videokártyán (AMD,
+Intel, NVIDIA) DirectML-lel külön telepítés nélkül azt használja. Az OmniVoice
+CPU-val is használható, lassabban.
 A kezdeti beállítás felismeri az NVIDIA-kártyát. Ha az illesztőprogram CUDA
 12.8-at vagy újabb verziót támogat, az OmniVoice mellett bekapcsolható a
 **NVIDIA-gyorsítás telepítése**. Ez az Auris saját felhasználói környezetébe

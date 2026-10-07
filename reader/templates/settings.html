@@ -73,6 +73,14 @@
       <span class="muted" style="font-size:.78rem">Mentés után használd a <strong>Beszédmotor újratöltése</strong> gombot. Motorváltáskor az előző modell felszabadul az új betöltése előtt.</span>
     </div>
     <div id="engine-capabilities" class="engine-capabilities" aria-live="polite"></div>
+    <div class="setting-row">
+      <label>ONNX-motorok eszköze (Supertonic, Parakeet)</label>
+      <select id="onnx-device" class="select-input">
+        <option value="auto">Automatikus (videokártya, ha elérhető)</option>
+        <option value="cpu">Processzor</option>
+      </select>
+      <span class="muted" style="font-size:.78rem">A DirectML bármilyen DirectX 12-es videokártyán (AMD, Intel, NVIDIA) működik Windowson; ha nem érhető el, a motorok processzoron futnak. A MOSS-TTS-Nano processzoron marad, mert ott gyorsabb. Módosítás után töltsd újra a beszédmotort.</span>
+    </div>
     <div class="setting-row" style="margin-top:12px">
       <button class="btn btn-ghost btn-sm" onclick="reloadTTS().catch(e => { document.getElementById('tts-reload-hint').textContent = e.message; })">Beszédmotor újratöltése</button>
       <span id="tts-reload-hint" class="status-hint"></span>
@@ -245,7 +253,7 @@
 
   <!-- Supertonic 3 -->
   <section class="settings-section engine-settings supertonic-settings hidden">
-    <div class="settings-section-title">Supertonic 3 (CPU)</div>
+    <div class="settings-section-title">Supertonic 3 (CPU / DirectML)</div>
     <p class="section-desc"><strong>Nem támogat hangklónozást:</strong> tíz beépített hanggal (F1–F5 női, M1–M5 férfi) dolgozik. A Hangstúdióban feltöltött referenciahangot figyelmen kívül hagyja; a szereplő hangját a leírás neme vagy a Hangstúdióban választott beépített hang határozza meg. Nagyon gyors, 44,1 kHz-en készül. Első betöltéskor kb. 0,4 GB-ot tölt le. A modell licence BigScience OpenRAIL-M (használati korlátozásokkal), a kód MIT.</p>
     <div class="setting-row setting-grid-3">
       <label>Alapértelmezett hang

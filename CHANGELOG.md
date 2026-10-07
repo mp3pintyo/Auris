@@ -12,6 +12,18 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+### Magyar
+
+#### Hozzáadva
+
+- Az export párbeszédablakában új **Hangminőség** választó van: **Normál** (egy változat), **Leghasonlóbb 5 változatból** vagy **Leghasonlóbb 10 változatból**. A két utóbbinál minden mondatból több változat készül, ezeket az Auris a referenciahanghoz mért hanghasonlóság szerint sorba rendezi, a magyar Whisper sorban meghallgatja őket, és az első hibátlan marad. Saját mérés 40 mondaton: egy változatnál 2,7 % szóhiba és 31/40 hibátlan mondat, a 10-ből választottnál 0,16 % és 39/40; a leggyengébb mondat hangazonossága 0,77-ről 0,83-ra javult. A GPU-idő kb. 5-, illetve 10-szeres. Az ugyanilyen módban már kiválasztott mondatokat a következő export nem készíti el újra, a vesztes változatok törlődnek. Az OmniVoice, a Higgs és a MOSS motorral működik.
+
+### English
+
+#### Added
+
+- The export dialog has a new **Hangminőség** (audio quality) selector: **Normál** (one version), **Leghasonlóbb 5 változatból** (most similar of 5 versions) or **Leghasonlóbb 10 változatból** (most similar of 10). With the latter two every sentence is rendered several times. Auris ranks the versions by speaker similarity to the reference voice, the Hungarian Whisper listens to them in that order, and the first one without a word error is kept. In our measurements on 40 sentences, one version gave 2.7 % word errors and 31/40 clean sentences, the best of 10 gave 0.16 % and 39/40, and the weakest sentence's voice likeness rose from 0.77 to 0.83. GPU time is about 5 or 10 times longer. Sentences already chosen in the same mode are not rendered again by the next export, and losing versions are deleted. Works with OmniVoice, Higgs and MOSS.
+
 ## [4.6.0] - 2026-10-08
 
 ### Magyar

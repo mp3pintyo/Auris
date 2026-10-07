@@ -184,6 +184,10 @@ A magyar egybe- és különírás (kétezer huszonhatos / kétezerhuszonhatos, �
 
 ### Átrendezett prioritások
 
+Állapot:
+- **G3 és G2 kész a v4.6.0-ban:** referencia-ellenőrzés, automatikus átirat, szakaszvágás, további hangformátumok.
+- **G5 és G6 kész a v4.7.0-ban:** az export „Hangminőség” választója (Normál, Leghasonlóbb 5-ből, Leghasonlóbb 10-ből), `core/take_selection.py`.
+
 1. **G3 (megemelve): referencia-ellenőrzés.**
    - Hosszkorlát: 15 s felett figyelmeztetés és felajánlott vágás.
    - Csend az elején és a végén. Ha a beszéd a fájl széléig tart, hibaüzenet „a felvétel vége le van vágva” szöveggel.

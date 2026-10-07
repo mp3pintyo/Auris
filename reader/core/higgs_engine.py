@@ -629,6 +629,7 @@ class HiggsTTSEngine:
                 speed=float(item.get("speed") or 1.0),
                 language=item.get("language"),
                 normalize_text=item.get("normalize_text"),
+                take=int(item.get("take") or 0),
             )
             results.append(result)
             if on_item is not None:

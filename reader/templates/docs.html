@@ -1103,6 +1103,13 @@ ffprobe -version</code></pre>
             <li><strong>SRT:</strong> egyszerű, széles körben kompatibilis felirat.</li>
             <li><strong>Nincs felirat:</strong> csak a hangfájl vagy hangcsomag készül el.</li>
           </ul>
+          <h3>Hangminőség: normál vagy leghasonlóbb változat</h3>
+          <ul class="docs-check-list">
+            <li><strong>Normál:</strong> minden mondatból egy változat készül; ez a leggyorsabb.</li>
+            <li><strong>Leghasonlóbb 5 vagy 10 változatból:</strong> minden mondatból 5 vagy 10 változat készül. Az Auris a referenciahanghoz (leírt hangnál a rögzített referenciaklipjéhez) mért hanghasonlóság szerint sorba rendezi őket, a magyar Whisper a leghasonlóbbakat sorban meghallgatja (3, illetve 5 változatot), és az első hibátlan marad. Ha egyik sem hibátlan, a legkevesebb hibás. Saját mérés 40 mondaton: egy változatnál 2,7 % szóhiba és 31/40 hibátlan mondat, a 10-ből választottnál 0,16 % és 39/40, a hangazonosság is javult (a leggyengébb mondatnál 0,77 helyett 0,83).</li>
+            <li>A GPU-idő kb. az 5- vagy 10-szerese a normálnak, és közben a beszédfelismerő is fut. A kiválasztott mondatokat a következő, ugyanilyen módú export nem készíti el újra; a vesztes változatok törlődnek.</li>
+            <li>Az OmniVoice-on egy batch-ben készülnek a változatok; a Higgs és a MOSS egymás után rendereli őket. A Supertonic és a Piper egy változatot ad, náluk a beállítás nem változtat.</li>
+          </ul>
         </div>
         <div>
           <h3>Cache és konzisztencia</h3>

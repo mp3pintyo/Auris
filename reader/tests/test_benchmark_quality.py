@@ -33,10 +33,11 @@ class SelectionPolicyTest(unittest.TestCase):
         takes = [take(0.0, 0.70), take(0.1, 0.90), take(0.0, 0.85), take(0.0, 0.60), take(0.0, 0.95)]
         chosen, renders, checks = bench.pick_most_similar(takes, 5, 3)
         self.assertIs(chosen, takes[4])
-        self.assertEqual((renders, checks), (5, 3))
+        self.assertEqual((renders, checks), (5, 1))  # stops at the first clean take
         takes[4]["wer"] = 0.2
-        chosen, _, _ = bench.pick_most_similar(takes, 5, 3)
+        chosen, _, checks = bench.pick_most_similar(takes, 5, 3)
         self.assertIs(chosen, takes[2])
+        self.assertEqual(checks, 3)  # 0.95 and 0.90 have errors, 0.85 is clean
 
     def test_most_similar_falls_back_to_fewest_errors_then_likeness(self):
         takes = [take(0.2, 0.9), take(0.1, 0.8), take(0.1, 0.85), take(0.0, 0.1), take(0.3, 0.7)]

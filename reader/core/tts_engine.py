@@ -1441,7 +1441,10 @@ class TTSEngine:
         """Synthesize many segments, batching same-voice items for GPU throughput.
 
         Each item is a dict with keys:
-          text, instruct, ref_audio, ref_text, speed, language, normalize_text?
+          text, instruct, ref_audio, ref_text, speed, language, normalize_text?, take?
+
+        ``take`` > 0 is an alternative version under its own cache key. Takes of
+        one sentence share a voice group, so they render in the same GPU batch.
 
         Returns one result dict per input item (same shape as :meth:`generate`).
         Cache hits are resolved without calling the model. Pending work is grouped
@@ -1517,7 +1520,7 @@ class TTSEngine:
                 language=language,
                 normalize_text=normalize_text,
                 num_step=num_step,
-                variant=self._render_variant,
+                variant=take_variant(self._render_variant, int(raw.get("take") or 0)),
             )
             path = self.cache_path(key)
 

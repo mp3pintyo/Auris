@@ -292,6 +292,9 @@ def init_db():
                 "ALTER TABLE tts_segments "
                 "ADD COLUMN ends_paragraph INTEGER DEFAULT 0"
             )
+        if "take_policy" not in segment_cols:
+            # Which export take selection chose the current audio (NULL: one take).
+            conn.execute("ALTER TABLE tts_segments ADD COLUMN take_policy TEXT")
 
     from core import text_editor
     with get_conn() as conn:

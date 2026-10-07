@@ -56,26 +56,25 @@ def pick_one(takes: list[dict]) -> dict:
     return takes[0]
 
 
+def _judged(takes: list[dict]) -> list[dict]:
+    """Wrap measured takes for core.take_selection (judging reads the stored scores)."""
+    return [dict(t, judge=lambda t=t: (t['wer'], t['cer']), source=t) for t in takes]
+
+
 def pick_fewest_errors(takes: list[dict], n: int = 3) -> tuple[dict, int, int]:
     """Render until Whisper hears no error, at most n takes; else fewest errors."""
-    checked = []
-    for take in takes[:n]:
-        checked.append(take)
-        if take['wer'] == 0:
-            return take, len(checked), len(checked)
-    best = min(checked, key=lambda t: (t['wer'], t['cer']))
-    return best, len(checked), len(checked)
+    from core.take_selection import fewest_errors
+
+    choice = fewest_errors(_judged(takes[:n]), n)
+    return choice.take['source'], choice.checks, choice.checks
 
 
 def pick_most_similar(takes: list[dict], n: int, checks: int) -> tuple[dict, int, int]:
     """Rank n takes by likeness, Whisper-check the top ones; first clean wins."""
-    ranked = sorted(takes[:n], key=lambda t: -t['similarity'])
-    checked = ranked[:max(1, checks)]
-    for take in checked:
-        if take['wer'] == 0:
-            return take, n, len(checked)
-    best = min(range(len(checked)), key=lambda i: (checked[i]['wer'], checked[i]['cer'], i))
-    return checked[best], n, len(checked)
+    from core.take_selection import most_similar_clean
+
+    choice = most_similar_clean(_judged(takes[:n]), checks)
+    return choice.take['source'], n, choice.checks
 
 
 def policies(seeds: int) -> list[tuple[str, callable]]:

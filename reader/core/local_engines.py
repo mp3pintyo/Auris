@@ -362,7 +362,7 @@ class LocalEngineBase:
                 text=item["text"], instruct=item.get("instruct"),
                 ref_audio=item.get("ref_audio"), ref_text=item.get("ref_text"),
                 speed=float(item.get("speed") or 1.0), language=item.get("language"),
-                normalize_text=item.get("normalize_text"),
+                normalize_text=item.get("normalize_text"), take=int(item.get("take") or 0),
             )
             results.append(result)
             if on_item is not None:

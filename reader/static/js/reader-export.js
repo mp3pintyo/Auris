@@ -265,6 +265,7 @@ document.getElementById('do-export-btn').onclick = async () => {
         outro: Boolean(document.getElementById('export-outro')?.checked),
         sample: Boolean(document.getElementById('export-sample')?.checked),
         abs_upload: Boolean(document.getElementById('export-abs-upload')?.checked),
+        take_mode: exportTakeMode(),
       }),
     });
     const d = await r.json();
@@ -323,3 +324,22 @@ document.getElementById('do-export-btn').onclick = async () => {
     finish(e.message);
   }
 };
+
+
+// Export quality (best-of-N takes); the last choice is remembered per browser.
+const TAKE_MODE_KEY = 'auris.export.takeMode';
+
+function exportTakeMode() {
+  const value = document.getElementById('export-take-mode')?.value || 'normal';
+  try { localStorage.setItem(TAKE_MODE_KEY, value); } catch (_) { /* storage is optional */ }
+  return value;
+}
+
+(function restoreExportTakeMode() {
+  const select = document.getElementById('export-take-mode');
+  if (!select) return;
+  try {
+    const saved = localStorage.getItem(TAKE_MODE_KEY);
+    if (saved && [...select.options].some((o) => o.value === saved)) select.value = saved;
+  } catch (_) { /* storage is optional */ }
+})();

@@ -2310,7 +2310,8 @@ def _ensure_audio_for_chapter(
             return
         with get_conn() as conn:
             conn.executemany(
-                'UPDATE tts_segments SET audio_path=?, duration_sec=?, cache_key=? WHERE id=?',
+                'UPDATE tts_segments SET audio_path=?, duration_sec=?, cache_key=?, '
+                'take_policy=NULL WHERE id=?',
                 db_buffer,
             )
         db_buffer = []
@@ -2324,6 +2325,7 @@ def _ensure_audio_for_chapter(
             seg['audio_path'] = result['audio_path']
             seg['duration_sec'] = result['duration_sec']
             seg['cache_key'] = result['cache_key']
+            seg['take_policy'] = None
             db_buffer.append((
                 result['audio_path'],
                 result['duration_sec'],

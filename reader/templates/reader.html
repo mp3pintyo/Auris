@@ -238,6 +238,15 @@
           <label><input type="radio" name="exp-audio" value="flac"> FLAC (veszteségmentes, tömörített)</label>
         </div>
         <div class="export-section">
+          <label for="export-take-mode"><b>Hangminőség</b></label>
+          <select id="export-take-mode" class="select-input">
+            <option value="normal">Normál – egy változat (leggyorsabb)</option>
+            <option value="similar5">Leghasonlóbb 5 változatból (kb. 5× idő)</option>
+            <option value="similar10">Leghasonlóbb 10 változatból (kb. 10× idő)</option>
+          </select>
+          <p class="muted export-note">Minden mondatból több változat készül; a beszédfelismerő kiszűri a hibásakat, és a referenciához leginkább hasonló marad. Az OmniVoice, a Higgs és a MOSS motorral működik; a már így kiválasztott mondatokat a következő export nem készíti el újra.</p>
+        </div>
+        <div class="export-section">
           <label for="export-package"><b>Kiadási csomag</b></label>
           <select id="export-package" class="select-input">
             <option value="none">Nincs – csak a hangfájlok</option>

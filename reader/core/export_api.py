@@ -50,7 +50,27 @@ def _export_options(body: dict) -> dict:
         'outro': bool(body.get('outro', False)),
         'sample': bool(body.get('sample', package == 'acx')),
         'abs_upload': bool(body.get('abs_upload', False)),
+        'take_mode': _take_mode(body.get('take_mode')),
     }
+
+
+def _take_mode(value) -> str:
+    from core.take_selection import TAKE_MODES
+
+    mode = str(value or 'normal')
+    if mode not in TAKE_MODES:
+        raise ValueError('Ismeretlen take-választási mód.')
+    return mode
+
+
+def _select_takes(job, book_id: int, segs: list[dict], export_pool) -> None:
+    """Optional best-of-N pass after the normal render (export option take_mode)."""
+    from core import take_selection
+
+    mode = ((job.get('input') or {}).get('options') or {}).get('take_mode', 'normal')
+    if mode != 'normal':
+        take_selection.select_export_takes(application, book_id, segs, job, mode, export_pool=export_pool)
+        application._check_job_cancelled(job)
 
 
 def _book_background(book) -> dict | None:
@@ -150,6 +170,7 @@ def _run_chapter_export(job_id: str, book_id: int, chapter_id: int, audio_fmt: s
             book_id, chapter_id, segs, job, export_pool=export_pool
         )
         application._check_job_cancelled(job)
+        _select_takes(job, book_id, segs, export_pool)
         job['message'] = 'Hangok összefűzése…'
         colors = application._get_char_colors(book_id)
         mastering = bool(app_settings.get('audio_mastering', True))
@@ -277,6 +298,7 @@ def _run_chapterwise_export(
             export_pool=export_pool,
         )
         application._check_job_cancelled(job)
+        _select_takes(job, book_id, all_segments, export_pool)
         mastering = bool(app_settings.get('audio_mastering', True))
         job['message'] = (
             'Fejezetfájlok írása és masterelése…'

@@ -79,3 +79,30 @@ A telepítő digitális aláírás nélkül kerül kiadásra.
 A képernyőképek, API-eredmények és telepítési naplók a helyi, Git által
 figyelmen kívül hagyott `build/windows` könyvtárban találhatók. A kiadás
 ellenőrzőösszegei a GitHub Release `SHA256SUMS.txt` mellékletében szerepelnek.
+
+## Kiegészítés: 4.5.0 és 4.5.1 (2026-10-07)
+
+A 4.5.0 runtime-ja a 4.4.0-hoz képest egyetlen csomagban tér el: a sima
+`onnxruntime` 1.30.0 helyett `onnxruntime-directml` 1.24.4 került bele, a
+Microsoft `DirectML.dll` fájljával. A 4.5.1 runtime-manifesztje bájtra
+azonos a 4.5.0-éval.
+
+- Teljes Python-tesztkészlet: 588 teszt, sikeres (1 kihagyva), sima és
+  DirectML-es onnxruntime mellett is; JavaScript-tesztek: 22 sikeres.
+- A telepítés szóközt és ékezetet tartalmazó mappába, Windows-rendszerkönyvtárakra
+  korlátozott PATH mellett: a csomagolt CPython 3.11.9 izolált, a `pip check`
+  tiszta, az elérhető végrehajtók `DmlExecutionProvider` és `CPUExecutionProvider`.
+- Helyi Playwright: első indítás valódi Supertonic-letöltéssel, súgó, 1280 és
+  390 px széles nézet, a Beállítások DirectML-címkéje; a konzolhibalisták üresek.
+- A telepített alkalmazás API-ján a Supertonic 3 állapota `GPU · DirectML`
+  (NVIDIA RTX 3090). Magyar TXT-könyvből valódi hang készült (10,86 s,
+  24 kHz, RMS 0,059, 1,34 s alatt); a Parakeet-átirat a forrásszöveget két apró eltéréssel adta vissza.
+- Újratelepítés és újraindítás után a könyvek, a modell és a beállítás megmaradt.
+  Az eltávolítás után a könyvtáradatbázis, a modell és a többi adatfájl megmaradt.
+- A 4.5.0 eltávolítója a futás közben keletkezett `__pycache__` fájlokat
+  (kb. 3700 db) a programmappában hagyta; a 4.5.1 eltávolítója a programmappát
+  teljesen kiüríti, az adatmappát nem érinti.
+- Ékezetes telepítési útvonalon az angol szöveg felolvasása a 4.5.0-ban hibával
+  leállt (a `wetext`/kaldifst nem nyitja meg a nem ASCII útvonalat). A 4.5.1
+  ilyenkor a num2words-alapú számnormalizálást használja; a magyar szöveget
+  ez nem érintette.

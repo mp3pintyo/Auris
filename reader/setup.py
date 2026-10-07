@@ -12,6 +12,9 @@ Environment:
     AURIS_USE_LOCAL_WHEELS=1 Use a local wheel directory before package indexes.
     AURIS_WHEELS_DIR=...     Override the local wheel directory path.
     AURIS_TRITON=1           Also install the optional Triton kernels (NVIDIA).
+    AURIS_TORCH_VARIANT=...  Force the PyTorch build: cu128, cu124, rocm, cpu...
+    AURIS_ROCM_GFX=gfxNNNN   AMD GPU target when auto-detection cannot name it.
+    AURIS_ROCM_INDEX_URL=... AMD ROCm wheel index (default: stable channel).
 """
 
 import os
@@ -163,17 +166,9 @@ def detect_hardware():
 
     # AMD wheels are GPU/OS/Python-specific. Preserve an already installed,
     # working vendor pair rather than replacing it with a generic CPU wheel.
-    try:
-        existing = subprocess.run(
-            [sys.executable, "-c", "import torch, torchaudio; "
-             "assert torch.version.hip and torch.cuda.is_available()"],
-            capture_output=True, timeout=30,
-        )
-        if existing.returncode == 0:
-            ok("Working AMD ROCm PyTorch runtime detected; preserving it")
-            return "rocm"
-    except (OSError, subprocess.TimeoutExpired):
-        pass
+    if rocm_runtime_works():
+        ok("Working AMD ROCm PyTorch runtime detected; preserving it")
+        return "rocm"
 
     cuda_version = detect_cuda_version()
     if cuda_version:
@@ -184,8 +179,105 @@ def detect_hardware():
         warn("CUDA version too old. Falling back to CPU torch.")
         return "cpu"
 
+    gfx = detect_amd_gfx_target()
+    if gfx:
+        ok(f"AMD GPU detected ({gfx}) -> ROCm torch wheel")
+        return "rocm"
+
     warn("No GPU detected. Installing CPU torch.")
     return "cpu"
+
+
+# AMD ROCm PyTorch for Windows and Linux (TheRock multi-arch builds). The
+# kernels for one GPU arrive through the torch `[device-gfxNNNN]` extra.
+ROCM_INDEX_URL = os.environ.get(
+    "AURIS_ROCM_INDEX_URL", "https://stable.repo.amd.com/rocm/whl-next/"
+).strip()
+ROCM_TORCH_VERSION = "2.11.0+rocm10.0.0"
+
+# Marketing name fragment -> LLVM target, most specific first. Unlisted
+# cards can be named explicitly with AURIS_ROCM_GFX=gfxNNNN.
+AMD_GFX_TARGETS = (
+    ("RX 9070", "gfx1201"), ("R9700", "gfx1201"), ("RX 9060", "gfx1200"),
+    ("RX 7900", "gfx1100"), ("W7900", "gfx1100"), ("W7800", "gfx1100"),
+    ("RX 7800", "gfx1101"), ("RX 7700", "gfx1101"), ("W7700", "gfx1101"),
+    ("RX 7650", "gfx1102"), ("RX 7600", "gfx1102"), ("890M", "gfx1150"), ("880M", "gfx1150"),
+    ("8060S", "gfx1151"), ("780M", "gfx1103"), ("760M", "gfx1103"),
+    ("RX 6950", "gfx1030"), ("RX 6900", "gfx1030"), ("RX 6800", "gfx1030"),
+    ("W6800", "gfx1030"), ("RX 6750", "gfx1031"), ("RX 6700", "gfx1031"),
+    ("RX 6650", "gfx1032"), ("RX 6600", "gfx1032"), ("W6600", "gfx1032"),
+    ("RX 6500", "gfx1034"), ("RX 6400", "gfx1034"), ("680M", "gfx1035"), ("660M", "gfx1035"),
+)
+
+
+def amd_gpu_names():
+    """Names of the installed display adapters that look like AMD GPUs.
+
+    ROCm PyTorch exists for Windows and Linux only; macOS returns none.
+    """
+    names = []
+    if platform.system() == "Windows":
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "(Get-CimInstance Win32_VideoController).Name"],
+                capture_output=True, text=True, timeout=30,
+            )
+            names = result.stdout.splitlines() if result.returncode == 0 else []
+        except (OSError, subprocess.TimeoutExpired):
+            names = []
+    elif platform.system() == "Linux":
+        try:
+            result = subprocess.run(["lspci"], capture_output=True, text=True, timeout=10)
+            names = [line for line in result.stdout.splitlines()
+                     if "VGA" in line or "Display" in line]
+        except (OSError, subprocess.TimeoutExpired):
+            names = []
+    return [n.strip() for n in names if re.search(r"\b(AMD|Radeon|ATI)\b", n)]
+
+
+def detect_amd_gfx_target():
+    """Return the gfx target (e.g. 'gfx1032') of the AMD GPU, or None."""
+    forced = os.environ.get("AURIS_ROCM_GFX", "").strip().lower()
+    if forced:
+        return forced
+    names = amd_gpu_names()
+    for name in names:
+        for fragment, gfx in AMD_GFX_TARGETS:
+            if fragment.lower() in name.lower():
+                return gfx
+    if names:
+        warn(f"AMD GPU not in the ROCm table: {names[0]}. "
+             "Set AURIS_ROCM_GFX=gfxNNNN to install ROCm torch for it.")
+    return None
+
+
+def rocm_runtime_works():
+    try:
+        existing = subprocess.run(
+            [sys.executable, "-c", "import torch, torchaudio; "
+             "assert torch.version.hip and torch.cuda.is_available()"],
+            capture_output=True, timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return existing.returncode == 0
+
+
+def install_rocm_torch():
+    gfx = detect_amd_gfx_target()
+    if not gfx:
+        raise RuntimeError("No supported AMD GPU found for ROCm torch. Set AURIS_ROCM_GFX=gfxNNNN.")
+    info(f"ROCm index: {ROCM_INDEX_URL} (device extra: device-{gfx})")
+    # The exact local version exists only on the AMD index, so PyPI can
+    # safely supply ordinary dependencies without swapping in a CPU build.
+    run([
+        sys.executable, "-m", "pip", "install", "--upgrade",
+        "--index-url", ROCM_INDEX_URL,
+        "--extra-index-url", "https://pypi.org/simple",
+        f"torch[device-{gfx}]=={ROCM_TORCH_VERSION}",
+        f"torchaudio=={ROCM_TORCH_VERSION}",
+    ])
 
 
 def offline_wheels_available():
@@ -261,11 +353,11 @@ TORCHAUDIO_SPEC = "torchaudio>=2.4,<2.12"
 
 
 def install_torch(hw_tag):
+    """Install the PyTorch build for ``hw_tag``; return the tag installed."""
     step("Installing PyTorch + torchaudio")
 
     if hw_tag == "rocm":
-        verify_torch(hw_tag)
-        return
+        return install_rocm_or_cpu_torch()
     if hw_tag == "mps":
         pip_install(TORCH_SPEC, TORCHAUDIO_SPEC)
     elif hw_tag == "cpu":
@@ -282,7 +374,7 @@ def install_torch(hw_tag):
                 info(f"Found cached CUDA wheel: {cuda_wheels[0].name}")
                 pip_install("torch", "torchaudio", no_index=True)
                 ok("PyTorch installed")
-                return
+                return hw_tag
 
         # Resolve the native pair ONLY against the hardware-specific index.
         # Mixing this index with PyPI selected a newer CPU torch alongside CUDA
@@ -300,6 +392,32 @@ def install_torch(hw_tag):
             pip_install(*(str(p) for p in wheels))
 
     ok("PyTorch installed")
+    return hw_tag
+
+
+def install_rocm_or_cpu_torch():
+    """Keep or install ROCm torch; fall back to CPU torch when it fails.
+
+    An AMD card with an unsupported driver, a failed download or a strict
+    offline install must not stop setup: Auris also runs on the CPU.
+    """
+    if rocm_runtime_works():
+        verify_torch("rocm")
+        return "rocm"
+    if STRICT_OFFLINE:
+        warn("Strict offline mode: ROCm PyTorch is downloaded from AMD's index. Installing CPU torch.")
+        return install_torch("cpu")
+    try:
+        install_rocm_torch()
+        verify_torch("rocm")
+        return "rocm"
+    except (subprocess.CalledProcessError, RuntimeError) as exc:
+        warn(f"ROCm PyTorch could not be installed or started ({exc}).")
+        warn("Installing CPU torch instead; run setup again to retry ROCm.")
+    # A ROCm 2.11 build left behind would already satisfy TORCH_SPEC, so
+    # pip would keep it; remove it before installing the CPU pair.
+    run([sys.executable, "-m", "pip", "uninstall", "-y", "torch", "torchaudio"], check=False)
+    return install_torch("cpu")
 
 
 def verify_torch(hw_tag):
@@ -522,8 +640,7 @@ def main():
     if not STRICT_OFFLINE:
         ensure_pip()
 
-    hw_tag = detect_hardware()
-    install_torch(hw_tag)
+    hw_tag = install_torch(detect_hardware())
     ensure_torch_requirements()
     verify_torch(hw_tag)
     install_omnivoice_deps()

@@ -12,12 +12,26 @@ class AccelerationTest(unittest.TestCase):
         from core.tts_engine import _enable_cuda_fast_paths
         previous = torch.backends.cudnn.benchmark
         try:
-            with patch.object(torch.cuda, 'is_available', return_value=True):
+            with patch.object(torch.cuda, 'is_available', return_value=True), \
+                 patch.object(torch.version, 'hip', None):
                 torch.backends.cudnn.benchmark = True
                 _enable_cuda_fast_paths()
             self.assertFalse(torch.backends.cudnn.benchmark)
         finally:
             torch.backends.cudnn.benchmark = previous
+
+    def test_rocm_uses_miopen_fast_find_mode_unless_set(self):
+        import os
+        from core.tts_engine import _enable_cuda_fast_paths
+        with patch.object(torch.cuda, 'is_available', return_value=True), \
+             patch.object(torch.version, 'hip', '7.2'), \
+             patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('MIOPEN_FIND_MODE', None)
+            _enable_cuda_fast_paths()
+            self.assertEqual(os.environ['MIOPEN_FIND_MODE'], 'FAST')
+            os.environ['MIOPEN_FIND_MODE'] = 'NORMAL'
+            _enable_cuda_fast_paths()
+            self.assertEqual(os.environ['MIOPEN_FIND_MODE'], 'NORMAL')
 
     def test_backend_distinguishes_rocm_from_nvidia(self):
         with patch.object(torch.cuda, 'is_available', return_value=True), \

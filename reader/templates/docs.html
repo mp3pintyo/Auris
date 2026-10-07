@@ -1361,7 +1361,7 @@ ffprobe -version</code></pre>
           <thead><tr><th>Rendszer</th><th>Automatikus működés</th><th>Ellenőrzés és feltétel</th></tr></thead>
           <tbody>
             <tr><td>NVIDIA / Windows, Linux</td><td>CUDA + CUDA Graph; capture-hibánál optimalizált PyTorch.</td><td>RTX 3090 / Windows 11 helyben mérve. Rövid szövegnél a Graph hasznos; nagyobb kötegnél külön mérendő.</td></tr>
-            <tr><td>AMD / ROCm</td><td>ROCm + optimalizált PyTorch. Az NVIDIA-specifikus Graph/Triton mód helyett is ezt használja.</td><td>AMD által támogatott GPU, operációs rendszer, Python és torch/torchaudio páros szükséges. Hardveres Auris-mérés még nincs.</td></tr>
+            <tr><td>AMD / ROCm</td><td>ROCm + optimalizált PyTorch. Az NVIDIA-specifikus Graph/Triton mód helyett is ezt használja.</td><td>A telepítő a ROCm PyTorch-ot is felteszi. RX 6600 / Windows 11 helyben mérve (16 lépés, bemelegítve): egy rövid mondat RTF 0,50 (processzoron, i7-13700K-n 17,4), négy mondat egy kötegben RTF 0,85; Parakeet-tel mért CER 0–0,9%. Az Auris ROCm-on az MIOpen gyors keresési módját használja (<code>MIOPEN_FIND_MODE=FAST</code>), így az új mondathosszak nem lassítanak: tíz eltérő hosszú mondat 50,0 s alatt készült el, alapbeállítással 80,6 s alatt, azonos minőséggel.</td></tr>
             <tr><td>Apple Silicon / macOS</td><td>MPS + optimalizált PyTorch, alapból FP32. Nincs CUDA Graph vagy Triton.</td><td>MPS-képes PyTorch szükséges. A mostani módosítás fizikai Macen még nincs lemérve.</td></tr>
             <tr><td>CPU</td><td>Optimalizált PyTorch.</td><td>GPU nélkül is használható, de a mostani sebességadatok nem CPU-mérések.</td></tr>
           </tbody>
@@ -1388,10 +1388,15 @@ ffprobe -version</code></pre>
         gráfrögzítés összeomlást okozna; a Triton-kernelek közben is működnek. Saját mérés, 48 klónozott mondat:
         két sáv Tritonnal 13,2 s, egy sáv hibrid módban 15,6 s, egy sáv CUDA Graph-fal 18,8 s. Az export után a
         gráfok visszakapcsolnak az olvasó lejátszásához.</p>
-      <p>AMD-n először a <a href="https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/">gyártó kompatibilitási útmutatója</a>
-        szerinti ROCm PyTorch/torchaudio párost telepítsd az Auris környezetébe.
-        A telepítő a működő ROCm-környezetet felismeri és megőrzi; önállóan nem
-        választ AMD-illesztőprogramot vagy GPU-specifikus wheel-csomagot.</p>
+      <p>AMD Radeon kártyán a telepítő a működő ROCm-környezetet megőrzi, különben az AMD
+        <a href="https://github.com/ROCm/TheRock/blob/main/RELEASES.md">hivatalos csomagtárából</a>
+        telepíti a ROCm PyTorch-ot (<code>torch 2.11.0+rocm10.0.0</code>, Windowson és Linuxon is)
+        a felismert kártyához illő csomaggal, például RX 6600-hoz a <code>device-gfx1032</code>-vel.
+        A ROCm-csomagok a lemezen kb. 3,6 GB-ot foglalnak. Illesztőprogramot nem telepít: Windowson friss
+        Adrenalin-illesztőprogram kell. Ha a kártya nincs a telepítő táblázatában, az
+        <code>AURIS_ROCM_GFX=gfxNNNN</code> környezeti változóval adható meg; az
+        <code>AURIS_TORCH_VARIANT=cpu</code> kihagyja a ROCm-et. Ha a ROCm nem települ vagy nem
+        indul el, a telepítő processzoros PyTorch-ot tesz fel.</p>
       <h3>Megismételhető saját sebességmérés</h3>
       <p>A projekt gyökeréből futtasd. A mérés valódi hangot generál, megkerüli a
         kész hangok gyorsítótárát, külön tárolja az első és az öt bemelegített

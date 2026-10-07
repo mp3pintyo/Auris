@@ -246,7 +246,16 @@ def _enable_cuda_fast_paths() -> None:
     try:
         import torch
 
-        if not torch.cuda.is_available() or getattr(torch.version, 'hip', None):
+        if not torch.cuda.is_available():
+            return
+        if getattr(torch.version, 'hip', None):
+            # ROCm counterpart of disabling cuDNN search below: MIOpen's default
+            # find mode searches convolution solvers for every new codec shape,
+            # i.e. almost every sentence (RX 6600: 80.6s vs 49.9s for ten
+            # sentences of different lengths, identical CER). FAST uses its
+            # immediate-mode choice. Read when MIOpen starts; an explicit
+            # MIOPEN_FIND_MODE in the environment wins.
+            os.environ.setdefault("MIOPEN_FIND_MODE", "FAST")
             return
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True

@@ -12,6 +12,9 @@
 #   a CPU wheel from PyPI and overwrite the CUDA install (breaks TTS load).
 #   Manual GPU install if needed:
 #     pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+#   AMD Radeon (ROCm, Windows or Linux; replace gfx1032 with your GPU target):
+#     pip install "torch[device-gfx1032]==2.11.0+rocm10.0.0" "torchaudio==2.11.0+rocm10.0.0" \
+#       --index-url https://stable.repo.amd.com/rocm/whl-next/ --extra-index-url https://pypi.org/simple
 
 # Tell pip to also search the bundled wheels when doing an offline install.
 --find-links=../wheels

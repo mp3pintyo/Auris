@@ -12,6 +12,26 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+### Magyar
+
+#### Hozzáadva
+
+- A referencia-ellenőrző panel szakaszlistája fölött új gomb van: **Legjobb szakasz keresése próbagenerálással**. Mindegyik szakasz négy magyar próbamondatot olvas fel két változatban; a teljes felvételhez mért hanghasonlóság és a beszédfelismerő szóhibája alapján a panel megjelöli az ajánlott szakaszt, és minden szakasz mellé kiírja a pontszámát. A saját hangon (55 másodperces felvétel, 6 szakasz) kb. egy perc alatt ugyanazt a szakaszt választotta, mint egy 40 mondatos, öt változatos mérés.
+
+#### Javítva
+
+- A referencia ellenőrzése és a szakaszvágás nem futhat egyszerre egy exporttal vagy fejezetgenerálással: a többi hangot érintő művelethez hasonlóan megvárja a futó feladatot.
+
+### English
+
+#### Added
+
+- A new button sits above the stretch list of the reference-check panel: **Legjobb szakasz keresése próbagenerálással** (find the best stretch by trial rendering). Each stretch reads four Hungarian test sentences in two versions. Using speaker similarity to the whole recording and the recognizer's word errors, the panel marks the recommended stretch and shows each stretch's scores. On the user's own voice (a 55-second recording, 6 stretches) it picked, in about a minute, the same stretch as a 40-sentence, five-version measurement.
+
+#### Fixed
+
+- Checking or trimming a reference can no longer run alongside an export or chapter generation; like other voice operations, it waits for the running job.
+
 ## [4.7.0] - 2026-10-08
 
 ### Magyar

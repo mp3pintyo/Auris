@@ -563,3 +563,9 @@
   .reference-cut { grid-template-columns: 1fr; }
   .reference-cut-actions { justify-content: flex-start; }
 }
+.reference-audition-btn { margin-bottom: var(--space-2); }
+.reference-cut.is-recommended { outline: 2px solid var(--color-success); }
+.reference-cut-score { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center;
+  font-variant-numeric: tabular-nums; }
+.reference-cut-badge { padding: 0 var(--space-2); border-radius: var(--radius-pill); background: var(--color-success-bg);
+  color: var(--color-success); font-weight: 600; }

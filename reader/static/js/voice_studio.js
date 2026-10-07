@@ -1080,16 +1080,26 @@ function renderReferenceCheck(refKey, report) {
   const saved = report.ref_text_saved
     ? `<p class="studio-note">Az átiratot a beszédfelismerő töltötte ki. Hallgasd meg a felvételt, és javítsd az elírásokat, majd mentsd a hangot.</p>`
     : "";
-  const cuts = (report.candidates || []).map((cand, index) => `<li class="reference-cut">
-      <span class="reference-cut-time">${decimalSeconds(cand.start)}–${decimalSeconds(cand.end)} s · ${decimalSeconds(cand.duration)} s</span>
+  const scores = new Map((report.audition?.results || []).map((row) => [row.index, row]));
+  const cuts = (report.candidates || []).map((cand, index) => {
+    const score = scores.get(index);
+    const scoreHtml = score
+      ? `<span class="reference-cut-score">${score.recommended ? `<span class="reference-cut-badge">Ajánlott</span>` : ""}Hasonlóság ${score.similarity.toFixed(3).replace(".", ",")} · szóhiba ${decimalSeconds(score.wer * 100)} %</span>`
+      : "";
+    return `<li class="reference-cut${score?.recommended ? " is-recommended" : ""}">
+      <span class="reference-cut-time">${decimalSeconds(cand.start)}–${decimalSeconds(cand.end)} s · ${decimalSeconds(cand.duration)} s</span>${scoreHtml}
       <span class="reference-cut-text">${esc(cand.text)}</span>
       <span class="reference-cut-actions">
         <button type="button" class="btn btn-sm btn-ghost" data-action="ref-span-play" data-index="${index}">${icon("play")}<span>Meghallgatás</span></button>
         <button type="button" class="btn btn-sm btn-primary" data-action="ref-span-use" data-index="${index}">Ezt használom</button>
       </span>
-    </li>`).join("");
+    </li>`;
+  }).join("");
+  const auditionNote = report.audition
+    ? `<p class="studio-note">Mindegyik szakasz ${report.audition.sentences} próbamondatot olvasott fel ${report.audition.takes} változatban; a hasonlóság a teljes felvételhez mért hangazonosság, a szóhibát a beszédfelismerő hallja.</p>`
+    : `<button type="button" class="btn btn-sm btn-ghost reference-audition-btn" data-action="ref-audition">Legjobb szakasz keresése próbagenerálással (kb. 1 perc)</button>`;
   const cutBlock = cuts
-    ? `<p class="reference-check-subtitle">Mondathatáron vágott, rövidebb szakaszok ebből a felvételből:</p><ul class="reference-cuts">${cuts}</ul>`
+    ? `<p class="reference-check-subtitle">Mondathatáron vágott, rövidebb szakaszok ebből a felvételből:</p>${auditionNote}<ul class="reference-cuts">${cuts}</ul>`
     : "";
   panel.className = `reference-check is-${state}`;
   panel.hidden = false;
@@ -1121,9 +1131,25 @@ async function useReferenceSpan(refKey, index, button) {
   }
 }
 
+async function auditionReference(refKey, button) {
+  const report = referenceChecks.get(refKey);
+  if (!report?.candidates?.length) return;
+  try {
+    const result = await withBusy(button, "Próbagenerálás…", () =>
+      postJson(`${refEndpoint(refKey)}/audition`, { candidates: report.candidates }));
+    report.audition = result;
+    renderReferenceCheck(refKey, report);
+    const best = result.results.find((row) => row.recommended);
+    if (best) notify(`Ajánlott szakasz: ${decimalSeconds(best.start)}–${decimalSeconds(best.end)} s.`, "ok");
+  } catch (error) {
+    showError("A próbagenerálás nem sikerült", error);
+  }
+}
+
 function handleReferenceCheckAction(refKey, button) {
   const action = button.dataset.action;
   if (action === "check-ref") checkReference(refKey, button);
+  else if (action === "ref-audition") auditionReference(refKey, button);
   else if (action === "ref-span-play") playReferenceSpan(refKey, Number(button.dataset.index));
   else if (action === "ref-span-use") useReferenceSpan(refKey, Number(button.dataset.index), button);
   else return false;

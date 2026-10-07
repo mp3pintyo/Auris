@@ -77,6 +77,21 @@ const OK_REPORT = { duration: 12.5, ok: true, cer: 0, issues: [], candidates: []
       await page.screenshot({ path: path.join(out, `${label}-01-long-reference.png`) });
 
       if (label === 'desktop') {
+        await page.route('**/narrator-ref-audio/audition', async (route) => {
+          const body = route.request().postDataJSON();
+          assert.equal(body.candidates.length, 2);
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          await route.fulfill({ json: { sentences: 4, takes: 2, recommended: 1, results: [
+            { index: 0, start: 2, end: 14.5, text: 'Első mondat.', similarity: 0.871, wer: 0.031, recommended: false },
+            { index: 1, start: 14.5, end: 26, text: 'Második mondat.', similarity: 0.899, wer: 0.0, recommended: true },
+          ] } });
+        });
+        await panel.locator('[data-action=ref-audition]').click();
+        await panel.locator('.reference-cut.is-recommended').waitFor();
+        assert.match(await panel.locator('.reference-cut.is-recommended').innerText(), /Ajánlott/);
+        assert.match(await panel.locator('.reference-cut').first().innerText(), /Hasonlóság 0,871 · szóhiba 3,1 %/);
+        assert.equal(await panel.locator('[data-action=ref-audition]').count(), 0);
+        await page.screenshot({ path: path.join(out, `${label}-01b-audition.png`) });
         await panel.locator('[data-action=ref-span-use]').first().click();
         await page.waitForFunction(() => document.querySelector('#ref-check-narrator').classList.contains('is-ok'));
         assert.match(await page.locator('#narrator-ref-name').innerText(), /2,0–14,5 s/);

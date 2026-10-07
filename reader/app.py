@@ -110,12 +110,16 @@ _INTERACTIVE_BUSY_MESSAGE = (
 )
 _INTERACTIVE_ENDPOINTS = {
     'voices.preview_character', 'voices.preview_narrator', 'reading.preview_chapter_text',
+    # Reference check and audition use the speech recognizer and the TTS model.
+    'voices.check_character_ref_audio', 'voices.check_narrator_ref_audio',
+    'voices.audition_character_ref_audio', 'voices.audition_narrator_ref_audio',
 }
 _GATED_MUTATION_ENDPOINTS = {
     'import_book', 'delete_book', 'reading.update_speaker_annotation', 'reading.save_chapter_text',
     'reading.restore_chapter_text', 'voices.upload_ref_audio',
     'voices.delete_ref_audio', 'voices.upload_narrator_ref_audio',
     'voices.delete_narrator_ref_audio', 'settings_api.save_settings', 'tts_load', 'settings_api.tts_reload',
+    'voices.trim_character_ref_audio', 'voices.trim_narrator_ref_audio',
 }
 _VOICE_MUTATION_ENDPOINTS = {'voices.update_character', 'voices.update_narrator'}
 _CONSISTENT_READ_ENDPOINTS = {'reading.get_chapter_editor', 'reading.get_chapter', 'get_segments', 'tts_generate'}

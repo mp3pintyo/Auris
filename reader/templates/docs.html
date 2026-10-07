@@ -667,7 +667,7 @@ ffprobe -version</code></pre>
         <li><strong>Átirat:</strong> ha üres, a beszédfelismerő kitölti és elmenti. Ha megadtad, az Auris összeveti azzal, ami elhangzik, és jelzi a nagy eltérést, valamint ha az átirat utolsó szava nem hallható. Ez utóbbi lehet csak halk szóvég is: hallgasd meg a felvétel végét.</li>
         <li><strong>Rövidebb szakaszok:</strong> 15 másodpercnél hosszabb felvételnél a panel mondathatáron vágott 8–15 másodperces szakaszokat ajánl a hozzájuk tartozó szöveggel. A <strong>Meghallgatás</strong> lejátssza, az <strong>Ezt használom</strong> lecseréli rá a referenciát és az átiratot.</li>
       </ul>
-      <p>Ugyanannak a beszélőnek a különböző szakaszai is eltérően klónoznak (mérésben 0,87 és 0,90 közötti hanghasonlóság), ezért érdemes több szakaszt meghallgatni.</p>
+      <p>Ugyanannak a beszélőnek a különböző szakaszai is eltérően klónoznak (mérésben 0,87 és 0,90 közötti hanghasonlóság), és ezt sem a hossz, sem a hangmagasság nem jelzi előre. A <strong>Legjobb szakasz keresése próbagenerálással</strong> gomb ezért mindegyik szakasszal felolvastat négy magyar próbamondatot két változatban, majd a teljes felvételhez méri a hangazonosságot és a beszédfelismerővel a szóhibát. Az <strong>Ajánlott</strong> jelölést a leghasonlóbb szakasz kapja azok közül, amelyek szóhibája legfeljebb 5 ponttal rosszabb a legpontosabbénál. Saját hangon kipróbálva ugyanazt a szakaszt választotta, mint egy 40 mondatos, öt változatos mérés. Ez körülbelül egy percig tart, és csak klónozó motorral (OmniVoice, Higgs, MOSS) érhető el.</p>
       <div class="docs-two-column" style="margin-top:28px">
         <div>
           <h3>Mentett hangprofilok</h3>

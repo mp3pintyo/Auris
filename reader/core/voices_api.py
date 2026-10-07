@@ -462,3 +462,55 @@ def trim_character_ref_audio(char_id):
 @bp.route('/api/books/<int:book_id>/narrator-ref-audio/trim', methods=['POST'])
 def trim_narrator_ref_audio(book_id):
     return _trim_reference('narrator', book_id)
+
+
+def _audition_reference(kind: str, key: int):
+    """Try candidate stretches of the stored reference and rank them."""
+    from core import qa, reference_audition, settings
+    from core.local_engines import ENGINE_INFO
+    import soundfile as sf
+
+    owner = _reference_owner(kind, key)
+    if not owner:
+        return jsonify({'error': 'Nem található'}), 404
+    if not owner['path'] or not os.path.exists(owner['path']):
+        return jsonify({'error': 'Nincs feltöltött referenciahang.'}), 400
+    engine_name = getattr(application.tts, 'engine_name', 'omnivoice')
+    if not ENGINE_INFO.get(engine_name, {}).get('voice_clone'):
+        return jsonify({'error': 'A kiválasztott beszédmotor nem klónoz referenciából.'}), 400
+    if application.tts.status().get('state') != 'ready':
+        return jsonify({'error': 'A beszédmotor még nem áll készen.'}), 503
+    duration = sf.info(owner['path']).duration
+    candidates = []
+    for cand in (request.get_json(silent=True) or {}).get('candidates') or []:
+        try:
+            start, end = float(cand['start']), float(cand['end'])
+        except (KeyError, TypeError, ValueError):
+            return jsonify({'error': 'Hibás szakasz.'}), 400
+        text = str(cand.get('text') or '').strip()
+        if not text or start < 0 or end > duration + 0.05 or end - start < 3:
+            return jsonify({'error': 'Hibás szakasz.'}), 400
+        candidates.append({'start': start, 'end': min(end, duration), 'text': text})
+    if not candidates:
+        return jsonify({'error': 'Nincs meghallgatható szakasz.'}), 400
+    takes = reference_audition.TAKES if engine_name == 'omnivoice' else (0,)
+    try:
+        report = reference_audition.audition(application.tts, owner['path'], candidates,
+                                             owner['language'] or 'hu', takes=takes)
+    except Exception as exc:
+        log.warning('Reference audition failed for %s %s: %s', kind, key, exc)
+        return jsonify({'error': f'A próbagenerálás nem sikerült: {exc}'}), 500
+    finally:
+        if not settings.get('asr_keep_loaded', False):
+            qa.Transcriber.unload_all()
+    return jsonify(report)
+
+
+@bp.route('/api/characters/<int:char_id>/ref-audio/audition', methods=['POST'])
+def audition_character_ref_audio(char_id):
+    return _audition_reference('character', char_id)
+
+
+@bp.route('/api/books/<int:book_id>/narrator-ref-audio/audition', methods=['POST'])
+def audition_narrator_ref_audio(book_id):
+    return _audition_reference('narrator', book_id)

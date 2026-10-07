@@ -456,9 +456,18 @@ _WETEXT_CACHE: dict[str, object] = {}
 
 def _wetext_normalize(text: str, language: str | None) -> str | None:
     """Windows-friendly WeText runtime (no pynini). Returns None if unavailable."""
+    if _WETEXT_CACHE.get("unavailable"):
+        return None
     try:
         from wetext import Normalizer
     except ImportError:
+        return None
+    except Exception as exc:
+        # wetext loads its FST files on import; kaldifst cannot open them
+        # from a non-ASCII path on Windows (e.g. an accented user name in
+        # the desktop install folder). Remember it and use the fallback.
+        _WETEXT_CACHE["unavailable"] = True
+        log.warning("wetext could not load (%s); using the num2words fallback.", exc)
         return None
 
     lang = _map_tn_lang(language, text)

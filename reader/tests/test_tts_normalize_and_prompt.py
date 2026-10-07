@@ -110,6 +110,26 @@ class NormalizeTextTest(unittest.TestCase):
             out = apply_text_normalization("I have 12 apples.", "en")
             self.assertEqual(out, "I have twelve apples.")
 
+    def test_wetext_that_fails_on_import_falls_back_once(self):
+        # kaldifst raises RuntimeError on import from a non-ASCII install path.
+        import builtins
+        import core.tts_engine as te
+
+        real_import = builtins.__import__
+        attempts = []
+
+        def failing_import(name, *args, **kwargs):
+            if name == "wetext":
+                attempts.append(name)
+                raise RuntimeError("Error opening input stream 'C:\\Users\\Józsi\\…\\x.fst'")
+            return real_import(name, *args, **kwargs)
+
+        with patch.dict(te._WETEXT_CACHE, clear=True), \
+             patch("builtins.__import__", side_effect=failing_import):
+            self.assertIsNone(te._wetext_normalize("I have 12 apples.", "en"))
+            self.assertIsNone(te._wetext_normalize("I have 3 cats.", "en"))
+        self.assertEqual(attempts, ["wetext"])
+
     def test_generate_uses_settings_normalize_flag_in_cache(self):
         engine = TTSEngine()
         engine.model = _FakeModel()

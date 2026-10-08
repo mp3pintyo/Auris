@@ -37,6 +37,10 @@ _FRONTMATTER_RE = re.compile(
     r"^(?:table\s+of\s+contents|contents|copyright\b|other\s+books\s+by\b|tartalomjegyz[ée]k|tartalom\b|impresszum\b)",
     re.IGNORECASE,
 )
+_TRAILING_TOC_RE = re.compile(
+    r"^\s*(?:table\s+of\s+contents|contents|tartalomjegyz[ée]k|tartalom)\s*$",
+    re.IGNORECASE,
+)
 _BACKMATTER_RE = re.compile(
     r"^(?:you\s+have\s+just\s+finished\s+reading\b|about\s+the\s+author\b|acknowledgements?\b|a\s+szerz[őo]r[őo]l\b|k[öo]sz[öo]netnyilv[áa]n[íi]t[áa]s\b)",
     re.IGNORECASE,
@@ -180,14 +184,37 @@ def _should_skip_document(lines, text, started_story):
     return False
 
 
+def _is_h1_line(line):
+    return getattr(line, "kind", "") == "heading" and len(line.strip()) <= 160
+
+
 def _split_document(lines):
+    prefix_lines, sections = _split_on(lines, _looks_like_section_heading)
+    # Single-file EPUBs (typically MOBI conversions) often mark chapters with
+    # bare <h1> numbers such as "1." that the wording-based pattern cannot see.
+    if not sections and sum(1 for line in lines if _is_h1_line(line)) >= 2:
+        prefix_lines, sections = _split_on(lines, _is_h1_line)
+        _drop_trailing_toc(sections[-1])
+    return prefix_lines, sections
+
+
+def _drop_trailing_toc(section):
+    """Cut a table of contents printed after the last chapter of the file."""
+    for index, line in enumerate(section["lines"]):
+        if index and _TRAILING_TOC_RE.match(line):
+            section["lines"] = section["lines"][:index]
+            section["content"] = "\n\n".join(section["lines"]).strip()
+            return
+
+
+def _split_on(lines, is_heading):
     prefix_lines = []
     sections = []
     current_title = None
     current_lines = []
 
     for line in lines:
-        if _looks_like_section_heading(line):
+        if is_heading(line):
             if current_title is None and current_lines:
                 prefix_lines = current_lines[:]
             elif current_title is not None:

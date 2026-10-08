@@ -20,6 +20,18 @@ class ImportStructureTests(unittest.TestCase):
         self.assertTrue(sections[0]['content'].startswith('Chapter 1\n\n'))
         self.assertEqual(sections[0]['content'].count('Chapter 1'), 1)
 
+    def test_epub_single_file_splits_on_bare_numbered_h1_and_drops_trailing_toc(self):
+        html = ''.join(f'<h1>{n}.</h1><p>{PROSE}</p>' for n in (1, 2, 3)) + '<p>Tartalom</p><p>1. 2. 3.</p>'
+        prefix, sections = epub_parser._split_document(epub_parser._extract_lines(html))
+        self.assertEqual(prefix, [])
+        self.assertEqual([s['title'] for s in sections], ['1.', '2.', '3.'])
+        self.assertTrue(sections[-1]['content'].rstrip().endswith(PROSE.strip()))
+        self.assertNotIn('Tartalom', sections[-1]['content'])
+
+    def test_epub_single_h1_title_does_not_split_document(self):
+        _, sections = epub_parser._split_document(epub_parser._extract_lines('<h1>A title</h1><p>' + PROSE + '</p>'))
+        self.assertEqual(sections, [])
+
     def test_docx_keeps_nested_headings_in_chapter(self):
         from docx import Document
         with tempfile.TemporaryDirectory() as folder:

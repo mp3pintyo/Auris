@@ -12,6 +12,18 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+### Magyar
+
+#### Javítva
+
+- Az egyetlen HTML-fájlból álló EPUB-ok (jellemzően MOBI-ból konvertált könyvek), amelyekben a fejezetcímek csupasz számozott címsorok – például „1.”, „2.” –, már fejezetekre bomlanak; korábban az egész könyv egyetlen „Tartalom” című fejezet lett. A könyv végére nyomtatott tartalomjegyzék nem kerül az utolsó fejezet felolvasott szövegébe.
+
+### English
+
+#### Fixed
+
+- EPUBs made of a single HTML file (typically books converted from MOBI) whose chapter titles are bare numbered headings such as "1.", "2." are now split into chapters; previously the whole book became one chapter titled "Tartalom". A table of contents printed at the end of the book is no longer part of the last chapter's narrated text.
+
 ## [4.9.0] - 2026-10-08
 
 ### Magyar

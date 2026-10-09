@@ -106,3 +106,36 @@ azonos a 4.5.0-éval.
   leállt (a `wetext`/kaldifst nem nyitja meg a nem ASCII útvonalat). A 4.5.1
   ilyenkor a num2words-alapú számnormalizálást használja; a magyar szöveget
   ez nem érintette.
+
+## Kiegészítés: 4.9.0 és 4.9.1 (2026-10-09)
+
+A 4.6.0–4.9.0 telepítői utólag kerültek a kiadásokhoz. A runtime-manifeszt
+bájtra azonos a 4.5.1-ével; csak az alkalmazás forrása változott.
+
+- Frissítési próba: a 4.5.1 telepítése szóközt és ékezetet tartalmazó mappába,
+  Windows-rendszerkönyvtárakra korlátozott PATH mellett, valódi
+  Supertonic-letöltéssel, magyar felolvasással, egy TXT-könyvvel és papírtémával.
+  Erre települt rá a 4.9.0.
+- A 4.9.0 csomagolt CPython 3.11.9 izolált (nincs idegen `sys.path` elem),
+  a `pip check` tiszta, az elérhető végrehajtók `DmlExecutionProvider` és
+  `CPUExecutionProvider`.
+- Frissítés után a könyv és a téma megmaradt, a 40 modellfájl SHA256-értéke
+  változatlan. A Supertonic 3 `GPU · DirectML` állapotban magyar WAV-ot
+  (7,29 s, RMS 0,056) és MP3-at készített.
+- A 4.6.0-ban bevezetett referencia-ellenőrzés a telepített alkalmazásban:
+  a 28 s-os MP3-referencia feltöltése a mellékelt FFmpeg-gel működött. A magyar
+  Whisper első letöltéssel együtt 156 s alatt CPU-n meghallgatta a felvételt,
+  jelezte a túl hosszú felvételt, kitöltötte az átiratot és egy 10,1 s-os
+  szakaszt ajánlott. A kivágott szakasz újraellenőrzése nem jelzett hibát.
+  A próbagenerálásos szakaszválasztást (4.8.0) nem próbáltuk ki, mert az
+  OmniVoice-t igényel.
+- Helyi Playwright: kilenc oldal 1280 és 390 px szélességen, vízszintes
+  túlcsordulás nélkül. A natív WebView2-ablak CDP-n át saját szerverről töltötte
+  be a könyvtárat, a konzolhibalista üres. A második indítás nem indított új
+  példányt. Az eltávolítás után a programmappa üres, a regisztráció törlődött,
+  a könyvek, a téma és a modellek megmaradtak.
+- Hiba: a `/desktop/setup` oldal 500-as hibát adott. Az `nvidia-smi` a GPU-t
+  használó folyamatok útvonalát ANSI kódlappal írja ki. A próbánál ez maga az
+  ékezetes mappából DirectML-lel futó Auris volt. A csomagolt, UTF-8 módú Python
+  ezt nem tudta dekódolni. A 4.9.1 ezt javítja; ékezetes Windows-felhasználónévnél
+  az első indítást is érinthette.

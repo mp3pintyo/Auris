@@ -12,6 +12,20 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+## [4.9.1] - 2026-10-09
+
+### Magyar
+
+#### Javítva
+
+- A Windows asztali alkalmazás kezdeti beállítási oldala már nem áll le belső hibával, ha egy, a videokártyát használó program ékezetes útvonalon fut (például ékezetes Windows-felhasználónévnél, vagy ha maga az Auris DirectML-lel fut ilyen helyről). Az `nvidia-smi` kimenetét az Auris eddig nem tudta beolvasni, ezért az első indításkori modellletöltést sem lehetett elindítani.
+
+### English
+
+#### Fixed
+
+- The Windows desktop first-run setup page no longer fails with an internal error when a program using the graphics card runs from a path with accented characters (for example under an accented Windows user name, or Auris itself running on DirectML from such a folder). Auris could not read the `nvidia-smi` output there, so the first-run model download could not be started either.
+
 ## [4.9.0] - 2026-10-08
 
 ### Magyar

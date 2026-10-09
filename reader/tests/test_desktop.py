@@ -102,6 +102,26 @@ class DesktopSetupTests(unittest.TestCase):
         self.assertTrue(info['gpu_supported'])
         self.assertEqual(info['nvidia'], 'NVIDIA GeForce RTX 3090')
 
+    def test_accented_process_path_in_nvidia_smi_output_is_tolerated(self):
+        # nvidia-smi lists GPU processes in the ANSI code page; the packaged
+        # runtime decodes child output as UTF-8 (-X utf8).
+        import subprocess
+        import sys
+        real_run = subprocess.run
+        ansi = (b'CUDA Version: 13.0\\n  48284  C+G  C:\\\\Users\\\\J\\xf3zsef\\\\Auris telep\\xedt\\xe9s\\\\python.exe\\n',
+                b'NVIDIA GeForce RTX 3090\\n')
+
+        def fake_nvidia_smi(args, **kwargs):
+            kwargs.setdefault('encoding', 'utf-8')
+            output = ansi[0] if len(args) == 1 else ansi[1]
+            return real_run([sys.executable, '-c', f'import sys; sys.stdout.buffer.write(b"{output.decode()}")'],
+                            **kwargs)
+
+        with patch('core.desktop_setup.subprocess.run', side_effect=fake_nvidia_smi):
+            info = self.setup.hardware()
+        self.assertEqual(info['cuda'], '13.0')
+        self.assertEqual(info['nvidia'], 'NVIDIA GeForce RTX 3090')
+
     def test_unknown_engine_is_rejected_before_network_work(self):
         with self.assertRaises(ValueError):
             self.controller.start('arbitrary-engine', False)

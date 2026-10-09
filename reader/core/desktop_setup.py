@@ -26,6 +26,9 @@ def hardware() -> dict:
     result = {'nvidia': '', 'cuda': '', 'gpu_supported': False}
     try:
         flags = {'creationflags': subprocess.CREATE_NO_WINDOW} if os.name == 'nt' else {}
+        # nvidia-smi prints GPU process paths in the ANSI code page; an accented
+        # path would otherwise fail UTF-8 decoding and leave stdout as None.
+        flags['errors'] = 'replace'
         info = subprocess.run(['nvidia-smi'], capture_output=True, text=True, timeout=10, **flags)
         match = re.search(r'CUDA (?:UMD )?Version:\s*(\d+)\.(\d+)', info.stdout)
         name = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],

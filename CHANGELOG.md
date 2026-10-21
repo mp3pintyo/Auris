@@ -12,6 +12,18 @@ represent a new product generation or an incompatible change.
 
 ## [Unreleased]
 
+### Magyar
+
+#### Javítva
+
+- Az asztali alkalmazásban újra működnek a letöltő linkek: az export, a könyvtármentés és a hangprofil letöltése megnyitja a mentési ablakot. Eddig a beépített böngésző csendben megszakította a letöltést.
+
+### English
+
+#### Fixed
+
+- Download links work again in the desktop app: export, library backup and voice preset downloads open the save dialog. The embedded browser used to cancel the download silently.
+
 ## [4.9.2] - 2026-10-11
 
 ### Magyar

@@ -109,7 +109,10 @@ def main() -> int:
             stop.wait()
         else:
             import webview
-            page = '/' if setup_complete(root) else '/desktop/setup'
+            # pywebview cancels downloads by default; export, backup and
+            # voice preset links need the native save dialog.
+            webview.settings['ALLOW_DOWNLOADS'] = True
+            page ='/' if setup_complete(root) else '/desktop/setup'
             window = webview.create_window('Auris', url + page, width=1280, height=860,
                                            min_size=(800, 600), background_color='#1c1a18',
                                            confirm_close=not bool(args.qa_exit_after))
